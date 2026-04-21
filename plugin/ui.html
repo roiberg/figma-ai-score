@@ -805,7 +805,7 @@
       .score-circle .score-denominator {
         font-size: 10px;
         font-weight: 600;
-        color: var(--text-tertiary);
+        color: rgba(0, 0, 0, 0.4);
         letter-spacing: 0.4px;
         margin-top: 2px;
       }
@@ -2270,17 +2270,71 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         const msg = ev.data && ev.data.pluginMessage;
         if (!msg) return;
         if (msg.type === "rename-done") handleRenameDone(msg.nodeId, msg.newName);
+        if (msg.type === "export-image-result") {
+          if (!pendingExportResolver) return;
+          const resolver = pendingExportResolver;
+          pendingExportResolver = null;
+          if (msg.error) resolver.reject(new Error(msg.error));
+          else resolver.resolve(msg.bytes);
+        }
       });
 
-      exportBtn.addEventListener("click", () => {
-        if (!lastReport) return;
-        const blob = new Blob([JSON.stringify(lastReport, null, 2)], { type: "application/json" });
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        a.download = "ai-programmability-" + new Date().toISOString().slice(0, 19).replace(/[:]/g, "-") + ".json";
-        a.click();
-        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-      });
+      exportBtn.addEventListener("click", exportReportAsImage);
+
+      // Export the current report as a PNG. We delegate the actual
+      // rendering to the plugin sandbox (code.js) which builds the
+      // report as Figma nodes and calls figma.exportAsync — that avoids
+      // the SVG <foreignObject> tainting issue Chromium hits in the UI
+      // iframe and gives us a clean, sharp PNG via Figma's own renderer.
+      //
+      // Flow:
+      //   1. Post {type:"export-image", report} to the sandbox.
+      //   2. Sandbox builds the Figma-node report, exports as PNG, posts
+      //      {type:"export-image-result", bytes | error} back.
+      //   3. We wrap bytes in a Blob and trigger a download.
+      let pendingExportResolver = null;
+      async function exportReportAsImage() {
+        if (!lastReport || !lastReport.frames || lastReport.frames.length === 0) return;
+        if (pendingExportResolver) return; // already in progress
+
+        const originalHtml = exportBtn.innerHTML;
+        exportBtn.disabled = true;
+        exportBtn.textContent = "Exporting…";
+
+        try {
+          const bytes = await new Promise((resolve, reject) => {
+            pendingExportResolver = { resolve, reject };
+            // Safety timeout — if the sandbox never responds, don't
+            // leave the button stuck "Exporting…" forever.
+            setTimeout(() => {
+              if (pendingExportResolver === null) return;
+              pendingExportResolver = null;
+              reject(new Error("Export timed out. Is a Figma page open?"));
+            }, 30000);
+            parent.postMessage({
+              pluginMessage: { type: "export-image", report: lastReport }
+            }, "*");
+          });
+
+          const blob = new Blob([new Uint8Array(bytes)], { type: "image/png" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "ai-programmability-" +
+            new Date().toISOString().slice(0, 19).replace(/[:]/g, "-") + ".png";
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 500);
+        } catch (err) {
+          console.error("Export failed:", err);
+          alert("Export failed: " + (err?.message || String(err)));
+        } finally {
+          exportBtn.disabled = false;
+          exportBtn.innerHTML = originalHtml;
+        }
+      }
+
 
       function esc(s) {
         return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));

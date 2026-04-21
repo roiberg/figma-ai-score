@@ -74,7 +74,8 @@ If a node has any such offending property, the node is an offender. Properties w
 SKIP the following — they are NEVER spacing offenders:
 - The root frame and component set roots.
 - INSTANCE nodes. An instance's padding/itemSpacing is defined by the library component it was created from — the designer cannot bind those values on the instance itself. Evaluate the library component, not the instance.
-- **Vertical padding on fixed-height atoms** (buttons, chips, inputs, pills, tags). When a node has \`autolayout.sizingVertical === "FIXED"\` AND \`paddingTop === paddingBottom\`, those two paddings are derived from the element's fixed height and a centered content — they're not independent design decisions and shouldn't be tokenized. Skip \`paddingTop\` and \`paddingBottom\` on these nodes. Horizontal paddings on the same node still need to be bound (they ARE design decisions — how much breathing room around the content). In vision mode, use the screenshot to confirm: button/chip/pill/input shapes visually reading as fixed-height atoms get this exemption.`,
+- **Vertical padding on fixed-height atoms** (buttons, chips, inputs, pills, tags). When a node has \`autolayout.sizingVertical === "FIXED"\` AND \`paddingTop === paddingBottom\`, those two paddings are derived from the element's fixed height and a centered content — they're not independent design decisions and shouldn't be tokenized. Skip \`paddingTop\` and \`paddingBottom\` on these nodes. Horizontal paddings on the same node still need to be bound (they ARE design decisions — how much breathing room around the content). In vision mode, use the screenshot to confirm: button/chip/pill/input shapes visually reading as fixed-height atoms get this exemption.
+- **\`itemSpacing\` on nodes with fewer than 2 children**. itemSpacing is the gap *between* siblings; with 0 or 1 children, the value has no visible effect regardless of how it's set. Evaluate other spacing properties on the node normally, but skip \`itemSpacing\` itself.`,
 
   effects: `### effects
 Every visible effect (in the effects array) must come from an effectStyleId (non-null on the node). If a node has visible effects but no effectStyleId, it is an offender. Skip nodes inside INSTANCE children.`,
@@ -445,6 +446,19 @@ figma.ui.onmessage = async (msg) => {
       }
       return;
     }
+    if (msg.type === "export-image") {
+      try {
+        const bytes = await buildExportPng(msg.report);
+        figma.ui.postMessage({ type: "export-image-result", bytes: Array.from(bytes) });
+      } catch (e) {
+        console.error("[figma-ai-score] export failed:", e);
+        figma.ui.postMessage({
+          type: "export-image-result",
+          error: (e && e.message) ? e.message : String(e)
+        });
+      }
+      return;
+    }
     return;
   }
 
@@ -769,10 +783,16 @@ function lintSpacing(root) {
     // fixed and top == bottom padding, those paddings are derived from
     // height (content-centered), not an independent design decision.
     const skipVertical = al.sizingVertical === "FIXED" && al.paddingTop === al.paddingBottom;
+    // itemSpacing has no visible effect when there are fewer than 2
+    // children — it's purely a gap between siblings. Don't flag it in
+    // that case even if the value is hardcoded.
+    const childCount = (node.children || []).length;
+    const skipItemSpacing = childCount < 2;
     const props = ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft", "itemSpacing"];
     const failed = [];
     for (const p of props) {
       if (skipVertical && (p === "paddingTop" || p === "paddingBottom")) continue;
+      if (skipItemSpacing && p === "itemSpacing") continue;
       const val = al[p];
       if (val === 0 || val === null || val === undefined) continue; // zero is fine
       if (!b[p]) failed.push(p);
@@ -1027,4 +1047,418 @@ function bytesToBase64(bytes) {
     result += i + 2 < len ? CHARS[n & 0x3F] : "=";
   }
   return result;
+}
+
+// ──────────────────────────────────────────────────────────────────
+// PNG report export — build report as Figma nodes, export via Figma's
+// own renderer. No SVG, no canvas, no tainting.
+//
+// Palette + layout values come from the `ai-score-export-template`
+// frame the designer built in Figma (file Website, node 1785:127529)
+// and its score-circle component set (node 1787:127553). Keep this
+// in sync when the template is updated.
+// ──────────────────────────────────────────────────────────────────
+
+const EXPORT_PALETTE = {
+  perfect: { bg: "#E9F7EA", accent: "#366A39" },
+  good:    { bg: "#EFEBFC", accent: "#835BF3" },
+  warn:    { bg: "#FEF7E4", accent: "#BB892A" },
+  bad:     { bg: "#FAEAEB", accent: "#B64540" }
+};
+const EXPORT_ROW_BG        = "#F5F5F5";
+const EXPORT_ROW_DIVIDER   = "rgba(0,0,0,0.15)";
+const EXPORT_TEXT_PRIMARY  = "rgba(0,0,0,0.87)";
+const EXPORT_TEXT_SECONDARY = "rgba(0,0,0,0.7)";
+const EXPORT_TEXT_MUTED    = "rgba(0,0,0,0.5)";
+const EXPORT_CARD_WIDTH    = 730;
+const EXPORT_CONTENT_WIDTH = 698; // 730 - 16*2 padding
+const EXPORT_SCORE_CIRCLE_SIZE = 186;
+const EXPORT_RULE_ORDER = ["naming", "components", "colors", "typography", "spacing", "effects"];
+const EXPORT_RULE_LABELS = {
+  naming: "Naming",
+  components: "Components",
+  colors: "Colors",
+  typography: "Typography",
+  spacing: "Spacing",
+  effects: "Effects"
+};
+
+// Try Poppins first (what the template uses), fall back to Inter.
+async function loadExportFont() {
+  const weights = ["Regular", "Medium", "SemiBold", "Bold"];
+  for (const family of ["Poppins", "Inter"]) {
+    try {
+      for (const style of weights) {
+        await figma.loadFontAsync({ family, style });
+      }
+      return family;
+    } catch (_e) {
+      // Next family
+    }
+  }
+  throw new Error(
+    "Neither Poppins nor Inter is available for export. " +
+    "Install one of these fonts and retry."
+  );
+}
+
+function parseExportColor(spec) {
+  if (spec.startsWith("rgba") || spec.startsWith("rgb")) {
+    const m = spec.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+))?\s*\)/);
+    return {
+      color: { r: +m[1] / 255, g: +m[2] / 255, b: +m[3] / 255 },
+      opacity: m[4] !== undefined ? parseFloat(m[4]) : 1
+    };
+  }
+  const h = spec.replace("#", "");
+  return {
+    color: {
+      r: parseInt(h.substring(0, 2), 16) / 255,
+      g: parseInt(h.substring(2, 4), 16) / 255,
+      b: parseInt(h.substring(4, 6), 16) / 255
+    },
+    opacity: 1
+  };
+}
+
+function exportFill(colorSpec) {
+  const { color, opacity } = parseExportColor(colorSpec);
+  return { type: "SOLID", color, opacity };
+}
+
+function makeText(family, style, size, color, content, align) {
+  const t = figma.createText();
+  t.fontName = { family, style };
+  t.fontSize = size;
+  t.characters = String(content);
+  t.fills = [exportFill(color)];
+  if (align) t.textAlignHorizontal = align;
+  return t;
+}
+
+// Text with width fixed → auto-wraps height.
+function makeWrappedText(family, style, size, color, content, width, align) {
+  const t = makeText(family, style, size, color, content, align);
+  t.textAutoResize = "HEIGHT";
+  t.resize(width, t.height);
+  return t;
+}
+
+function scoreLevelFor(score, perfect) {
+  if (perfect) return "perfect";
+  if (score >= 80) return "good";
+  if (score >= 50) return "warn";
+  return "bad";
+}
+
+// Build the colored progress ring as a native Figma EllipseNode using
+// arcData — more reliable than createNodeFromSvg (which wraps in a
+// frame that can obscure siblings).
+// Returns an EllipseNode sized SIZE × SIZE positioned at (0,0).
+function buildProgressRing(score, strokeColor) {
+  const SIZE = EXPORT_SCORE_CIRCLE_SIZE;
+  const pct = Math.max(0, Math.min(100, score)) / 100;
+  const e = figma.createEllipse();
+  e.name = "progress-stroke";
+  e.resize(SIZE, SIZE);
+  e.fills = [exportFill(strokeColor)];
+  e.strokes = [];
+  // Figma angle convention: 0 = 3 o'clock (east), angles increase
+  // clockwise. We want the progress to START at 12 o'clock (north)
+  // and sweep clockwise, so startingAngle = -π/2.
+  const start = -Math.PI / 2;
+  // When pct=1, endingAngle must not equal startingAngle (that's
+  // how Figma detects a full arc vs empty arc — use exactly +2π).
+  e.arcData = {
+    startingAngle: start,
+    endingAngle: start + 2 * Math.PI * pct,
+    innerRadius: 0.92   // thin ring; tune if too thin/thick
+  };
+  return e;
+}
+
+function buildScoreCircle(frame, family) {
+  const level = scoreLevelFor(frame.score, frame.perfect);
+  const style = EXPORT_PALETTE[level];
+  const SIZE = EXPORT_SCORE_CIRCLE_SIZE;
+
+  // Outer filled circle (no auto-layout — children overlap).
+  const outer = figma.createFrame();
+  outer.name = "score-circle";
+  outer.resize(SIZE, SIZE);
+  outer.cornerRadius = SIZE; // pill → full circle
+  outer.fills = [exportFill(style.bg)];
+  outer.clipsContent = true;
+
+  // Number (big) + denom, stacked vertically and centered as a group.
+  const num = makeText(family, "Bold", 60, style.accent, String(frame.score));
+  const denom = makeText(family, "Medium", 22, EXPORT_TEXT_MUTED, "Out of 100");
+
+  outer.appendChild(num);
+  outer.appendChild(denom);
+  const gap = 2;
+  const stackH = num.height + gap + denom.height;
+  num.x = (SIZE - num.width) / 2;
+  denom.x = (SIZE - denom.width) / 2;
+  num.y = (SIZE - stackH) / 2;
+  denom.y = num.y + num.height + gap;
+
+  // Progress ring on top.
+  const ring = buildProgressRing(frame.score, style.accent);
+  outer.appendChild(ring);
+  ring.x = 0;
+  ring.y = 0;
+
+  return outer;
+}
+
+function buildPerfectBadge(family) {
+  const W = 143, H = 46;
+  const f = figma.createFrame();
+  f.name = "perfect-badge";
+  f.resize(W, H);
+  f.cornerRadius = H;
+  f.fills = [exportFill("#E9F7EA")];
+  f.strokes = [exportFill("#366A39")];
+  f.strokeWeight = 2;
+  f.clipsContent = true;
+
+  const t = makeText(family, "Medium", 24, "#366A39", "PERFECT");
+  f.appendChild(t);
+  t.x = (W - t.width) / 2;
+  t.y = (H - t.height) / 2;
+
+  return f;
+}
+
+function buildFrameName(name, family, maxWidth) {
+  const t = makeText(family, "Bold", 32, EXPORT_TEXT_PRIMARY, name, "CENTER");
+  t.textAutoResize = "HEIGHT";
+  t.resize(maxWidth, t.height);
+  return t;
+}
+
+function buildTopSection(frame, family) {
+  const section = figma.createFrame();
+  section.name = "top-section";
+  section.fills = [];
+  section.layoutMode = "VERTICAL";
+  section.counterAxisAlignItems = "CENTER";
+  section.itemSpacing = 8;
+  section.resize(EXPORT_CONTENT_WIDTH, 100);
+  // Sizing modes AFTER resize so resize doesn't clobber them.
+  section.primaryAxisSizingMode = "AUTO";
+  section.counterAxisSizingMode = "FIXED";
+
+  const container = figma.createFrame();
+  container.name = "score + frame name";
+  container.fills = [];
+  container.layoutMode = "VERTICAL";
+  container.counterAxisAlignItems = "CENTER";
+  container.itemSpacing = 16;
+  container.resize(EXPORT_CONTENT_WIDTH, 100);
+  container.primaryAxisSizingMode = "AUTO";
+  container.counterAxisSizingMode = "FIXED";
+
+  container.appendChild(buildScoreCircle(frame, family));
+  container.appendChild(buildFrameName(frame.name, family, EXPORT_CONTENT_WIDTH));
+  section.appendChild(container);
+
+  if (frame.perfect) section.appendChild(buildPerfectBadge(family));
+
+  return section;
+}
+
+function buildPassingRuleRow(ruleName, family) {
+  const row = figma.createFrame();
+  row.name = "rule-row";
+  row.fills = [exportFill(EXPORT_ROW_BG)];
+  row.clipsContent = true;
+  row.cornerRadius = 8;
+  row.layoutMode = "HORIZONTAL";
+  row.counterAxisAlignItems = "CENTER";
+  row.itemSpacing = 16;
+  row.paddingLeft = 16;
+  row.paddingRight = 16;
+  row.resize(EXPORT_CONTENT_WIDTH, 49);
+  row.primaryAxisSizingMode = "FIXED";
+  row.counterAxisSizingMode = "FIXED";
+
+  const name = makeText(family, "Medium", 24, EXPORT_TEXT_PRIMARY, EXPORT_RULE_LABELS[ruleName] || ruleName);
+  row.appendChild(name);
+  name.layoutGrow = 1;
+
+  const result = makeText(family, "SemiBold", 20, "#366A39", "Pass");
+  row.appendChild(result);
+
+  return row;
+}
+
+function buildOffenderItem(offender, family) {
+  const item = figma.createFrame();
+  item.name = "offender-item";
+  item.fills = [];
+  item.layoutMode = "VERTICAL";
+  item.itemSpacing = 8;
+  item.paddingLeft = 24;
+  item.paddingRight = 24;
+  item.paddingTop = 4;
+  item.paddingBottom = 4;
+  item.resize(EXPORT_CONTENT_WIDTH, 100);
+  item.primaryAxisSizingMode = "AUTO";
+  item.counterAxisSizingMode = "FIXED";
+
+  const innerWidth = EXPORT_CONTENT_WIDTH - 24 * 2;
+
+  const layerName = makeWrappedText(family, "Medium", 26, EXPORT_TEXT_PRIMARY, offender.name || "(unnamed)", innerWidth);
+  item.appendChild(layerName);
+
+  const detail = makeWrappedText(family, "Regular", 22, EXPORT_TEXT_SECONDARY, offender.detail || "", innerWidth);
+  item.appendChild(detail);
+
+  return item;
+}
+
+function buildFailingRuleRow(ruleName, offenders, family) {
+  const row = figma.createFrame();
+  row.name = "failing-rule-row";
+  row.fills = [exportFill(EXPORT_ROW_BG)];
+  row.cornerRadius = 8;
+  row.layoutMode = "VERTICAL";
+  row.itemSpacing = 8;
+  row.paddingBottom = 8;
+  row.resize(EXPORT_CONTENT_WIDTH, 100);
+  row.primaryAxisSizingMode = "AUTO";
+  row.counterAxisSizingMode = "FIXED";
+
+  // Header (same shape as a passing rule-row but red count + bottom divider)
+  const header = figma.createFrame();
+  header.name = "header";
+  header.fills = [];
+  header.layoutMode = "HORIZONTAL";
+  header.counterAxisAlignItems = "CENTER";
+  header.itemSpacing = 16;
+  header.paddingLeft = 16;
+  header.paddingRight = 16;
+  header.resize(EXPORT_CONTENT_WIDTH, 49);
+  header.primaryAxisSizingMode = "FIXED";
+  header.counterAxisSizingMode = "FIXED";
+  header.strokes = [exportFill(EXPORT_ROW_DIVIDER)];
+  header.strokeAlign = "INSIDE";
+  header.strokeTopWeight = 0;
+  header.strokeLeftWeight = 0;
+  header.strokeRightWeight = 0;
+  header.strokeBottomWeight = 1;
+
+  const name = makeText(family, "Medium", 24, EXPORT_TEXT_PRIMARY, EXPORT_RULE_LABELS[ruleName] || ruleName);
+  header.appendChild(name);
+  name.layoutGrow = 1;
+
+  const count = offenders.length;
+  const countStr = count + " issue" + (count === 1 ? "" : "s");
+  const countText = makeText(family, "SemiBold", 20, "#B64540", countStr);
+  header.appendChild(countText);
+
+  row.appendChild(header);
+
+  // Offender items + dividers between them
+  for (let i = 0; i < offenders.length; i++) {
+    row.appendChild(buildOffenderItem(offenders[i], family));
+    if (i < offenders.length - 1) {
+      const divider = figma.createRectangle();
+      divider.name = "divider";
+      divider.resize(EXPORT_CONTENT_WIDTH, 1);
+      divider.fills = [exportFill(EXPORT_ROW_DIVIDER)];
+      row.appendChild(divider);
+    }
+  }
+
+  return row;
+}
+
+function buildIssuesList(breakdown, family) {
+  const list = figma.createFrame();
+  list.name = "issues-list";
+  list.fills = [];
+  list.layoutMode = "VERTICAL";
+  list.itemSpacing = 4;
+  list.resize(EXPORT_CONTENT_WIDTH, 100);
+  list.primaryAxisSizingMode = "AUTO";
+  list.counterAxisSizingMode = "FIXED";
+
+  for (const rule of EXPORT_RULE_ORDER) {
+    const r = (breakdown || {})[rule];
+    if (!r || r.enabled === false) continue;
+    if (r.passed) {
+      list.appendChild(buildPassingRuleRow(rule, family));
+    } else {
+      list.appendChild(buildFailingRuleRow(rule, r.offenders || [], family));
+    }
+  }
+
+  return list;
+}
+
+function buildFrameCard(frame, family) {
+  const card = figma.createFrame();
+  card.name = "frame-card";
+  card.fills = [];
+  card.layoutMode = "VERTICAL";
+  card.counterAxisAlignItems = "CENTER";
+  card.itemSpacing = 32;
+  card.resize(EXPORT_CONTENT_WIDTH, 100);
+  card.primaryAxisSizingMode = "AUTO";
+  card.counterAxisSizingMode = "FIXED";
+
+  card.appendChild(buildTopSection(frame, family));
+  card.appendChild(buildIssuesList(frame.breakdown || {}, family));
+
+  return card;
+}
+
+async function buildExportPng(report) {
+  if (!report || !report.frames || report.frames.length === 0) {
+    throw new Error("Empty report — nothing to export.");
+  }
+  console.log("[figma-ai-score export] building for", report.frames.length, "frame(s)");
+  const family = await loadExportFont();
+  console.log("[figma-ai-score export] using font:", family);
+
+  const root = figma.createFrame();
+  root.name = "AI Programmability Report";
+  root.fills = [exportFill("#FFFFFF")];
+  root.layoutMode = "VERTICAL";
+  root.counterAxisAlignItems = "CENTER";
+  root.paddingTop = 40;
+  root.paddingBottom = 40;
+  root.paddingLeft = 16;
+  root.paddingRight = 16;
+  root.itemSpacing = 48;
+  // Resize THEN set sizing modes — resize() sometimes clobbers modes.
+  root.resize(EXPORT_CARD_WIDTH, 100);
+  root.primaryAxisSizingMode = "AUTO";
+  root.counterAxisSizingMode = "FIXED";
+
+  for (const f of report.frames) {
+    const card = buildFrameCard(f, family);
+    root.appendChild(card);
+    console.log("[figma-ai-score export] appended card:", f.name, "→", card.width + "x" + card.height);
+  }
+
+  figma.currentPage.appendChild(root);
+  // Park it far off-canvas so the user never sees the temp frame
+  root.x = -99999;
+  root.y = -99999;
+  console.log("[figma-ai-score export] root on canvas, size:", root.width + "x" + root.height);
+
+  try {
+    const bytes = await root.exportAsync({
+      format: "PNG",
+      constraint: { type: "SCALE", value: 2 }
+    });
+    console.log("[figma-ai-score export] exported", bytes.length, "bytes");
+    return bytes;
+  } finally {
+    try { root.remove(); } catch (_e) {}
+  }
 }

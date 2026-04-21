@@ -61,27 +61,24 @@ CLAUDE_MD="$CLAUDE_DIR/CLAUDE.md"
 COMMANDS_DIR="$CLAUDE_DIR/commands"
 REVIEW_MD="$COMMANDS_DIR/review.md"
 SERVER_JS="$INSTALL_DIR/index.js"
+NODE_BIN="$INSTALL_DIR/node"
 MARKER="<!-- figma-ai-score -->"
 
-# ── 1. Copy MCP server files ──
-echo "Copying MCP server to $INSTALL_DIR ..."
+# ── 1. Copy MCP server files + bundled Node + node_modules ──
+# The pkg payload is self-contained — the staged directory already includes:
+#   - index.js, package.json, package-lock.json  (MCP server source)
+#   - node_modules/                              (baked at build time)
+#   - node                                       (bundled Node.js binary)
+# So all we do here is copy and set the exec bit. No npm install, no
+# prerequisites on the user's machine.
+echo "Copying MCP server + bundled Node.js to $INSTALL_DIR ..."
 mkdir -p "$INSTALL_DIR"
-cp "$STAGE/mcp-server/index.js" "$INSTALL_DIR/"
-cp "$STAGE/mcp-server/package.json" "$INSTALL_DIR/"
-cp "$STAGE/mcp-server/package-lock.json" "$INSTALL_DIR/"
+cp -R "$STAGE/mcp-server/." "$INSTALL_DIR/"
+chmod +x "$NODE_BIN"
 
-# ── 2. npm install ──
-echo "Running npm install ..."
-if command -v npm >/dev/null 2>&1; then
-  cd "$INSTALL_DIR"
-  npm install --production 2>&1
-else
-  echo "ERROR: npm not found in PATH ($PATH)." >&2
-  echo "Install Node.js (https://nodejs.org) and re-run the installer." >&2
-  exit 1
-fi
-
-# ── 3. Register MCP server with Claude Code ──
+# ── 2. Register MCP server with Claude Code ──
+# Use the bundled node explicitly so the MCP server doesn't depend on
+# the user's system Node (if any).
 echo "Registering MCP server with Claude Code ..."
 CLAUDE_BIN=""
 if command -v claude >/dev/null 2>&1; then
@@ -91,14 +88,11 @@ elif [ -x "$HOME/.claude/local/claude" ]; then
 fi
 if [ -n "$CLAUDE_BIN" ]; then
   echo "Using claude at: $CLAUDE_BIN"
-  # -s user → register at user scope so it applies in every Claude Code
-  # session regardless of cwd. Without -s, it defaults to "local" scope
-  # tied to the cwd at install time, which is this script's cwd — a
-  # directory no Claude Code session will ever be launched from.
-  "$CLAUDE_BIN" mcp add -s user figma-ai-score node "$SERVER_JS" 2>&1 || true
+  # -s user → applies in every session regardless of cwd.
+  "$CLAUDE_BIN" mcp add -s user figma-ai-score "$NODE_BIN" "$SERVER_JS" 2>&1 || true
 else
   echo "WARNING: claude CLI not found. After installing Claude Code, run:"
-  echo "  claude mcp add -s user figma-ai-score node \"$SERVER_JS\""
+  echo "  claude mcp add -s user figma-ai-score \"$NODE_BIN\" \"$SERVER_JS\""
 fi
 
 # ── 4. Append to ~/.claude/CLAUDE.md (idempotent) ──

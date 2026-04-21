@@ -1497,8 +1497,10 @@
       const setupBanner = document.getElementById("setup-banner");
       const downloadLink = document.getElementById("download-link");
 
-      // TODO: Replace with your hosted .pkg URL
-      const INSTALLER_URL = "https://github.com/YOUR_ORG/figma-ai-score/releases/latest/download/figma-ai-score.pkg";
+      // Permanent URL — GitHub resolves /releases/latest/download/ to the
+      // most recent release's asset automatically, so this never needs to
+      // change when we cut a new pkg.
+      const INSTALLER_URL = "https://github.com/roiberg/figma-ai-score/releases/latest/download/figma-ai-score.pkg";
       downloadLink.addEventListener("click", () => window.open(INSTALLER_URL));
 
       const copyBtn = document.getElementById("copy-cmd");

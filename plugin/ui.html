@@ -12,9 +12,9 @@
         --text-secondary: #666;
         --text-tertiary: #999;
         --border: #e5e5e5;
-        --accent: #5b5bf6;
-        --accent-light: #ededfe;
-        --accent-text: #4343d8;
+        --accent: #8b5cf6;
+        --accent-light: #f1ebfe;
+        --accent-text: #6d28d9;
         --green: #0a6a2d;
         --green-bg: #e6f7ea;
         --red: #c13434;
@@ -224,8 +224,8 @@
         cursor: pointer;
       }
       button.suggestion-send-btn:hover:not(:disabled) {
-        background: #2a2a8f;
-        border-color: #2a2a8f;
+        background: #5b21b6;
+        border-color: #5b21b6;
         color: #fff;
       }
       button.suggestion-send-btn:disabled {
@@ -1000,7 +1000,7 @@
       }
       button.setup-download-btn:hover,
       button.setup-download-btn:active,
-      button.setup-download-btn:focus { background: #2a2a8f; color: #fff; outline: none; }
+      button.setup-download-btn:focus { background: #5b21b6; color: #fff; outline: none; }
       .setup-download-btn svg { flex-shrink: 0; }
       .setup-hint {
         font-size: 11px;
@@ -1095,7 +1095,7 @@
       button.run-simple-btn:hover:not(:disabled),
       button.run-simple-btn:focus,
       button.run-simple-btn:active {
-        background: #4545e5;
+        background: #7c3aed;
         color: #fff;
         outline: none;
       }
@@ -1130,8 +1130,8 @@
       .sticky-bottom .copy-btn:hover,
       .sticky-bottom .copy-btn:focus,
       .sticky-bottom .copy-btn:active {
-        background: #4545e5;
-        border-color: #4545e5;
+        background: #7c3aed;
+        border-color: #7c3aed;
         color: #fff;
         outline: none;
       }
@@ -1710,23 +1710,32 @@
       let disconnectGraceTimer = null;
       let wasEverConnected = false;
       const DISCONNECT_GRACE_MS = 3500;
-      function setConnected(ok) {
-        window.__isConnected = ok;
+      function paintConnBadge(ok) {
         connDot.className = "conn-dot" + (ok ? " ok" : "");
         connLabel.textContent = ok ? "connected" : "disconnected";
+      }
+      function setConnected(ok) {
         if (ok) {
+          window.__isConnected = true;
           wasEverConnected = true;
           if (disconnectGraceTimer) { clearTimeout(disconnectGraceTimer); disconnectGraceTimer = null; }
+          paintConnBadge(true);
           refreshConnectionUi();
         } else if (wasEverConnected) {
-          // Brief drop from a live connection — delay the banner swap.
+          // Brief drop from a live connection — defer *everything* (state flag,
+          // dot/label, main UI) so a quick reconnect doesn't flicker, and so
+          // mid-blip mode switches see the optimistic "still connected" state.
           if (disconnectGraceTimer) clearTimeout(disconnectGraceTimer);
           disconnectGraceTimer = setTimeout(() => {
             disconnectGraceTimer = null;
+            window.__isConnected = false;
+            paintConnBadge(false);
             refreshConnectionUi();
           }, DISCONNECT_GRACE_MS);
         } else {
-          // Cold disconnected — never connected, show the banner immediately.
+          // Cold disconnected — never connected, show immediately.
+          window.__isConnected = false;
+          paintConnBadge(false);
           refreshConnectionUi();
         }
       }

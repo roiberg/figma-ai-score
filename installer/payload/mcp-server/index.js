@@ -11,9 +11,15 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { WebSocketServer } from "ws";
+import { createServer } from "http";
 
 const WS_PORT = Number(process.env.BRIDGE_PORT || 3055);
-const WS_HOST = "127.0.0.1";
+// Listen on both IPv4 and IPv6 loopback. The plugin's manifest requires
+// `http://localhost:3055` (Figma rejects IP literals), and `localhost`
+// resolves to either 127.0.0.1 or ::1 depending on the host's /etc/hosts
+// ordering and DNS. Binding both avoids an "ERR_CONNECTION_REFUSED on
+// some Macs" class of bug without opening the port to external interfaces.
+const WS_HOSTS = ["127.0.0.1", "::1"];
 const CALL_TIMEOUT_MS = 55_000; // stay under typical 60s MCP ceiling
 
 function log(...args) {
@@ -25,7 +31,52 @@ function log(...args) {
 // Embedded WS server — plugin connects here
 // ──────────────────────────────────────────────
 
-const wss = new WebSocketServer({ host: WS_HOST, port: WS_PORT });
+// One WebSocketServer in noServer mode, fed upgrades from two loopback
+// HTTP servers (IPv4 + IPv6).
+const wss = new WebSocketServer({ noServer: true });
+
+function startLoopbackListener(host) {
+  const shown = host.includes(":") ? `[${host}]` : host;
+  // Holder so the SIGINT handler (and any other caller) can reach the
+  // currently-bound http.Server across retry cycles.
+  const holder = { srv: null, giveUp: false };
+
+  const tryBind = (attempt = 0) => {
+    if (holder.giveUp) return;
+    const srv = createServer();
+    holder.srv = srv;
+    srv.on("upgrade", (req, socket, head) => {
+      wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
+    });
+    srv.on("error", (err) => {
+      if (err.code === "EADDRINUSE") {
+        // Port is taken — could be a stale server from a previous Claude
+        // Code session that hasn't exited yet, or another tool using 3055.
+        // Retry with exponential backoff so that, as soon as the squatter
+        // releases the port, we grab it. Capped at 10s between tries.
+        const delayMs = Math.min(10_000, 500 * 2 ** Math.min(attempt, 5));
+        log(`${shown}:${WS_PORT} in use, retrying in ${delayMs}ms (attempt ${attempt + 1})`);
+        try { srv.close(); } catch (_e) {}
+        setTimeout(() => tryBind(attempt + 1), delayMs);
+      } else if (err.code === "EAFNOSUPPORT" || err.code === "EADDRNOTAVAIL") {
+        // This system doesn't have this address family configured
+        // (e.g. IPv6 loopback disabled). The other listener still works.
+        log(`skipping ${shown} listener: ${err.code}`);
+        holder.giveUp = true;
+      } else {
+        log(`${shown} listener error:`, err?.message);
+      }
+    });
+    srv.listen(WS_PORT, host, () => {
+      log(`plugin WS listening on ws://${shown}:${WS_PORT}` + (attempt > 0 ? ` (after ${attempt} retr${attempt === 1 ? "y" : "ies"})` : ""));
+    });
+  };
+
+  tryBind();
+  return holder;
+}
+
+const httpHolders = WS_HOSTS.map(startLoopbackListener);
 
 /** @type {import('ws').WebSocket | null} */
 let pluginSocket = null;
@@ -44,18 +95,6 @@ function safeSend(sock, obj) {
     return false;
   }
 }
-
-wss.on("listening", () => {
-  log(`plugin WS listening on ws://${WS_HOST}:${WS_PORT}`);
-});
-
-wss.on("error", (err) => {
-  if (err.code === "EADDRINUSE") {
-    log(`port ${WS_PORT} is in use. Set BRIDGE_PORT env to pick another.`);
-  } else {
-    log("WS server error:", err?.message);
-  }
-});
 
 wss.on("connection", (ws) => {
   ws.on("message", (raw) => {
@@ -123,8 +162,10 @@ wss.on("connection", (ws) => {
 // RPC: call into the plugin from MCP tools
 // ──────────────────────────────────────────────
 
+const CANCEL_EXEMPT = new Set(["get_selection", "get_preferences"]);
+
 async function call(method, params = {}) {
-  if (cancelled) return { cancelled: true, reason: "user stopped review" };
+  if (cancelled && !CANCEL_EXEMPT.has(method)) return { cancelled: true, reason: "user stopped review" };
   if (!pluginSocket || pluginSocket.readyState !== pluginSocket.OPEN) {
     throw new Error("Figma plugin is not connected. Open the AI Programmability Score plugin in Figma.");
   }
@@ -205,6 +246,17 @@ server.registerTool(
   },
   async ({ nodeId }) => {
     const res = await call("request_scan", { nodeId });
+    // If a thumbnail came back, surface it as a proper image content block
+    // (so Claude can actually see it). The rest of the scan tree goes as text.
+    if (res && typeof res === "object" && res.thumbnail) {
+      const { thumbnail, ...rest } = res;
+      return {
+        content: [
+          { type: "image", data: thumbnail, mimeType: "image/jpeg" },
+          { type: "text", text: JSON.stringify(rest, null, 2) }
+        ]
+      };
+    }
     return toolResult(res);
   }
 );
@@ -242,7 +294,8 @@ server.registerTool(
             offenders: z.array(z.object({
               nodeId: z.string(),
               name: z.string(),
-              detail: z.string()
+              detail: z.string(),
+              suggestedName: z.string().optional()
             }))
           })),
           issues: z.array(z.object({
@@ -287,5 +340,10 @@ server.registerTool(
 
 process.on("SIGINT", () => {
   log("shutting down");
-  wss.close(() => process.exit(0));
+  // Stop any pending rebind attempts and close the currently-bound servers.
+  for (const h of httpHolders) h.giveUp = true;
+  wss.close();
+  Promise.all(httpHolders.map(h =>
+    new Promise(r => h.srv ? h.srv.close(() => r()) : r())
+  )).finally(() => process.exit(0));
 });

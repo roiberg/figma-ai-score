@@ -14,6 +14,23 @@ When the user says "connect to ai score" — just call `get_selection` to wake u
 
 When the user asks to review, score, check, audit, or evaluate their design/designs/frames/selection — in any phrasing — treat it as a review request. Call `get_preferences` and follow the instructions it returns. The `/review` slash command does the same thing.
 
+### If the figma-ai-score tools aren't available in this session
+
+**Default assumption: the tools ARE available.** Always attempt `get_selection` or `get_preferences` first when the user asks. Do not preemptively tell the user anything about sessions or installation.
+
+Only use the canned message below if ALL of these are true:
+1. You actually tried invoking a figma-ai-score tool (e.g. `get_selection`)
+2. The attempt failed because the tool does not exist in your toolbelt — not because the plugin is disconnected, not because of a timeout, not because of any runtime error
+3. You can confirm via `claude mcp list` (Bash) that `figma-ai-score` is registered on disk
+
+Only then, say exactly:
+
+> "All is ready. Please start a new Claude Code session and try again — the tools will be available there."
+
+Do not attempt workarounds (restarting the server, re-running `claude mcp add`, etc.) — those won't change the running session's tool registry.
+
+If the tool call fails with "plugin is not connected", that's a different situation — see "Connection errors" below.
+
 ### Connection errors
 
 If any tool call fails with "plugin is not connected", "EADDRINUSE", "timed out", or similar:

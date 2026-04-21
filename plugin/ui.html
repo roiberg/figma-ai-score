@@ -1844,6 +1844,7 @@
         if (msg.type === "suggestion-check-result") { lastSuggestionAt = msg.lastAt || 0; return; }
         if (msg.type === "prefs") renderPrefs(msg.data);
         else if (msg.type === "selection") renderSelection(msg.data, msg.total, msg.capped, msg.maxSelection);
+        else if (msg.type === "review-starting") showPreparing();
         else if (msg.type === "locked") showLocked(msg.data);
         else if (msg.type === "unlocked") hideLocked();
         else if (msg.type === "report") renderReport(msg.data);
@@ -2084,6 +2085,17 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         }
       });
 
+      // Early "getting ready" state before begin_review has nodeIds.
+      // Fires on announce_review_start so the UI doesn't look frozen
+      // while Claude reads the instructions string (~10s).
+      function showPreparing() {
+        reviewPanel.style.display = "";
+        reviewPanel.style.borderBottom = "1px solid var(--border)";
+        stopWrap.style.display = "block";
+        lockedBanner.style.display = "block";
+        lockedBanner.innerHTML =
+          `<strong><span class="reviewing-dot"></span>Preparing review…</strong>`;
+      }
       function showLocked(data) {
         reviewPanel.style.display = "";
         reviewPanel.style.borderBottom = "1px solid var(--border)";

@@ -123,6 +123,7 @@ You are reviewing Figma designs for AI Programmability — how well they're stru
 When AI tools translate Figma designs into code, the output quality depends heavily on how the Figma file is structured. A frame full of absolute-positioned layers named "Frame 427" produces messy code. A frame with semantic names, auto-layout, reusable components, and design tokens produces code close to production-ready.
 
 ## FLOW
+0. Call announce_review_start IMMEDIATELY — as the very first tool, before anything else. It's a lightweight signal that makes the plugin UI show "Preparing review…" so the user sees feedback while you read these instructions. If you skip it, the UI looks frozen for ~10 seconds.
 1. Call get_preferences — read enabledRules and these instructions. IMPORTANT: Call this at the START of every review, even if you reviewed earlier in this conversation. The user may have changed toggles between runs. Never reuse cached preferences from a previous review.
 2. Call get_selection — read the selected frames. If capped is true, warn the user only the first 10 will be reviewed.
 3. Call begin_review with the selected node ids.
@@ -493,6 +494,13 @@ async function handleRpc(method, params) {
         scoringMethod: "proportional",
         instructions: buildInstructions(prefs)
       };
+    }
+    case "announce_review_start": {
+      // Early signal — Claude is about to work on a review but hasn't
+      // processed the big instructions string yet. Show a generic
+      // "Preparing review…" state so the UI doesn't feel frozen.
+      figma.ui.postMessage({ type: "review-starting" });
+      return { ok: true };
     }
     case "begin_review": {
       const ids = Array.isArray(params.nodeIds) ? params.nodeIds : [];

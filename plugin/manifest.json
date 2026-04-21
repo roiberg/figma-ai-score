@@ -1,0 +1,12 @@
+{
+  "name": "AI Programmability Score",
+  "id": "figma-ai-score-dev-local",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "editorType": ["figma"],
+  "networkAccess": {
+    "allowedDomains": ["*"],
+    "reasoning": "Connects only to a local bridge (127.0.0.1) so the user's own Claude Code can read the current Figma selection and score it. No external services."
+  }
+}

@@ -1,0 +1,121 @@
+#!/bin/bash
+# Post-install script for figma-ai-score MCP server.
+# Runs as the installing user (not root) thanks to pkgbuild --install-location.
+
+set -e
+
+INSTALL_DIR="$HOME/Library/Application Support/figma-ai-score/mcp-server"
+CLAUDE_DIR="$HOME/.claude"
+CLAUDE_MD="$CLAUDE_DIR/CLAUDE.md"
+COMMANDS_DIR="$CLAUDE_DIR/commands"
+REVIEW_MD="$COMMANDS_DIR/review.md"
+SERVER_JS="$INSTALL_DIR/index.js"
+MARKER="<!-- figma-ai-score -->"
+
+LOG="$HOME/Library/Logs/figma-ai-score-install.log"
+exec > >(tee -a "$LOG") 2>&1
+echo "=== figma-ai-score install $(date) ==="
+
+# ── 1. Copy MCP server files ──
+echo "Copying MCP server to $INSTALL_DIR ..."
+mkdir -p "$INSTALL_DIR"
+cp /tmp/figma-ai-score-pkg/mcp-server/index.js "$INSTALL_DIR/"
+cp /tmp/figma-ai-score-pkg/mcp-server/package.json "$INSTALL_DIR/"
+cp /tmp/figma-ai-score-pkg/mcp-server/package-lock.json "$INSTALL_DIR/"
+
+# ── 2. npm install ──
+echo "Running npm install ..."
+if command -v npm &>/dev/null; then
+  cd "$INSTALL_DIR"
+  npm install --production 2>&1
+else
+  echo "ERROR: npm not found. Please install Node.js (https://nodejs.org) and re-run this installer."
+  exit 1
+fi
+
+# ── 3. Register MCP server with Claude Code ──
+echo "Registering MCP server with Claude Code ..."
+if command -v claude &>/dev/null; then
+  claude mcp add figma-ai-score node "$SERVER_JS" 2>&1 || true
+else
+  echo "WARNING: claude CLI not found. After installing Claude Code, run:"
+  echo "  claude mcp add figma-ai-score node \"$SERVER_JS\""
+fi
+
+# ── 4. Append to ~/.claude/CLAUDE.md (idempotent) ──
+echo "Setting up CLAUDE.md ..."
+mkdir -p "$CLAUDE_DIR"
+
+CLAUDE_BLOCK="$MARKER
+## figma-ai-score
+
+This is a Figma plugin + MCP server that reviews designs for AI programmability.
+
+- The MCP server exposes 7 tools: get_preferences, get_selection, begin_review, request_scan, highlight_nodes, submit_report, is_cancelled.
+- The Figma plugin connects to the MCP server over localhost WebSocket.
+- All review logic and rules are returned by get_preferences in the instructions field — always call it first and follow what it says.
+
+### Connecting to the plugin
+
+When the user says \"connect to ai score\" — just call get_selection to wake up the MCP server and confirm the plugin is connected. Report the connection status and stop. Do NOT start a review.
+
+### Running a review
+
+When the user asks to review, score, check, audit, or evaluate their design/designs/frames/selection — in any phrasing — treat it as a review request. Call get_preferences and follow the instructions it returns. The /review slash command does the same thing.
+
+### Connection errors
+
+If any tool call fails with \"plugin is not connected\", \"EADDRINUSE\", \"timed out\", or similar:
+
+1. Check for stale MCP server processes from previous sessions: ps aux | grep \"figma-ai-score/mcp-server\" | grep -v grep
+2. Verify what's on the WebSocket port: lsof -i :3055
+3. If stale processes exist, ask the user: \"There are stale MCP server processes from a previous session blocking the connection. Can I kill them so this session can connect?\"
+4. Only after the user confirms, kill the stale processes and retry. The current session will automatically respawn its own MCP server.
+
+Do not retry in a loop without diagnosing first. Always check for stale processes before asking the user to reopen the plugin.
+$MARKER"
+
+if [ -f "$CLAUDE_MD" ] && grep -q "$MARKER" "$CLAUDE_MD"; then
+  echo "CLAUDE.md already contains figma-ai-score block, skipping."
+else
+  echo "" >> "$CLAUDE_MD"
+  echo "$CLAUDE_BLOCK" >> "$CLAUDE_MD"
+  echo "Appended figma-ai-score instructions to CLAUDE.md"
+fi
+
+# ── 5. Install /review slash command ──
+echo "Installing /review slash command ..."
+mkdir -p "$COMMANDS_DIR"
+
+cat > "$REVIEW_MD" << 'REVIEWEOF'
+You are about to run a Figma AI Programmability review using the figma-ai-score MCP server.
+
+## Steps
+
+1. Call `get_preferences` — it returns `enabledRules` and an `instructions` field containing the complete review protocol. Read the instructions carefully and follow them exactly.
+2. The instructions will tell you the full flow: get selection, begin review, scan frames, apply rules, compute scores, and submit the report.
+3. Follow the protocol from the instructions. Do not skip steps or invent rules beyond what the instructions specify.
+
+That's it. Everything you need is inside `get_preferences`. Go.
+
+## Troubleshooting
+
+If any tool call fails with "plugin is not connected", "EADDRINUSE", "timed out", or similar connection errors:
+
+1. Check for stale MCP server processes from previous sessions: `ps aux | grep "figma-ai-score/mcp-server" | grep -v grep`
+2. Verify what's on the WebSocket port: `lsof -i :3055`
+3. If stale processes exist, ask the user: "There are stale MCP server processes from a previous session blocking the connection. Can I kill them so this session can connect?"
+4. Only after the user confirms, kill the stale processes and retry. The current session will automatically respawn its own MCP server.
+
+Do NOT retry in a loop without diagnosing first. Always check for stale processes before asking the user to reopen the plugin.
+REVIEWEOF
+
+echo "Done installing /review command."
+
+# ── 6. Clean up temp files ──
+rm -rf /tmp/figma-ai-score-pkg
+
+echo "=== figma-ai-score install complete ==="
+echo ""
+echo "Next step: Open the AI Programmability Score plugin in Figma."
+echo "Then tell Claude to 'review' your designs."

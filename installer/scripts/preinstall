@@ -1,0 +1,7 @@
+#!/bin/bash
+# Pre-install: stage MCP server files to a temp location.
+# The pkg payload goes to /tmp/figma-ai-score-pkg, then postinstall
+# copies them to the user's home directory.
+
+set -e
+mkdir -p /tmp/figma-ai-score-pkg

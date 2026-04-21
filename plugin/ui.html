@@ -1,0 +1,2247 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #ffffff;
+        --bg-secondary: #f5f5f5;
+        --bg-tertiary: #ebebeb;
+        --text: #1e1e1e;
+        --text-secondary: #666;
+        --text-tertiary: #999;
+        --border: #e5e5e5;
+        --accent: #5b5bf6;
+        --accent-light: #ededfe;
+        --accent-text: #4343d8;
+        --green: #0a6a2d;
+        --green-bg: #e6f7ea;
+        --red: #c13434;
+        --red-bg: #fdeaea;
+        --orange-bg: #fff7e0;
+        --orange-border: #ffe3a3;
+        --toggle-off: #ccc;
+        --toggle-on: var(--accent);
+        --shadow-sm: 0 1px 2px rgba(0,0,0,0.06);
+        --shadow-md: 0 2px 8px rgba(0,0,0,0.08);
+        --radius: 8px;
+        --radius-sm: 6px;
+      }
+
+      * { box-sizing: border-box; }
+
+      html, body {
+        height: 100%;
+        overflow: hidden;
+      }
+      body { position: relative; }
+      body {
+        font-family: "Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        font-size: 12px;
+        margin: 0;
+        padding: 0;
+        color: var(--text);
+        background: var(--bg);
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+        display: flex;
+        flex-direction: column;
+      }
+      .scroll-area {
+        overflow-y: auto;
+        min-height: 0;
+      }
+      .two-col {
+        flex: 1;
+        display: flex;
+        min-height: 0;
+      }
+      .col {
+        flex: 1;
+        min-width: 0;
+      }
+      .col-left {
+        flex: 0 0 272px;
+        border-right: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+      }
+      .col-scroll {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        min-height: 0;
+      }
+      .panel-grow {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+      .panel-grow .selection-list {
+        flex: 1;
+        max-height: none;
+      }
+
+      /* ── Header ── */
+      .header {
+        padding: 14px 16px 12px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid var(--border);
+      }
+      .header h1 {
+        font-size: 13px;
+        font-weight: 700;
+        margin: 0;
+        letter-spacing: -0.2px;
+      }
+      .header-right {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      button.header-icon-btn {
+        width: 24px;
+        height: 24px;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--border);
+        background: var(--bg);
+        color: var(--text-secondary);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+      }
+      button.header-icon-btn:hover:not(:disabled) {
+        background: var(--bg-secondary);
+        color: var(--text);
+        border-color: #c7c7c7;
+      }
+      button.header-icon-btn:focus,
+      button.header-icon-btn:active { outline: none; }
+      .conn-badge {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 11px;
+        color: var(--text-secondary);
+      }
+
+      /* ── Suggestion overlay ── */
+      .suggestion-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0,0,0,0.35);
+        z-index: 100;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+      }
+      .suggestion-card {
+        background: var(--bg);
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow-md);
+        padding: 16px;
+        width: 100%;
+        max-width: 400px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .suggestion-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .suggestion-title {
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--text);
+      }
+      .suggestion-hint {
+        margin: 0;
+        font-size: 11px;
+        color: var(--text-secondary);
+        line-height: 1.4;
+      }
+      .suggestion-textarea {
+        width: 100%;
+        resize: vertical;
+        min-height: 90px;
+        padding: 8px 10px;
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--border);
+        font: inherit;
+        font-size: 12px;
+        color: var(--text);
+        background: var(--bg);
+        outline: none;
+      }
+      .suggestion-textarea:focus {
+        border-color: var(--accent);
+      }
+      .suggestion-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 6px;
+        margin-top: 10px;
+      }
+      #suggestion-form .suggestion-hint {
+        margin-bottom: 8px;
+      }
+      button.suggestion-cancel-btn {
+        padding: 5px 12px;
+        font-size: 11px;
+        font-weight: 600;
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--text-secondary);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+      }
+      button.suggestion-cancel-btn:hover:not(:disabled) {
+        background: var(--bg-secondary);
+        color: var(--text);
+      }
+      button.suggestion-send-btn {
+        padding: 5px 14px;
+        font-size: 11px;
+        font-weight: 700;
+        background: var(--accent);
+        border: 1px solid var(--accent);
+        color: #fff;
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+      }
+      button.suggestion-send-btn:hover:not(:disabled) {
+        background: #2a2a8f;
+        border-color: #2a2a8f;
+        color: #fff;
+      }
+      button.suggestion-send-btn:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+      .suggestion-limit {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        padding: 8px 4px 0;
+        gap: 10px;
+      }
+      .suggestion-limit-icon {
+        color: var(--accent);
+      }
+      .suggestion-limit-text {
+        margin: 0;
+        font-size: 12px;
+        color: var(--text);
+        line-height: 1.5;
+      }
+      .suggestion-limit-wait {
+        font-size: 11px;
+        color: var(--text-secondary);
+      }
+      .conn-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--toggle-off);
+        transition: background 0.3s, box-shadow 0.3s;
+      }
+      .conn-dot.ok {
+        background: #2ecc40;
+        box-shadow: 0 0 6px rgba(46,204,64,0.45);
+      }
+
+      /* ── Sections ── */
+      .panel {
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border);
+      }
+      .panel:last-child { border-bottom: none; }
+
+      .section-title {
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        color: var(--text-tertiary);
+        margin: 0 0 10px;
+      }
+
+      /* ── Collapsible section header ── */
+      .section-toggle-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding-bottom: 10px;
+        color: var(--text-tertiary);
+      }
+      button.chevron-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 20px;
+        height: 20px;
+        padding: 0;
+        margin: 0;
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        color: var(--text-tertiary);
+        border-radius: 4px;
+      }
+      button.chevron-btn:hover:not(:disabled) { background: var(--bg-secondary); color: var(--text); }
+      button.chevron-btn:focus,
+      button.chevron-btn:active { outline: none; }
+      button.chevron-btn .chevron {
+        transition: transform 0.2s ease;
+      }
+      button.chevron-btn[aria-expanded="false"] .chevron {
+        transform: rotate(-90deg);
+      }
+      .collapsible {
+        overflow: hidden;
+        transition: max-height 0.25s ease, opacity 0.2s ease;
+      }
+      .collapsible.is-collapsed {
+        max-height: 0 !important;
+        opacity: 0;
+      }
+
+      /* ── Review mode toggle ── */
+      .mode-toggle {
+        position: relative;
+        display: flex;
+        padding: 2px;
+        background: var(--bg-secondary);
+        border-radius: var(--radius-sm);
+        gap: 0;
+      }
+      .mode-toggle::before {
+        content: "";
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: calc(50% - 2px);
+        bottom: 2px;
+        background: var(--accent);
+        border-radius: 4px;
+        box-shadow: 0 1px 3px rgba(91, 91, 246, 0.35);
+        transform: translateX(0);
+        transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        z-index: 0;
+      }
+      .mode-toggle[data-mode="ai"]::before {
+        transform: translateX(100%);
+      }
+      button.mode-option {
+        position: relative;
+        z-index: 1;
+        flex: 1;
+        padding: 6px 10px;
+        border: none;
+        background: transparent;
+        color: var(--text-secondary);
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+        border-radius: 4px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+        transition: color 0.2s ease;
+      }
+      button.mode-option,
+      button.mode-option:hover,
+      button.mode-option:focus,
+      button.mode-option:active,
+      button.mode-option:hover:not(:disabled),
+      button.mode-option:active:not(:disabled) {
+        background: transparent !important;
+        outline: none;
+        transform: none !important;
+      }
+      button.mode-option:hover:not(.is-active) {
+        color: var(--text);
+      }
+      button.mode-option.is-active {
+        color: #fff;
+      }
+      .mode-hint {
+        margin-top: 5px;
+        font-size: 10.5px;
+        color: var(--text-tertiary);
+        font-style: italic;
+      }
+      #mode-panel { padding-top: 8px; padding-bottom: 8px; }
+      #mode-panel .section-title { margin-bottom: 5px; }
+
+      /* ── Toggle switch ── */
+      .rule-list {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      label.rule {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 6px 8px;
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        font-size: 12px;
+        color: var(--text);
+        transition: background 0.15s;
+        user-select: none;
+      }
+      label.rule:hover {
+        background: var(--bg-secondary);
+      }
+      label.rule input[type="checkbox"] {
+        display: none;
+      }
+      .toggle-track {
+        position: relative;
+        width: 32px;
+        height: 18px;
+        border-radius: 999px;
+        background: var(--toggle-off);
+        transition: background 0.2s ease;
+        flex-shrink: 0;
+      }
+      .toggle-track::after {
+        content: "";
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.18);
+        transition: transform 0.2s ease;
+      }
+      input:checked + .toggle-track {
+        background: var(--toggle-on);
+      }
+      input:checked + .toggle-track::after {
+        transform: translateX(14px);
+      }
+      .rule-label {
+        flex: 1;
+        line-height: 1.35;
+      }
+
+      /* ── Selection list ── */
+      .selection-list {
+        max-height: 210px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+      }
+      .selection-list::-webkit-scrollbar { width: 4px; }
+      .selection-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+      .selection-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 10px;
+      }
+      button.ignored-pill {
+        padding: 2px 8px;
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.2px;
+        color: var(--text-secondary);
+        background: var(--bg-secondary);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        cursor: pointer;
+      }
+      button.ignored-pill:hover:not(:disabled) {
+        background: var(--bg-tertiary);
+        color: var(--text);
+        border-color: #c7c7c7;
+      }
+      button.ignored-pill:focus,
+      button.ignored-pill:active { outline: none; }
+
+      .frame-chip {
+        position: relative;
+        display: flex;
+        align-items: center;
+        padding: 5px 5px 5px 10px;
+        border-radius: var(--radius-sm);
+        background: var(--bg-secondary);
+        font-size: 11px;
+      }
+      .frame-chip.is-ignored {
+        opacity: 0.55;
+      }
+      .frame-chip.is-ignored .name {
+        text-decoration: line-through;
+      }
+      button.chip-ignore-btn {
+        flex-shrink: 0;
+        width: 20px;
+        height: 20px;
+        padding: 0;
+        margin-left: 6px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: none;
+        border-radius: 4px;
+        background: transparent;
+        color: var(--text-tertiary);
+        cursor: pointer;
+      }
+      button.chip-ignore-btn:hover:not(:disabled),
+      button.chip-ignore-btn:focus,
+      button.chip-ignore-btn:active {
+        background: var(--accent-light);
+        color: var(--accent-text);
+        outline: none;
+      }
+      .frame-chip.is-ignored button.chip-ignore-btn { color: var(--accent); }
+
+      /* ── Ignored-layers popup ── */
+      .ignored-list {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        max-height: 360px;
+        overflow-y: auto;
+      }
+      .ignored-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 8px;
+        border-radius: var(--radius-sm);
+        background: var(--bg-secondary);
+        font-size: 11px;
+      }
+      .ignored-row .ignored-name {
+        flex: 1;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-weight: 500;
+        color: var(--text);
+      }
+      button.ignored-unignore-btn {
+        flex-shrink: 0;
+        padding: 3px 8px;
+        font-size: 10px;
+        font-weight: 600;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        color: var(--text-secondary);
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      button.ignored-unignore-btn:hover:not(:disabled) {
+        background: var(--bg-secondary);
+        color: var(--text);
+      }
+      button.ignored-unignore-btn:focus,
+      button.ignored-unignore-btn:active { outline: none; }
+      .ignored-list .bullseye-btn { color: var(--text-tertiary); }
+      .inherited-badge {
+        flex-shrink: 0;
+        font-size: 9px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+        padding: 2px 6px;
+        border-radius: 999px;
+        background: var(--accent-light);
+        color: var(--accent-text);
+      }
+      /* Stacked-modal: explainer sits above the ignored-list popup */
+      #inherited-overlay { z-index: 200; }
+      .chip-icon {
+        flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 14px;
+        height: 14px;
+        color: var(--text-tertiary);
+      }
+      .chip-divider {
+        flex-shrink: 0;
+        width: 1px;
+        align-self: stretch;
+        background: var(--border);
+        margin: 2px 8px;
+      }
+      #chip-tooltip {
+        position: fixed;
+        background: #1e1e1e;
+        color: #fff;
+        padding: 5px 8px;
+        border-radius: 4px;
+        font-size: 10.5px;
+        font-weight: 500;
+        line-height: 1.3;
+        max-width: 320px;
+        word-break: break-word;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+        z-index: 9999;
+        pointer-events: none;
+        display: none;
+      }
+      .frame-chip .name {
+        flex: 1;
+        min-width: 0;
+        font-weight: 500;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .frame-chip .type {
+        font-size: 9px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--text-tertiary);
+        font-weight: 600;
+        flex-shrink: 0;
+      }
+      .cap-warning {
+        padding: 6px 10px;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--red);
+        background: var(--red-bg);
+        border-radius: var(--radius-sm);
+      }
+      .empty-state {
+        color: var(--text-tertiary);
+        font-style: italic;
+        font-size: 11px;
+        padding: 4px 0;
+      }
+
+      /* ── Locked banner ── */
+      .locked-banner {
+        display: none;
+        background: var(--orange-bg);
+        border: 1px solid var(--orange-border);
+        padding: 10px 12px;
+        border-radius: var(--radius);
+        margin-bottom: 10px;
+        font-size: 11px;
+        line-height: 1.5;
+        animation: slideDown 0.25s ease;
+      }
+      .locked-banner strong {
+        display: block;
+        margin-bottom: 2px;
+      }
+      @keyframes slideDown {
+        from { opacity: 0; transform: translateY(-6px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+      }
+      .reviewing-dot {
+        display: inline-block;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #e6a000;
+        margin-right: 5px;
+        vertical-align: middle;
+        animation: pulse 1.4s ease infinite;
+      }
+
+      /* ── Buttons ── */
+      button {
+        font: inherit;
+        font-size: 11px;
+        font-weight: 600;
+        padding: 6px 14px;
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--border);
+        background: var(--bg);
+        cursor: pointer;
+        transition: all 0.15s;
+      }
+      button:hover:not(:disabled) {
+        background: var(--bg-secondary);
+      }
+      button:active:not(:disabled) {
+        transform: scale(0.97);
+      }
+      button:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+      button.danger {
+        background: var(--red);
+        color: #fff;
+        border-color: var(--red);
+      }
+      button.danger:hover:not(:disabled) {
+        background: #a82a2a;
+      }
+      button.export-btn {
+        padding: 4px 10px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+        border: 1px solid #c7c7c7;
+        background: var(--bg-secondary);
+        color: var(--text);
+        gap: 4px;
+        display: inline-flex;
+        align-items: center;
+        border-radius: var(--radius-sm);
+      }
+      button.export-btn:hover:not(:disabled) {
+        background: var(--bg-tertiary);
+        color: var(--text);
+        border-color: #999;
+      }
+      button.export-btn:disabled {
+        opacity: 0.35;
+      }
+
+      /* ── Report ── */
+      .report-area { min-height: 40px; }
+
+      .frame-report {
+        padding: 10px 0;
+        border-bottom: 1px solid var(--border);
+        animation: fadeIn 0.3s ease;
+      }
+      .frame-report:last-child { border-bottom: none; }
+      @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+
+      .frame-report .frame-name {
+        font-weight: 600;
+        font-size: 12px;
+        text-align: center;
+        color: var(--text);
+      }
+      .score-row {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        margin: 8px 0 14px;
+      }
+      .score-circle {
+        position: relative;
+        width: 92px;
+        height: 92px;
+        border-radius: 50%;
+        background: var(--bg);
+        box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+      }
+      .score-ring {
+        position: absolute;
+        inset: 0;
+        transform: rotate(-90deg);
+        overflow: visible;
+      }
+      .score-ring-track {
+        fill: none;
+        stroke: var(--border);
+        stroke-width: 4;
+      }
+      .score-ring-progress {
+        fill: none;
+        stroke: var(--border);
+        stroke-width: 4;
+        stroke-linecap: round;
+        transition: stroke-dashoffset 0.6s ease, stroke 0.2s;
+      }
+      .score-circle-inner {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+      }
+      .score-circle .score-big {
+        font-size: 30px;
+        font-weight: 800;
+        letter-spacing: -1.2px;
+        line-height: 1;
+      }
+      .score-circle .score-denominator {
+        font-size: 10px;
+        font-weight: 600;
+        color: var(--text-tertiary);
+        letter-spacing: 0.4px;
+        margin-top: 2px;
+      }
+      .score-circle.perfect { background: var(--green-bg); }
+      .score-circle.perfect .score-ring-progress { stroke: var(--green); }
+      .score-circle.perfect .score-big { color: var(--green); }
+      .score-circle.good { background: var(--accent-light); }
+      .score-circle.good .score-ring-progress { stroke: var(--accent); }
+      .score-circle.good .score-big { color: var(--accent-text); }
+      .score-circle.warn { background: var(--orange-bg); }
+      .score-circle.warn .score-ring-progress { stroke: #d99a00; }
+      .score-circle.warn .score-big { color: #c48800; }
+      .score-circle.bad { background: var(--red-bg); }
+      .score-circle.bad .score-ring-progress { stroke: var(--red); }
+      .score-circle.bad .score-big { color: var(--red); }
+
+      .perfect-badge {
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--green);
+        background: var(--green-bg);
+        padding: 3px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--green);
+      }
+
+      .breakdown-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .breakdown-item {
+        border-radius: 4px;
+        background: var(--bg-secondary);
+        overflow: hidden;
+      }
+      .breakdown-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 4px 8px;
+        font-size: 11px;
+      }
+      .breakdown-row.clickable {
+        cursor: pointer;
+        user-select: none;
+      }
+      .breakdown-row.clickable:hover {
+        background: var(--bg-tertiary);
+      }
+      .breakdown-row .rule-name {
+        font-weight: 500;
+        text-transform: capitalize;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .breakdown-row .row-chevron {
+        color: var(--text-tertiary);
+        transition: transform 0.2s ease;
+      }
+      .breakdown-item.is-open .row-chevron {
+        transform: rotate(90deg);
+      }
+      .breakdown-row .result {
+        font-weight: 700;
+        font-size: 10px;
+      }
+      .breakdown-row .result.pass { color: var(--green); }
+      .breakdown-row .result.fail { color: var(--red); }
+      .breakdown-offenders {
+        max-height: 0;
+        overflow: hidden;
+        transition: max-height 0.25s ease;
+        border-top: 1px solid transparent;
+      }
+      .breakdown-item.is-open .breakdown-offenders {
+        max-height: 400px;
+        overflow-y: auto;
+        border-top-color: var(--border);
+      }
+      .offender-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 6px 10px;
+        border-bottom: 1px solid var(--border);
+        font-size: 11px;
+      }
+      .offender-row:last-child { border-bottom: none; }
+      .offender-row .offender-body {
+        flex: 1;
+        min-width: 0;
+      }
+      .offender-row .offender-name {
+        font-weight: 600;
+        color: var(--text);
+        margin-bottom: 2px;
+      }
+      .offender-row .offender-detail {
+        color: var(--text-secondary);
+        font-size: 10.5px;
+        line-height: 1.45;
+      }
+      button.apply-rename-btn {
+        margin-top: 4px;
+        padding: 3px 8px;
+        font-size: 10px;
+        font-weight: 600;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        color: var(--text-secondary);
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      button.apply-rename-btn:hover:not(:disabled),
+      button.apply-rename-btn:focus,
+      button.apply-rename-btn:active {
+        background: var(--bg-secondary);
+        border-color: #c7c7c7;
+        color: var(--text);
+        outline: none;
+      }
+      button.apply-rename-btn:disabled { opacity: 0.5; cursor: default; }
+      button.bullseye-btn {
+        flex-shrink: 0;
+        width: 22px;
+        height: 22px;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: none;
+        border-radius: 4px;
+        background: transparent;
+        color: var(--text-tertiary);
+        cursor: pointer;
+        margin-top: 1px;
+      }
+      button.bullseye-btn:hover:not(:disabled),
+      button.bullseye-btn:focus,
+      button.bullseye-btn:active {
+        background: var(--accent-light);
+        color: var(--accent-text);
+        outline: none;
+      }
+
+      /* ── Setup banner ── */
+      .setup-banner {
+        display: none;
+        padding: 16px;
+      }
+      .setup-card {
+        border-radius: var(--radius);
+        border: 1px solid var(--orange-border);
+        background: var(--orange-bg);
+        padding: 16px;
+      }
+      .setup-title {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text);
+        margin-bottom: 12px;
+      }
+      .setup-title svg { flex-shrink: 0; }
+      .setup-divider {
+        height: 1px;
+        background: var(--orange-border);
+        margin: 12px 0;
+      }
+      .setup-section-label {
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #8a6d00;
+        margin-bottom: 8px;
+      }
+      .setup-download-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        width: 100%;
+        padding: 8px 12px;
+        border: none;
+        border-radius: var(--radius-sm);
+        background: var(--accent);
+        color: #fff;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.15s;
+      }
+      button.setup-download-btn:hover,
+      button.setup-download-btn:active,
+      button.setup-download-btn:focus { background: #2a2a8f; color: #fff; outline: none; }
+      .setup-download-btn svg { flex-shrink: 0; }
+      .setup-hint {
+        font-size: 11px;
+        line-height: 1.5;
+        color: var(--text);
+        margin: 0;
+      }
+      .setup-hint strong {
+        color: var(--text);
+        font-weight: 600;
+      }
+      .setup-step-num {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #8a6d00;
+        color: #fff;
+        font-size: 10px;
+        font-weight: 700;
+        flex-shrink: 0;
+        margin-right: 6px;
+      }
+      .setup-steps-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-bottom: 0;
+      }
+      .setup-step {
+        display: flex;
+        align-items: flex-start;
+        font-size: 11px;
+        line-height: 1.4;
+        color: var(--text);
+      }
+      .copy-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 6px;
+      }
+      .copy-text {
+        flex: 1;
+        padding: 5px 8px;
+        border-radius: var(--radius-sm);
+        background: #fff;
+        border: 1px solid var(--orange-border);
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text);
+        font-family: inherit;
+      }
+      .copy-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 5px 8px;
+        border: 1px solid var(--orange-border);
+        border-radius: var(--radius-sm);
+        background: #fff;
+        cursor: pointer;
+        color: var(--text-secondary);
+        font-size: 10px;
+        gap: 4px;
+        transition: background 0.15s, color 0.15s;
+      }
+      .copy-btn:hover { background: var(--orange-bg); color: var(--text); }
+
+      /* ── Simple-run button ── */
+      .simple-run-wrap { display: block; }
+      button.run-simple-btn {
+        width: 100%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        padding: 10px 14px;
+        border: none;
+        border-radius: var(--radius-sm);
+        background: var(--accent);
+        color: #fff;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+        cursor: pointer;
+        box-shadow: 0 1px 3px rgba(91, 91, 246, 0.3);
+        transition: background 0.15s;
+      }
+      button.run-simple-btn:hover:not(:disabled),
+      button.run-simple-btn:focus,
+      button.run-simple-btn:active {
+        background: #4545e5;
+        color: #fff;
+        outline: none;
+      }
+      button.run-simple-btn:disabled { opacity: 0.5; cursor: default; }
+
+      /* ── Sticky bottom panel ── */
+      .sticky-bottom {
+        flex-shrink: 0;
+        padding: 10px 16px;
+        background: var(--bg-secondary);
+        border-top: 1px solid var(--border);
+      }
+      .sticky-bottom .section-title {
+        margin-bottom: 6px;
+        color: var(--text-secondary);
+        text-transform: none;
+        letter-spacing: normal;
+        font-weight: 500;
+        font-style: italic;
+        font-size: 11px;
+      }
+      .sticky-bottom .copy-text {
+        background: var(--bg);
+        border-color: var(--border);
+        color: var(--text);
+      }
+      .sticky-bottom .copy-btn {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fff;
+      }
+      .sticky-bottom .copy-btn:hover,
+      .sticky-bottom .copy-btn:focus,
+      .sticky-bottom .copy-btn:active {
+        background: #4545e5;
+        border-color: #4545e5;
+        color: #fff;
+        outline: none;
+      }
+
+      /* ── Stop wrap ── */
+      .stop-wrap {
+        display: none;
+        margin-bottom: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="chip-tooltip"></div>
+
+    <div class="header">
+      <h1>AI Programmability Score</h1>
+      <div class="header-right">
+        <button id="suggestion-btn" class="header-icon-btn" aria-label="Send suggestion" title="Send a suggestion">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h10a1 1 0 011 1v7a1 1 0 01-1 1H6l-3 2.5V4a1 1 0 011-1z"/></svg>
+        </button>
+        <div class="conn-badge">
+          <div id="conn-dot" class="conn-dot"></div>
+          <span id="conn-label">disconnected</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="inherited-overlay" class="suggestion-overlay" style="display:none">
+      <div class="suggestion-card">
+        <div class="suggestion-header">
+          <span class="suggestion-title">Can't un-ignore this layer</span>
+          <button id="inherited-close" class="header-icon-btn" aria-label="Close">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 3l6 6M9 3l-6 6"/></svg>
+          </button>
+        </div>
+        <p class="suggestion-hint">
+          This layer's master component is ignored. Un-ignore the master to include every instance at once.
+        </p>
+        <p class="suggestion-hint" id="inherited-master-name"></p>
+        <div class="suggestion-actions">
+          <button id="inherited-ok" class="suggestion-send-btn">Got it</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="ignored-overlay" class="suggestion-overlay" style="display:none">
+      <div class="suggestion-card">
+        <div class="suggestion-header">
+          <span class="suggestion-title">Ignored layers</span>
+          <button id="ignored-close" class="header-icon-btn" aria-label="Close">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 3l6 6M9 3l-6 6"/></svg>
+          </button>
+        </div>
+        <p class="suggestion-hint">These layers are inside the current selection and will be skipped during review.</p>
+        <div id="ignored-list" class="ignored-list"></div>
+      </div>
+    </div>
+
+    <div id="suggestion-overlay" class="suggestion-overlay" style="display:none">
+      <div class="suggestion-card">
+        <div class="suggestion-header">
+          <span class="suggestion-title">Send a suggestion</span>
+          <button id="suggestion-close" class="header-icon-btn" aria-label="Close">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 3l6 6M9 3l-6 6"/></svg>
+          </button>
+        </div>
+        <div id="suggestion-form">
+          <p class="suggestion-hint">Noticed something? Have an idea? Let me know.</p>
+          <textarea id="suggestion-text" class="suggestion-textarea" placeholder="Type your suggestion here..." rows="5"></textarea>
+          <div class="suggestion-actions">
+            <button id="suggestion-cancel" class="suggestion-cancel-btn">Cancel</button>
+            <button id="suggestion-send" class="suggestion-send-btn">Send</button>
+          </div>
+        </div>
+        <div id="suggestion-limit" class="suggestion-limit" style="display:none">
+          <div class="suggestion-limit-icon">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="8"/><path d="M10 6v4l2.5 2.5"/></svg>
+          </div>
+          <p class="suggestion-limit-text">
+            Thanks — you've already sent a suggestion today.<br/>
+            <span id="suggestion-limit-wait" class="suggestion-limit-wait"></span>
+          </p>
+          <div class="suggestion-actions">
+            <button id="suggestion-limit-close" class="suggestion-cancel-btn">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="two-col" id="two-col">
+      <div class="col col-left">
+        <div class="col-scroll scroll-area">
+          <div class="panel" id="review-panel" style="display:none">
+            <div id="locked-banner" class="locked-banner"></div>
+            <div id="stop-wrap" class="stop-wrap">
+              <button id="stop" class="danger">Stop review</button>
+            </div>
+          </div>
+
+          <div class="panel" id="mode-panel">
+            <div class="section-title">Review mode</div>
+            <div class="mode-toggle" role="tablist">
+              <button class="mode-option is-active" data-mode="simple" role="tab" aria-selected="true">Simple</button>
+              <button class="mode-option" data-mode="ai" role="tab" aria-selected="false">
+                <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 1.5l1.2 2.8 2.8.3-2.1 1.9.7 2.8L6 7.9 3.4 9.3l.7-2.8-2.1-1.9 2.8-.3z"/></svg>
+                AI
+              </button>
+            </div>
+            <div id="mode-hint-simple" class="mode-hint">Fast, deterministic checks.</div>
+            <div id="mode-hint-ai" class="mode-hint" style="display:none">Deeper review. Slower. Max 3 frames.</div>
+          </div>
+
+          <div id="setup-banner" class="setup-banner">
+            <div class="setup-card">
+              <div class="setup-title">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" stroke="#b8860b" stroke-width="1.5"/><path d="M8 4.5v4" stroke="#b8860b" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="11" r="0.75" fill="#b8860b"/></svg>
+                Not connected to Claude Code
+              </div>
+
+              <p class="setup-hint">Type this in Claude Code to connect:</p>
+              <div class="copy-row">
+                <span class="copy-text">connect to ai score</span>
+                <button id="copy-cmd" class="copy-btn">
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M5 11H3.5A1.5 1.5 0 012 9.5v-7A1.5 1.5 0 013.5 1h7A1.5 1.5 0 0112 2.5V5"/></svg>
+                  Copy
+                </button>
+              </div>
+
+              <div class="setup-divider"></div>
+
+              <div class="setup-section-label">First time?</div>
+              <div class="setup-steps-list">
+                <div class="setup-step">
+                  <span class="setup-step-num">1</span>
+                  Download and run the installer
+                </div>
+                <button id="download-link" class="setup-download-btn">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8m0 0l-3-3m3 3l3-3"/><path d="M3 12v1h10v-1"/></svg>
+                  Download Installer
+                </button>
+                <div class="setup-step">
+                  <span class="setup-step-num">2</span>
+                  Restart Claude Code after installing
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel" id="rules-panel">
+            <div class="section-toggle-row">
+              <span class="section-title" style="margin:0">Rules</span>
+              <button class="chevron-btn" id="rules-toggle" aria-expanded="true" aria-label="Toggle rules">
+                <svg class="chevron" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4l3 3 3-3"/></svg>
+              </button>
+            </div>
+            <div class="rule-list collapsible" id="rules-list">
+              <label class="rule rule-naming">
+                <input type="checkbox" data-rule="naming" />
+                <span class="toggle-track"></span>
+                <span class="rule-label" data-rule-label="naming">Naive layer naming</span>
+              </label>
+              <label class="rule">
+                <input type="checkbox" data-rule="components" />
+                <span class="toggle-track"></span>
+                <span class="rule-label" data-rule-label="components">Naive component usage</span>
+              </label>
+              <label class="rule">
+                <input type="checkbox" data-rule="colors" />
+                <span class="toggle-track"></span>
+                <span class="rule-label">Color tokens</span>
+              </label>
+              <label class="rule">
+                <input type="checkbox" data-rule="typography" />
+                <span class="toggle-track"></span>
+                <span class="rule-label">Typography tokens</span>
+              </label>
+              <label class="rule">
+                <input type="checkbox" data-rule="spacing" />
+                <span class="toggle-track"></span>
+                <span class="rule-label">Spacing tokens</span>
+              </label>
+              <label class="rule">
+                <input type="checkbox" data-rule="effects" />
+                <span class="toggle-track"></span>
+                <span class="rule-label">Effect tokens</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="panel panel-grow">
+            <div class="selection-header">
+              <span class="section-title" style="margin:0">Selection</span>
+              <button id="ignored-pill" class="ignored-pill" style="display:none" aria-label="View ignored layers">
+                <span id="ignored-count">0</span> ignored
+              </button>
+            </div>
+            <div id="selection-cap" class="cap-warning" style="display:none; margin-bottom: 8px;"></div>
+            <div id="selection" class="selection-list">
+              <div class="empty-state">Nothing selected in Figma</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="sticky-bottom" id="start-review-panel">
+          <!-- Simple mode: direct-run button -->
+          <div id="simple-run-wrap" class="simple-run-wrap">
+            <button id="run-simple-review" class="run-simple-btn">
+              <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2l9 5-9 5z"/></svg>
+              Run simple review
+            </button>
+          </div>
+          <!-- AI mode: tell-Claude prompt -->
+          <div id="ai-prompt-wrap" class="ai-prompt-wrap" style="display:none">
+            <div class="section-title">To start a review, tell Claude:</div>
+            <div class="copy-row">
+              <span class="copy-text">review my design</span>
+              <button id="copy-review-main" class="copy-btn">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M5 11H3.5A1.5 1.5 0 012 9.5v-7A1.5 1.5 0 013.5 1h7A1.5 1.5 0 0112 2.5V5"/></svg>
+                Copy
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col col-right scroll-area">
+        <div class="panel">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 8px;">
+            <div class="section-title" style="margin:0">Report</div>
+            <div style="display:flex; gap:6px;">
+              <button id="clear" class="export-btn" disabled>Clear</button>
+              <button id="export" class="export-btn" disabled>
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8m0 0l-3-3m3 3l3-3"/><path d="M3 11v2h10v-2"/></svg>
+                Export
+              </button>
+            </div>
+          </div>
+          <div id="report" class="report-area">
+            <div class="empty-state">No report yet</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const BRIDGE_URL = "ws://127.0.0.1:3055";
+
+      const connDot = document.getElementById("conn-dot");
+      const connLabel = document.getElementById("conn-label");
+      const selectionEl = document.getElementById("selection");
+
+      // Floating tooltip for frame chips
+      const chipTooltip = document.getElementById("chip-tooltip");
+      const TOOLTIP_DELAY_MS = 500;
+      let tooltipTimer = null;
+      function clearTooltipTimer() {
+        if (tooltipTimer) { clearTimeout(tooltipTimer); tooltipTimer = null; }
+      }
+      function showChipTooltip(chip) {
+        clearTooltipTimer();
+        const text = chip.getAttribute("data-tooltip");
+        if (!text) return;
+        const nameEl = chip.querySelector(".name");
+        // Only show tooltip if the name is truncated (ellipsis visible)
+        if (nameEl && nameEl.scrollWidth <= nameEl.clientWidth) return;
+        tooltipTimer = setTimeout(() => {
+          chipTooltip.textContent = text;
+          chipTooltip.style.display = "block";
+          const r = chip.getBoundingClientRect();
+          const tipRect = chipTooltip.getBoundingClientRect();
+          let left = r.left;
+          let top = r.top - tipRect.height - 6;
+          if (top < 4) top = r.bottom + 6;
+          if (left + tipRect.width > window.innerWidth - 4) left = window.innerWidth - tipRect.width - 4;
+          if (left < 4) left = 4;
+          chipTooltip.style.left = left + "px";
+          chipTooltip.style.top = top + "px";
+        }, TOOLTIP_DELAY_MS);
+      }
+      function showTooltipOn(el) {
+        clearTooltipTimer();
+        const text = el.getAttribute("data-tooltip");
+        if (!text) return;
+        tooltipTimer = setTimeout(() => {
+          chipTooltip.textContent = text;
+          chipTooltip.style.display = "block";
+          const r = el.getBoundingClientRect();
+          const tipRect = chipTooltip.getBoundingClientRect();
+          let left = r.left + r.width / 2 - tipRect.width / 2;
+          let top = r.top - tipRect.height - 6;
+          if (top < 4) top = r.bottom + 6;
+          if (left + tipRect.width > window.innerWidth - 4) left = window.innerWidth - tipRect.width - 4;
+          if (left < 4) left = 4;
+          chipTooltip.style.left = left + "px";
+          chipTooltip.style.top = top + "px";
+        }, TOOLTIP_DELAY_MS);
+      }
+      function hideChipTooltip() {
+        clearTooltipTimer();
+        chipTooltip.style.display = "none";
+      }
+      selectionEl.addEventListener("mouseover", (e) => {
+        // Ignore-button tooltip takes priority (always show, regardless of chip width)
+        const btn = e.target.closest(".chip-ignore-btn");
+        if (btn) { showTooltipOn(btn); return; }
+        const chip = e.target.closest(".frame-chip");
+        if (!chip) return;
+        showChipTooltip(chip);
+      });
+      selectionEl.addEventListener("mouseout", (e) => {
+        const btn = e.target.closest(".chip-ignore-btn");
+        if (btn) {
+          // If we left the button but are still inside the chip, restore the chip tooltip
+          const chip = btn.closest(".frame-chip");
+          if (!e.relatedTarget || !btn.contains(e.relatedTarget)) {
+            if (chip && e.relatedTarget && chip.contains(e.relatedTarget)) {
+              showChipTooltip(chip);
+            } else {
+              hideChipTooltip();
+            }
+          }
+          return;
+        }
+        const chip = e.target.closest(".frame-chip");
+        if (!chip) return;
+        if (!e.relatedTarget || !chip.contains(e.relatedTarget)) hideChipTooltip();
+      });
+      selectionEl.addEventListener("scroll", hideChipTooltip);
+      const lockedBanner = document.getElementById("locked-banner");
+      const reviewPanel = document.getElementById("review-panel");
+      const stopWrap = document.getElementById("stop-wrap");
+      const stopBtn = document.getElementById("stop");
+      const reportEl = document.getElementById("report");
+      const exportBtn = document.getElementById("export");
+      const clearBtn = document.getElementById("clear");
+
+      const setupBanner = document.getElementById("setup-banner");
+      const downloadLink = document.getElementById("download-link");
+
+      // TODO: Replace with your hosted .pkg URL
+      const INSTALLER_URL = "https://github.com/YOUR_ORG/figma-ai-score/releases/latest/download/figma-ai-score.pkg";
+      downloadLink.addEventListener("click", () => window.open(INSTALLER_URL));
+
+      const copyBtn = document.getElementById("copy-cmd");
+      function setupCopyButton(btn, text) {
+        btn.addEventListener("click", () => {
+          try {
+            const ta = document.createElement("textarea");
+            ta.value = text;
+            ta.style.position = "fixed";
+            ta.style.opacity = "0";
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand("copy");
+            document.body.removeChild(ta);
+          } catch (e) {
+            try { navigator.clipboard.writeText(text); } catch (e2) {}
+          }
+          btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3 3 7-7"/></svg> Copied';
+          setTimeout(() => {
+            btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M5 11H3.5A1.5 1.5 0 012 9.5v-7A1.5 1.5 0 013.5 1h7A1.5 1.5 0 0112 2.5V5"/></svg> Copy';
+          }, 2000);
+        });
+      }
+      setupCopyButton(copyBtn, "connect to ai score");
+
+      // ── Rules collapse toggle ──
+      const rulesToggle = document.getElementById("rules-toggle");
+      const rulesList = document.getElementById("rules-list");
+      if (rulesToggle && rulesList) {
+        rulesList.style.maxHeight = rulesList.scrollHeight + "px";
+        rulesToggle.addEventListener("click", () => {
+          const expanded = rulesToggle.getAttribute("aria-expanded") === "true";
+          if (expanded) {
+            rulesList.style.maxHeight = rulesList.scrollHeight + "px";
+            requestAnimationFrame(() => rulesList.classList.add("is-collapsed"));
+            rulesToggle.setAttribute("aria-expanded", "false");
+          } else {
+            rulesList.classList.remove("is-collapsed");
+            rulesList.style.maxHeight = rulesList.scrollHeight + "px";
+            rulesToggle.setAttribute("aria-expanded", "true");
+          }
+        });
+      }
+
+      // ── Review mode toggle ──
+      const modeToggle = document.querySelector(".mode-toggle");
+      const modeOptions = document.querySelectorAll(".mode-option");
+      const modeHintSimple = document.getElementById("mode-hint-simple");
+      const modeHintAi = document.getElementById("mode-hint-ai");
+
+      const RULE_LABELS = {
+        components: { simple: "component usage", ai: "component usage" },
+        naming:     { simple: "layer naming",    ai: "layer naming"    }
+      };
+
+      function applyMode(mode) {
+        document.body.classList.toggle("mode-simple", mode === "simple");
+        document.body.classList.toggle("mode-ai", mode === "ai");
+        if (modeToggle) modeToggle.setAttribute("data-mode", mode);
+        modeOptions.forEach(b => {
+          const active = b.dataset.mode === mode;
+          b.classList.toggle("is-active", active);
+          b.setAttribute("aria-selected", String(active));
+        });
+        modeHintSimple.style.display = mode === "simple" ? "" : "none";
+        modeHintAi.style.display = mode === "ai" ? "" : "none";
+
+        // Update mode-dependent rule labels ("Naive" / "Smart" shown in bold)
+        const prefix = mode === "simple" ? "Naive" : "Smart";
+        for (const [rule, labels] of Object.entries(RULE_LABELS)) {
+          const el = document.querySelector(`[data-rule-label="${rule}"]`);
+          if (el) el.innerHTML = `<strong>${prefix}</strong> ${labels[mode]}`;
+        }
+
+        // Swap sticky-bottom contents
+        const simpleRunWrap = document.getElementById("simple-run-wrap");
+        const aiPromptWrap = document.getElementById("ai-prompt-wrap");
+        if (simpleRunWrap) simpleRunWrap.style.display = mode === "simple" ? "" : "none";
+        if (aiPromptWrap) aiPromptWrap.style.display = mode === "ai" ? "" : "none";
+        window.__currentMode = mode;
+        refreshConnectionUi();
+        try { localStorage.setItem("review-mode", mode); } catch (e) {}
+        parent.postMessage({ pluginMessage: { type: "set-mode", mode } }, "*");
+      }
+
+      let savedMode = "simple";
+      try { savedMode = localStorage.getItem("review-mode") || "simple"; } catch (e) {}
+      applyMode(savedMode);
+
+      modeOptions.forEach(btn => {
+        btn.addEventListener("click", () => applyMode(btn.dataset.mode));
+      });
+
+      // Simple-review run button — fires the deterministic linter in the sandbox
+      const runSimpleBtn = document.getElementById("run-simple-review");
+      if (runSimpleBtn) {
+        runSimpleBtn.addEventListener("click", () => {
+          const original = runSimpleBtn.innerHTML;
+          runSimpleBtn.disabled = true;
+          runSimpleBtn.textContent = "Running…";
+          parent.postMessage({ pluginMessage: { type: "run-lint" } }, "*");
+          // Re-enable shortly after — the lint is synchronous and fast
+          setTimeout(() => {
+            runSimpleBtn.disabled = false;
+            runSimpleBtn.innerHTML = original;
+          }, 400);
+        });
+      }
+
+      // ── Suggestion overlay ──
+      const suggestionBtn = document.getElementById("suggestion-btn");
+      const suggestionOverlay = document.getElementById("suggestion-overlay");
+      const suggestionClose = document.getElementById("suggestion-close");
+      const suggestionCancel = document.getElementById("suggestion-cancel");
+      const suggestionSend = document.getElementById("suggestion-send");
+      const suggestionText = document.getElementById("suggestion-text");
+      const suggestionForm = document.getElementById("suggestion-form");
+      const suggestionLimit = document.getElementById("suggestion-limit");
+      const suggestionLimitWait = document.getElementById("suggestion-limit-wait");
+      const suggestionLimitClose = document.getElementById("suggestion-limit-close");
+
+      const SUGGESTION_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24 hours
+      let lastSuggestionAt = 0;
+
+      // Fetch from sandbox (clientStorage) at startup and after sends
+      parent.postMessage({ pluginMessage: { type: "suggestion-check" } }, "*");
+
+      function formatWait(ms) {
+        if (ms < 0) ms = 0;
+        const total = Math.ceil(ms / 1000);
+        const h = Math.floor(total / 3600);
+        const m = Math.floor((total % 3600) / 60);
+        const s = total % 60;
+        const pad = (n) => String(n).padStart(2, "0");
+        return `Try again in ${pad(h)}:${pad(m)}:${pad(s)}`;
+      }
+
+      let countdownTimer = null;
+      function stopCountdown() {
+        if (countdownTimer) {
+          clearInterval(countdownTimer);
+          countdownTimer = null;
+        }
+      }
+      function startCountdown() {
+        stopCountdown();
+        const tick = () => {
+          const remaining = SUGGESTION_COOLDOWN_MS - (Date.now() - lastSuggestionAt);
+          if (remaining <= 0) {
+            stopCountdown();
+            suggestionLimit.style.display = "none";
+            suggestionForm.style.display = "";
+            setTimeout(() => suggestionText.focus(), 50);
+            return;
+          }
+          suggestionLimitWait.textContent = formatWait(remaining);
+        };
+        tick();
+        countdownTimer = setInterval(tick, 1000);
+      }
+
+      function openSuggestion() {
+        const remaining = SUGGESTION_COOLDOWN_MS - (Date.now() - lastSuggestionAt);
+        if (remaining > 0) {
+          suggestionForm.style.display = "none";
+          suggestionLimit.style.display = "flex";
+          startCountdown();
+        } else {
+          suggestionForm.style.display = "";
+          suggestionLimit.style.display = "none";
+          setTimeout(() => suggestionText.focus(), 50);
+        }
+        suggestionOverlay.style.display = "flex";
+      }
+      function closeSuggestion() {
+        stopCountdown();
+        suggestionOverlay.style.display = "none";
+        suggestionText.value = "";
+      }
+      suggestionBtn.addEventListener("click", openSuggestion);
+      suggestionClose.addEventListener("click", closeSuggestion);
+      suggestionCancel.addEventListener("click", closeSuggestion);
+      suggestionLimitClose.addEventListener("click", closeSuggestion);
+      suggestionOverlay.addEventListener("click", (e) => {
+        if (e.target === suggestionOverlay) closeSuggestion();
+      });
+      // Replace this URL with your Google Apps Script Web App URL after deploying.
+      const SUGGESTION_URL = "https://script.google.com/macros/s/AKfycbzCb643Se8LolmKEjMwvRHpHVue83Q6pRo5pyu8hHGoeCz6h-47Pw2kO7nMscdmWedl/exec";
+
+      suggestionSend.addEventListener("click", async () => {
+        const text = suggestionText.value.trim();
+        if (!text) return;
+        const originalLabel = suggestionSend.textContent;
+        suggestionSend.disabled = true;
+        suggestionSend.textContent = "Sending...";
+        const ctl = new AbortController();
+        const timer = setTimeout(() => ctl.abort(), 10000);
+        try {
+          await fetch(SUGGESTION_URL, {
+            method: "POST",
+            mode: "no-cors",
+            headers: { "Content-Type": "text/plain;charset=utf-8" },
+            body: JSON.stringify({ text }),
+            signal: ctl.signal,
+            redirect: "follow"
+          });
+          clearTimeout(timer);
+          lastSuggestionAt = Date.now();
+          parent.postMessage({ pluginMessage: { type: "suggestion-sent" } }, "*");
+          suggestionSend.textContent = "Sent";
+          setTimeout(() => {
+            suggestionSend.disabled = false;
+            suggestionSend.textContent = originalLabel;
+            closeSuggestion();
+          }, 900);
+        } catch (e) {
+          clearTimeout(timer);
+          console.error("Suggestion send failed:", e);
+          suggestionSend.disabled = false;
+          suggestionSend.textContent = originalLabel;
+          alert("Couldn't send: " + (e && e.message ? e.message : "unknown error"));
+        }
+      });
+      setupCopyButton(document.getElementById("copy-review-main"), "review my design");
+
+      const startReviewPanel = document.getElementById("start-review-panel");
+
+      let ws = null;
+      let reconnectTimer = null;
+      let lastReport = null;
+
+      // Grace period so a brief disconnect/reconnect (after a successful connection)
+      // doesn't flicker the main UI. Only applied when we were previously connected.
+      // Cold-start disconnects swap to the setup banner immediately, as usual.
+      let disconnectGraceTimer = null;
+      let wasEverConnected = false;
+      const DISCONNECT_GRACE_MS = 3500;
+      function setConnected(ok) {
+        window.__isConnected = ok;
+        connDot.className = "conn-dot" + (ok ? " ok" : "");
+        connLabel.textContent = ok ? "connected" : "disconnected";
+        if (ok) {
+          wasEverConnected = true;
+          if (disconnectGraceTimer) { clearTimeout(disconnectGraceTimer); disconnectGraceTimer = null; }
+          refreshConnectionUi();
+        } else if (wasEverConnected) {
+          // Brief drop from a live connection — delay the banner swap.
+          if (disconnectGraceTimer) clearTimeout(disconnectGraceTimer);
+          disconnectGraceTimer = setTimeout(() => {
+            disconnectGraceTimer = null;
+            refreshConnectionUi();
+          }, DISCONNECT_GRACE_MS);
+        } else {
+          // Cold disconnected — never connected, show the banner immediately.
+          refreshConnectionUi();
+        }
+      }
+      function refreshConnectionUi() {
+        // Simple mode works without Claude — always show the full UI, hide the conn dot entirely.
+        // AI mode needs Claude — when disconnected, keep the mode toggle visible but hide
+        // rules/selection/start-review, and show the setup banner beneath the toggle.
+        const isSimple = (window.__currentMode || "simple") === "simple";
+        const isConnected = !!window.__isConnected;
+        const showMain = isConnected || isSimple;
+        const banner = document.getElementById("setup-banner");
+        const rulesPanel = document.getElementById("rules-panel");
+        const selectionPanel = document.querySelector(".col-left .panel-grow");
+        const startPanel = document.getElementById("start-review-panel");
+        const connBadge = document.querySelector(".conn-badge");
+        if (banner) banner.style.display = showMain ? "none" : "block";
+        if (rulesPanel) rulesPanel.style.display = showMain ? "" : "none";
+        if (selectionPanel) selectionPanel.style.display = showMain ? "" : "none";
+        if (startPanel) startPanel.style.display = showMain ? "" : "none";
+        // Hide the connection dot/label entirely in Simple mode — it's irrelevant there.
+        if (connBadge) connBadge.style.display = isSimple ? "none" : "";
+      }
+      let heartbeatTimer = null;
+      function connect() {
+        clearTimeout(reconnectTimer);
+        if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+        try { ws = new WebSocket(BRIDGE_URL); }
+        catch (e) { setConnected(false); reconnectTimer = setTimeout(connect, 2000); return; }
+
+        ws.onopen = () => {
+          setConnected(true);
+          ws.send(JSON.stringify({ type: "hello", role: "plugin" }));
+          // Client-side keepalive: send a small ping every 15s so the server's
+          // idle-timeout never fires on this socket.
+          heartbeatTimer = setInterval(() => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              try { ws.send(JSON.stringify({ type: "event", name: "ping" })); } catch (e) {}
+            }
+          }, 15000);
+        };
+        ws.onclose = () => {
+          if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+          setConnected(false);
+          reconnectTimer = setTimeout(connect, 2000);
+        };
+        ws.onerror = () => {};
+        ws.onmessage = (ev) => {
+          let msg; try { msg = JSON.parse(ev.data); } catch (e) { return; }
+          if (msg.type === "request") {
+            parent.postMessage({ pluginMessage: { __rpc: true, id: msg.id, method: msg.method, params: msg.params } }, "*");
+          }
+        };
+      }
+      connect();
+
+      window.onmessage = (ev) => {
+        const msg = ev.data && ev.data.pluginMessage;
+        if (!msg) return;
+        if (msg.__rpc) {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+              type: "response",
+              id: msg.id,
+              result: msg.result,
+              error: msg.error
+            }));
+          }
+          return;
+        }
+        if (msg.type === "suggestion-check-result") { lastSuggestionAt = msg.lastAt || 0; return; }
+        if (msg.type === "prefs") renderPrefs(msg.data);
+        else if (msg.type === "selection") renderSelection(msg.data, msg.total, msg.capped, msg.maxSelection);
+        else if (msg.type === "locked") showLocked(msg.data);
+        else if (msg.type === "unlocked") hideLocked();
+        else if (msg.type === "report") renderReport(msg.data);
+      };
+
+      parent.postMessage({ pluginMessage: { type: "ui-ready" } }, "*");
+
+document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
+        input.addEventListener("change", () => {
+          const data = {};
+          document.querySelectorAll('input[type=checkbox][data-rule]').forEach(i => { data[i.dataset.rule] = i.checked; });
+          parent.postMessage({ pluginMessage: { type: "set-prefs", data } }, "*");
+        });
+      });
+
+      function renderPrefs(prefs) {
+        document.querySelectorAll('input[type=checkbox][data-rule]').forEach(i => {
+          i.checked = !!(prefs && prefs[i.dataset.rule]);
+        });
+      }
+
+      const selectionCapEl = document.getElementById("selection-cap");
+      function iconForType(type) {
+        const s = 'stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"';
+        switch ((type || "").toUpperCase()) {
+          case "FRAME":
+            return `<svg width="12" height="12" viewBox="0 0 12 12" ${s}><path d="M4.5 1.5v9M7.5 1.5v9M1.5 4.5h9M1.5 7.5h9"/></svg>`;
+          case "TEXT":
+            return `<svg width="12" height="12" viewBox="0 0 12 12" ${s}><path d="M2 2.5h8M6 2.5v8M4 10.5h4"/></svg>`;
+          case "RECTANGLE":
+            return `<svg width="12" height="12" viewBox="0 0 12 12" ${s}><rect x="2" y="2" width="8" height="8" rx="1"/></svg>`;
+          case "ELLIPSE":
+            return `<svg width="12" height="12" viewBox="0 0 12 12" ${s}><circle cx="6" cy="6" r="4"/></svg>`;
+          case "LINE":
+            return `<svg width="12" height="12" viewBox="0 0 12 12" ${s}><path d="M2 10L10 2"/></svg>`;
+          case "POLYGON":
+            return `<svg width="12" height="12" viewBox="0 0 12 12" ${s}><path d="M6 1.5L10.5 10.5h-9z"/></svg>`;
+          case "STAR":
+            return `<svg width="12" height="12" viewBox="0 0 12 12" ${s}><path d="M6 1.5l1.4 3 3.1.3-2.4 2.1.8 3.1L6 8.3 3.1 10l.8-3.1L1.5 4.8l3.1-.3z"/></svg>`;
+          case "VECTOR":
+            return `<svg width="12" height="12" viewBox="0 0 12 12" ${s}><path d="M2 10c0-4 2-6 4-6s4 2 4 6"/></svg>`;
+          case "GROUP":
+            return `<svg width="12" height="12" viewBox="0 0 12 12" ${s}><rect x="2" y="2" width="8" height="8" rx="1" stroke-dasharray="2 1.5"/></svg>`;
+          case "COMPONENT":
+            return `<svg width="12" height="12" viewBox="0 0 12 12" ${s}><path d="M6 1.5L10.5 6 6 10.5 1.5 6z"/></svg>`;
+          case "COMPONENT_SET":
+            return `<svg width="12" height="12" viewBox="0 0 12 12" ${s}><path d="M6 0.7L8.3 3 6 5.3 3.7 3zM6 6.7L8.3 9 6 11.3 3.7 9zM0.7 6L3 3.7 5.3 6 3 8.3zM6.7 6L9 3.7 11.3 6 9 8.3z"/></svg>`;
+          case "INSTANCE":
+            return `<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M6 1.5L10.5 6 6 10.5 1.5 6z"/></svg>`;
+          case "BOOLEAN_OPERATION":
+            return `<svg width="12" height="12" viewBox="0 0 12 12" ${s}><circle cx="4.5" cy="6" r="3"/><circle cx="7.5" cy="6" r="3"/></svg>`;
+          case "SECTION":
+            return `<svg width="12" height="12" viewBox="0 0 12 12" ${s}><path d="M1.5 3h9M1.5 6h9M1.5 9h6"/></svg>`;
+          case "SLICE":
+            return `<svg width="12" height="12" viewBox="0 0 12 12" ${s}><circle cx="3" cy="4" r="1.3"/><circle cx="3" cy="8" r="1.3"/><path d="M4 4l6 6M4 8l6-6"/></svg>`;
+          default:
+            return `<svg width="12" height="12" viewBox="0 0 12 12" ${s}><rect x="2" y="2" width="8" height="8" rx="1"/></svg>`;
+        }
+      }
+
+      // State: latest ignored-inside-selection list (aggregated across all selected roots)
+      let lastIgnoredInside = [];
+
+      const EYE_OPEN_SVG   = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8s2-4 6-4 6 4 6 4-2 4-6 4-6-4-6-4z"/><circle cx="8" cy="8" r="1.8"/></svg>';
+      const EYE_SLASH_SVG  = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8s2-4 6-4 6 4 6 4-2 4-6 4-6-4-6-4z"/><circle cx="8" cy="8" r="1.8"/><path d="M2 2l12 12"/></svg>';
+
+      function eyeIconSvg(ignored) {
+        // Icon reflects current state: open eye = included/visible, eye-slash = ignored/hidden.
+        return ignored ? EYE_SLASH_SVG : EYE_OPEN_SVG;
+      }
+
+      function renderSelection(frames, total, capped, maxSelection) {
+        if (!frames || frames.length === 0) {
+          selectionEl.innerHTML = '<div class="empty-state">Nothing selected in Figma</div>';
+          selectionCapEl.style.display = "none";
+          updateIgnoredPill([]);
+          return;
+        }
+        selectionEl.innerHTML = frames
+          .map(f => {
+            const ignored = !!f.ignored;
+            const inherited = !!f.ignoredInherited;
+            const cls = `frame-chip${ignored ? " is-ignored" : ""}`;
+            const ignTooltip = inherited ? "Inherited from master" : (ignored ? "Include in review" : "Skip during review");
+            return `<div class="${cls}" data-node-id="${esc(f.id)}" data-tooltip="${esc(f.name)}">
+              <span class="chip-icon">${iconForType(f.type)}</span>
+              <span class="chip-divider"></span>
+              <span class="name">${esc(f.name)}</span>
+              <button class="chip-ignore-btn" data-ignore-toggle="${esc(f.id)}" data-ignored="${ignored ? "1" : "0"}" data-inherited="${inherited ? "1" : "0"}" data-source-name="${esc(f.ignoredSourceName || "")}" data-tooltip="${ignTooltip}" aria-label="${ignTooltip}">
+                ${eyeIconSvg(ignored)}
+              </button>
+            </div>`;
+          })
+          .join("");
+        if (capped) {
+          const cap = maxSelection || frames.length;
+          selectionCapEl.textContent = `Only the first ${cap} of ${total} selected layers will be reviewed.`;
+          selectionCapEl.style.display = "block";
+        } else {
+          selectionCapEl.style.display = "none";
+        }
+
+        // Aggregate ignored-inside across all roots, dedup by id
+        const seen = new Set();
+        const merged = [];
+        for (const f of frames) {
+          if (!f.ignoredInside) continue;
+          for (const n of f.ignoredInside) {
+            if (seen.has(n.id)) continue;
+            seen.add(n.id);
+            merged.push(n);
+          }
+        }
+        updateIgnoredPill(merged);
+      }
+
+      function updateIgnoredPill(items) {
+        lastIgnoredInside = items;
+        const pill = document.getElementById("ignored-pill");
+        const count = document.getElementById("ignored-count");
+        if (!pill || !count) return;
+        const overlay = document.getElementById("ignored-overlay");
+        if (items.length === 0) {
+          pill.style.display = "none";
+          // If popup is open and the list just became empty, close it.
+          if (overlay && overlay.style.display !== "none") overlay.style.display = "none";
+        } else {
+          pill.style.display = "";
+          count.textContent = String(items.length);
+          // Keep popup open and refresh its contents live.
+          if (overlay && overlay.style.display !== "none") renderIgnoredList();
+        }
+      }
+
+      // Delegated click: chip-ignore-btn toggles ignore state
+      selectionEl.addEventListener("click", (e) => {
+        const btn = e.target.closest(".chip-ignore-btn");
+        if (!btn) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const inherited = btn.getAttribute("data-inherited") === "1";
+        if (inherited) {
+          openInheritedExplainer(btn.getAttribute("data-source-name") || "");
+          return;
+        }
+        const nodeId = btn.getAttribute("data-ignore-toggle");
+        const isIgnored = btn.getAttribute("data-ignored") === "1";
+        parent.postMessage({ pluginMessage: { type: "set-ignored", nodeId, ignored: !isIgnored } }, "*");
+      });
+
+      // Ignored-layers popup
+      const ignoredPill = document.getElementById("ignored-pill");
+      const ignoredOverlay = document.getElementById("ignored-overlay");
+      const ignoredClose = document.getElementById("ignored-close");
+      const ignoredList = document.getElementById("ignored-list");
+
+      function renderIgnoredList() {
+        if (lastIgnoredInside.length === 0) {
+          ignoredList.innerHTML = '<div class="empty-state" style="padding:8px">No ignored layers inside the current selection.</div>';
+          return;
+        }
+        ignoredList.innerHTML = lastIgnoredInside.map(n => {
+          const inherited = !!n.inherited;
+          const tip = inherited ? "Inherited from master" : "Include in review";
+          const badge = inherited
+            ? `<span class="inherited-badge" title="Inherited from master: ${esc(n.sourceName || "")}">inherited</span>`
+            : "";
+          return `
+          <div class="ignored-row${inherited ? " is-inherited" : ""}">
+            <span class="ignored-name" title="${esc(n.name)}">${esc(n.name)}</span>
+            ${badge}
+            <button class="bullseye-btn" data-select-node="${esc(n.id)}" data-tooltip="Select layer" aria-label="Select layer">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><circle cx="6" cy="6" r="4.5"/><circle cx="6" cy="6" r="2"/><circle cx="6" cy="6" r="0.7" fill="currentColor" stroke="none"/></svg>
+            </button>
+            <button class="chip-ignore-btn" data-unignore="${esc(n.id)}" data-inherited="${inherited ? "1" : "0"}" data-source-name="${esc(n.sourceName || "")}" data-tooltip="${tip}" aria-label="${tip}">
+              ${EYE_SLASH_SVG}
+            </button>
+          </div>
+        `;}).join("");
+      }
+
+      ignoredPill.addEventListener("click", () => {
+        renderIgnoredList();
+        ignoredOverlay.style.display = "flex";
+      });
+
+      // Inherited-from-master explainer overlay
+      const inheritedOverlay = document.getElementById("inherited-overlay");
+      const inheritedClose = document.getElementById("inherited-close");
+      const inheritedOk = document.getElementById("inherited-ok");
+      const inheritedMasterName = document.getElementById("inherited-master-name");
+      function openInheritedExplainer(sourceName) {
+        if (inheritedMasterName) {
+          inheritedMasterName.innerHTML = sourceName
+            ? `Master component: <strong>${esc(sourceName)}</strong>`
+            : "";
+          inheritedMasterName.style.display = sourceName ? "" : "none";
+        }
+        inheritedOverlay.style.display = "flex";
+      }
+      function closeInheritedExplainer() { inheritedOverlay.style.display = "none"; }
+      inheritedClose.addEventListener("click", closeInheritedExplainer);
+      inheritedOk.addEventListener("click", closeInheritedExplainer);
+      inheritedOverlay.addEventListener("click", (e) => {
+        if (e.target === inheritedOverlay) closeInheritedExplainer();
+      });
+      ignoredList.addEventListener("mouseover", (e) => {
+        const el = e.target.closest("[data-tooltip]");
+        if (el) showTooltipOn(el);
+      });
+      ignoredList.addEventListener("mouseout", (e) => {
+        const el = e.target.closest("[data-tooltip]");
+        if (!el) return;
+        if (!e.relatedTarget || !el.contains(e.relatedTarget)) hideChipTooltip();
+      });
+      function closeIgnored() { ignoredOverlay.style.display = "none"; }
+      ignoredClose.addEventListener("click", closeIgnored);
+      ignoredOverlay.addEventListener("click", (e) => {
+        if (e.target === ignoredOverlay) closeIgnored();
+      });
+      ignoredList.addEventListener("click", (e) => {
+        const bull = e.target.closest(".bullseye-btn");
+        if (bull) {
+          e.stopPropagation();
+          const id = bull.getAttribute("data-select-node");
+          if (id) parent.postMessage({ pluginMessage: { type: "select-node", nodeId: id } }, "*");
+          return;
+        }
+        const unbtn = e.target.closest("[data-unignore]");
+        if (unbtn) {
+          e.stopPropagation();
+          if (unbtn.getAttribute("data-inherited") === "1") {
+            openInheritedExplainer(unbtn.getAttribute("data-source-name") || "");
+            return;
+          }
+          const id = unbtn.getAttribute("data-unignore");
+          if (id) parent.postMessage({ pluginMessage: { type: "set-ignored", nodeId: id, ignored: false } }, "*");
+        }
+      });
+
+      function showLocked(data) {
+        reviewPanel.style.display = "";
+        reviewPanel.style.borderBottom = "1px solid var(--border)";
+        stopWrap.style.display = "block";
+        lockedBanner.style.display = "block";
+        const n = data.names.length;
+        lockedBanner.innerHTML =
+          `<strong><span class="reviewing-dot"></span>Reviewing ${n} frame${n === 1 ? "" : "s"}</strong>` +
+          data.names.map(esc).join(", ");
+      }
+      function hideLocked() {
+        stopWrap.style.display = "none";
+        lockedBanner.style.display = "none";
+        stopBtn.disabled = false;
+        stopBtn.textContent = "Stop review";
+        reviewPanel.style.borderBottom = "";
+        reviewPanel.style.display = "none";
+      }
+      stopBtn.addEventListener("click", () => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "event", name: "cancel" }));
+        }
+        stopBtn.disabled = true;
+        stopBtn.textContent = "Stopping...";
+        setTimeout(hideLocked, 2500);
+      });
+
+      function scoreClass(score, perfect) {
+        if (perfect) return "perfect";
+        if (score >= 80) return "good";
+        if (score >= 50) return "warn";
+        return "bad";
+      }
+
+      clearBtn.addEventListener("click", () => {
+        lastReport = null;
+        exportBtn.disabled = true;
+        clearBtn.disabled = true;
+        reportEl.innerHTML = '<div class="empty-state">No report yet</div>';
+      });
+
+      function renderReport(report) {
+        lastReport = report;
+        exportBtn.disabled = !report;
+        clearBtn.disabled = !report;
+        hideLocked();
+        if (!report || !report.frames || report.frames.length === 0) {
+          reportEl.innerHTML = '<div class="empty-state">Empty report</div>';
+          return;
+        }
+        reportEl.innerHTML = report.frames.map(f => {
+          const cls = scoreClass(f.score, f.perfect);
+          const breakdown = Object.entries(f.breakdown || {})
+            .filter(([, r]) => r.enabled !== false)
+            .map(([rule, r]) => {
+              const offenders = r.offenders || [];
+              const count = offenders.length;
+              const hasOffenders = !r.passed && count > 0;
+              const chevron = hasOffenders
+                ? '<svg class="row-chevron" width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 1.5l3 2.5-3 2.5"/></svg>'
+                : '';
+              const offendersHtml = hasOffenders
+                ? '<div class="breakdown-offenders">' + offenders.map(o => {
+                    const applyBtn = (rule === "naming" && o.suggestedName)
+                      ? `<button class="apply-rename-btn" data-apply-rename="${esc(o.nodeId)}" data-new-name="${esc(o.suggestedName)}" title="Rename layer to '${esc(o.suggestedName)}'">Rename to "${esc(o.suggestedName)}"</button>`
+                      : '';
+                    return `<div class="offender-row" data-offender-node="${esc(o.nodeId)}" data-offender-rule="${esc(rule)}">
+                      <div class="offender-body">
+                        <div class="offender-name">${esc(o.name)}</div>
+                        <div class="offender-detail">${esc(o.detail)}</div>
+                        ${applyBtn}
+                      </div>
+                      <button class="bullseye-btn" data-select-node="${esc(o.nodeId)}" title="Select layer in Figma" aria-label="Select layer">
+                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><circle cx="6" cy="6" r="4.5"/><circle cx="6" cy="6" r="2"/><circle cx="6" cy="6" r="0.7" fill="currentColor" stroke="none"/></svg>
+                      </button>
+                    </div>`;
+                  }).join("") + '</div>'
+                : '';
+              return `<div class="breakdown-item${hasOffenders ? '' : ''}">
+                <div class="breakdown-row ${hasOffenders ? 'clickable' : ''}">
+                  <span class="rule-name">${chevron}${esc(rule)}</span>
+                  <span class="result ${r.passed ? 'pass' : 'fail'}">${r.passed ? 'Pass' : count + ' issue' + (count === 1 ? '' : 's')}</span>
+                </div>
+                ${offendersHtml}
+              </div>`;
+            }).join("");
+          // Progress-ring geometry: r=42 → C ≈ 263.89
+          const RING_CIRCUMFERENCE = 263.89;
+          const pct = Math.max(0, Math.min(100, f.score)) / 100;
+          const dashOffset = RING_CIRCUMFERENCE * (1 - pct);
+          return `
+            <div class="frame-report">
+              <div class="score-row">
+                <div class="score-circle ${cls}">
+                  <svg class="score-ring" width="92" height="92" viewBox="0 0 92 92">
+                    <circle class="score-ring-track" cx="46" cy="46" r="42"/>
+                    <circle class="score-ring-progress" cx="46" cy="46" r="42"
+                      stroke-dasharray="${RING_CIRCUMFERENCE}"
+                      stroke-dashoffset="${dashOffset.toFixed(2)}"/>
+                  </svg>
+                  <div class="score-circle-inner">
+                    <span class="score-big">${f.score}</span>
+                    <span class="score-denominator">out of 100</span>
+                  </div>
+                </div>
+                <div class="frame-name">${esc(f.name)}</div>
+                ${f.perfect ? '<span class="perfect-badge">Perfect</span>' : ''}
+              </div>
+              <div class="breakdown-grid">${breakdown}</div>
+            </div>`;
+        }).join("");
+      }
+
+      reportEl.addEventListener("click", (ev) => {
+        const applyBtn = ev.target.closest(".apply-rename-btn");
+        if (applyBtn) {
+          ev.stopPropagation();
+          const nodeId = applyBtn.getAttribute("data-apply-rename");
+          const newName = applyBtn.getAttribute("data-new-name");
+          if (nodeId && newName) {
+            applyBtn.disabled = true;
+            applyBtn.textContent = "Renaming…";
+            parent.postMessage({ pluginMessage: { type: "rename-node", nodeId, newName } }, "*");
+          }
+          return;
+        }
+        const bullseye = ev.target.closest(".bullseye-btn");
+        if (bullseye) {
+          ev.stopPropagation();
+          const nodeId = bullseye.getAttribute("data-select-node");
+          if (nodeId) {
+            parent.postMessage({ pluginMessage: { type: "select-node", nodeId } }, "*");
+          }
+          return;
+        }
+        const row = ev.target.closest(".breakdown-row.clickable");
+        if (!row) return;
+        const item = row.parentElement;
+        item.classList.toggle("is-open");
+      });
+
+      // When a rename succeeds, remove the naming offender + bump the score.
+      // We can't perfectly recompute (we don't have totalChecked per rule),
+      // so we estimate: every fixed offender nudges the score up by a small
+      // share of the remaining gap to 100. When the naming rule flips from
+      // failing to passed, it gets a bigger bump worth roughly 1/N_rules.
+      function handleRenameDone(nodeId, newName) {
+        if (!lastReport || !lastReport.frames) return;
+        for (const frame of lastReport.frames) {
+          const naming = frame.breakdown && frame.breakdown.naming;
+          if (!naming || !naming.offenders) continue;
+          const before = naming.offenders.length;
+          const removedOne = naming.offenders.some(o => o.nodeId === nodeId);
+          if (!removedOne) continue;
+          naming.offenders = naming.offenders.filter(o => o.nodeId !== nodeId);
+          const justEmptied = before > 0 && naming.offenders.length === 0;
+          if (justEmptied) naming.passed = true;
+          if (frame.issues) {
+            frame.issues = frame.issues.filter(i => !(i.nodeId === nodeId && i.rule === "naming"));
+          }
+          // Bump the frame score
+          const rules = frame.breakdown ? Object.values(frame.breakdown).filter(r => r.enabled !== false) : [];
+          const ruleShare = rules.length ? 100 / rules.length : 0;
+          const current = frame.score || 0;
+          let next = current;
+          if (justEmptied) {
+            // The whole rule's remaining deficit becomes 100 → bump by that rule's share
+            next = current + Math.round(ruleShare * 0.6); // conservative fraction, full jump on re-run
+          } else {
+            // Small incremental bump: ~share / (offendersBefore+1)
+            next = current + Math.max(1, Math.round(ruleShare / (before + 1)));
+          }
+          frame.perfect = rules.every(r => r.passed);
+          // If every rule now passes, we know the exact score is 100.
+          if (frame.perfect) {
+            frame.score = 100;
+          } else {
+            frame.score = Math.max(current, Math.min(100, next));
+          }
+        }
+        renderReport(lastReport);
+      }
+
+      // Listen for rename-done / rename-failed from the sandbox
+      window.addEventListener("message", (ev) => {
+        const msg = ev.data && ev.data.pluginMessage;
+        if (!msg) return;
+        if (msg.type === "rename-done") handleRenameDone(msg.nodeId, msg.newName);
+      });
+
+      exportBtn.addEventListener("click", () => {
+        if (!lastReport) return;
+        const blob = new Blob([JSON.stringify(lastReport, null, 2)], { type: "application/json" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "ai-programmability-" + new Date().toISOString().slice(0, 19).replace(/[:]/g, "-") + ".json";
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      });
+
+      function esc(s) {
+        return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+      }
+    </script>
+  </body>
+</html>

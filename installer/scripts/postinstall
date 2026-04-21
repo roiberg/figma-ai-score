@@ -1,9 +1,60 @@
 #!/bin/bash
 # Post-install script for figma-ai-score MCP server.
-# Runs as the installing user (not root) thanks to pkgbuild --install-location.
+#
+# macOS .pkg postinstall scripts run as root with a minimal PATH
+# (/usr/bin:/bin:/usr/sbin:/sbin — no Homebrew, no NVM). That was breaking
+# the `command -v npm` check and also leaving root-owned files in the
+# user's home. We fix both by re-exec'ing as the installing user with
+# a login shell, which picks up their real PATH and ownership.
 
 set -e
 
+# ── Figure out who we're installing for ──
+INSTALL_USER="${USER:-}"
+if [ -z "$INSTALL_USER" ] || [ "$INSTALL_USER" = "root" ]; then
+  INSTALL_USER="$(stat -f '%Su' /dev/console 2>/dev/null || true)"
+fi
+if [ -z "$INSTALL_USER" ] || [ "$INSTALL_USER" = "root" ]; then
+  echo "ERROR: could not determine a non-root installing user." >&2
+  exit 1
+fi
+USER_HOME="$(eval echo ~"$INSTALL_USER")"
+
+LOG="$USER_HOME/Library/Logs/figma-ai-score-install.log"
+mkdir -p "$(dirname "$LOG")" 2>/dev/null || true
+exec > >(tee -a "$LOG") 2>&1
+echo "=== figma-ai-score install $(date) ==="
+echo "Running as: $(id -un) (uid $(id -u))"
+echo "Installing for: $INSTALL_USER ($USER_HOME)"
+
+# ── Phase 1: if we're root, re-exec as the installing user ──
+if [ "$(id -u)" = "0" ]; then
+  # Clean up any root-owned leftovers from a previous failed install,
+  # otherwise the user-phase `mkdir -p` will hit permission denied.
+  if [ -d "$USER_HOME/Library/Application Support/figma-ai-score" ]; then
+    echo "Removing root-owned leftovers from previous install attempt ..."
+    rm -rf "$USER_HOME/Library/Application Support/figma-ai-score"
+  fi
+
+  # Move the payload to a user-readable/deletable location (/tmp is root-owned).
+  STAGE="$USER_HOME/Library/Caches/figma-ai-score-pkg"
+  rm -rf "$STAGE"
+  mkdir -p "$(dirname "$STAGE")"
+  cp -R /tmp/figma-ai-score-pkg "$STAGE"
+  chown -R "$INSTALL_USER" "$STAGE"
+  # chown the Caches dir only if WE just created it; ignore failures if it existed.
+  chown "$INSTALL_USER" "$USER_HOME/Library/Caches" 2>/dev/null || true
+  rm -rf /tmp/figma-ai-score-pkg
+
+  echo "Re-executing as $INSTALL_USER ..."
+  exec /usr/bin/su - "$INSTALL_USER" -c "FIGMA_AI_SCORE_STAGE='$STAGE' bash '$0'"
+fi
+
+# ── Phase 2: running as the installing user with a login shell ──
+# (PATH now includes Homebrew / NVM / whatever the user has.)
+echo "Phase 2 PATH: $PATH"
+
+STAGE="${FIGMA_AI_SCORE_STAGE:-/tmp/figma-ai-score-pkg}"
 INSTALL_DIR="$HOME/Library/Application Support/figma-ai-score/mcp-server"
 CLAUDE_DIR="$HOME/.claude"
 CLAUDE_MD="$CLAUDE_DIR/CLAUDE.md"
@@ -12,34 +63,42 @@ REVIEW_MD="$COMMANDS_DIR/review.md"
 SERVER_JS="$INSTALL_DIR/index.js"
 MARKER="<!-- figma-ai-score -->"
 
-LOG="$HOME/Library/Logs/figma-ai-score-install.log"
-exec > >(tee -a "$LOG") 2>&1
-echo "=== figma-ai-score install $(date) ==="
-
 # ── 1. Copy MCP server files ──
 echo "Copying MCP server to $INSTALL_DIR ..."
 mkdir -p "$INSTALL_DIR"
-cp /tmp/figma-ai-score-pkg/mcp-server/index.js "$INSTALL_DIR/"
-cp /tmp/figma-ai-score-pkg/mcp-server/package.json "$INSTALL_DIR/"
-cp /tmp/figma-ai-score-pkg/mcp-server/package-lock.json "$INSTALL_DIR/"
+cp "$STAGE/mcp-server/index.js" "$INSTALL_DIR/"
+cp "$STAGE/mcp-server/package.json" "$INSTALL_DIR/"
+cp "$STAGE/mcp-server/package-lock.json" "$INSTALL_DIR/"
 
 # ── 2. npm install ──
 echo "Running npm install ..."
-if command -v npm &>/dev/null; then
+if command -v npm >/dev/null 2>&1; then
   cd "$INSTALL_DIR"
   npm install --production 2>&1
 else
-  echo "ERROR: npm not found. Please install Node.js (https://nodejs.org) and re-run this installer."
+  echo "ERROR: npm not found in PATH ($PATH)." >&2
+  echo "Install Node.js (https://nodejs.org) and re-run the installer." >&2
   exit 1
 fi
 
 # ── 3. Register MCP server with Claude Code ──
 echo "Registering MCP server with Claude Code ..."
-if command -v claude &>/dev/null; then
-  claude mcp add figma-ai-score node "$SERVER_JS" 2>&1 || true
+CLAUDE_BIN=""
+if command -v claude >/dev/null 2>&1; then
+  CLAUDE_BIN="$(command -v claude)"
+elif [ -x "$HOME/.claude/local/claude" ]; then
+  CLAUDE_BIN="$HOME/.claude/local/claude"
+fi
+if [ -n "$CLAUDE_BIN" ]; then
+  echo "Using claude at: $CLAUDE_BIN"
+  # -s user → register at user scope so it applies in every Claude Code
+  # session regardless of cwd. Without -s, it defaults to "local" scope
+  # tied to the cwd at install time, which is this script's cwd — a
+  # directory no Claude Code session will ever be launched from.
+  "$CLAUDE_BIN" mcp add -s user figma-ai-score node "$SERVER_JS" 2>&1 || true
 else
   echo "WARNING: claude CLI not found. After installing Claude Code, run:"
-  echo "  claude mcp add figma-ai-score node \"$SERVER_JS\""
+  echo "  claude mcp add -s user figma-ai-score node \"$SERVER_JS\""
 fi
 
 # ── 4. Append to ~/.claude/CLAUDE.md (idempotent) ──
@@ -62,6 +121,23 @@ When the user says \"connect to ai score\" — just call get_selection to wake u
 ### Running a review
 
 When the user asks to review, score, check, audit, or evaluate their design/designs/frames/selection — in any phrasing — treat it as a review request. Call get_preferences and follow the instructions it returns. The /review slash command does the same thing.
+
+### If the figma-ai-score tools aren't available in this session
+
+**Default assumption: the tools ARE available.** Always attempt get_selection or get_preferences first when the user asks. Do not preemptively tell the user anything about sessions or installation.
+
+Only use the canned message below if ALL of these are true:
+1. You actually tried invoking a figma-ai-score tool (e.g. get_selection)
+2. The attempt failed because the tool does not exist in your toolbelt — not because the plugin is disconnected, not because of a timeout, not because of any runtime error
+3. You can confirm via claude mcp list (Bash) that figma-ai-score is registered on disk
+
+Only then, say exactly:
+
+> \"All is ready. Please start a new Claude Code session and try again — the tools will be available there.\"
+
+Do not attempt workarounds (restarting the server, re-running claude mcp add, etc.) — those won't change the running session's tool registry.
+
+If the tool call fails with \"plugin is not connected\", that's a different situation — see \"Connection errors\" below.
 
 ### Connection errors
 
@@ -112,10 +188,12 @@ REVIEWEOF
 
 echo "Done installing /review command."
 
-# ── 6. Clean up temp files ──
-rm -rf /tmp/figma-ai-score-pkg
+# ── 6. Clean up staged payload ──
+rm -rf "$STAGE"
 
 echo "=== figma-ai-score install complete ==="
 echo ""
-echo "Next step: Open the AI Programmability Score plugin in Figma."
-echo "Then tell Claude to 'review' your designs."
+echo "Next steps:"
+echo "  1. If Claude Code is already open, start a new session (new tools load at session start)."
+echo "  2. Open the AI Programmability Score plugin in Figma."
+echo "  3. In Claude Code, say \"connect to ai score\" or \"review my design\"."

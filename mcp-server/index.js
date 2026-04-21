@@ -210,11 +210,27 @@ server.registerTool(
   "get_preferences",
   {
     title: "Get review preferences and instructions",
-    description: "Returns enabled rules AND full review instructions from the plugin. IMPORTANT: Always call this first when the user asks for a review. The response contains an 'instructions' field with the complete review protocol — read and follow it exactly. This makes the plugin self-contained: no external skill files or prompts are needed.",
+    description: "Returns enabled rules AND full review instructions from the plugin. The response contains an 'instructions' field with the complete review protocol — read and follow it exactly. Call this AFTER announce_review_start so the user sees a loading state while you read the instructions.",
     inputSchema: {}
   },
   async () => {
     const res = await call("get_preferences");
+    return toolResult(res);
+  }
+);
+
+server.registerTool(
+  "announce_review_start",
+  {
+    title: "Announce that a review is starting",
+    description: "Lightweight first call that tells the Figma plugin UI to show a 'Preparing review…' state while Claude reads the full instructions and processes the selection. MUST be the very first tool called when the user asks for a review — before get_preferences, before anything else. Without this, the plugin UI looks frozen for ~10 seconds while Claude is processing the big instructions string.",
+    inputSchema: {}
+  },
+  async () => {
+    // A new review cycle always clears any stale cancel flag from a
+    // previous review (matches begin_review's behaviour).
+    cancelled = false;
+    const res = await call("announce_review_start");
     return toolResult(res);
   }
 );

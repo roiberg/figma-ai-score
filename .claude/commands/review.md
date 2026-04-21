@@ -2,9 +2,10 @@ You are about to run a Figma AI Programmability review using the figma-ai-score 
 
 ## Steps
 
-1. Call `get_preferences` — it returns `enabledRules` and an `instructions` field containing the complete review protocol. Read the instructions carefully and follow them exactly.
-2. The instructions will tell you the full flow: get selection, begin review, scan frames, apply rules, compute scores, and submit the report.
-3. Follow the protocol from the instructions. Do not skip steps or invent rules beyond what the instructions specify.
+1. Call `announce_review_start` FIRST — as your very first action. It takes no arguments and returns instantly. This flips the Figma plugin UI into a "Preparing review…" state so the user sees feedback immediately (without it, the UI looks frozen for ~10 seconds while you read the instructions).
+2. Call `get_preferences` — it returns `enabledRules` and an `instructions` field containing the complete review protocol. Read the instructions carefully and follow them exactly.
+3. The instructions will tell you the rest of the flow: get selection, begin review, scan frames, apply rules, compute scores, and submit the report.
+4. Follow the protocol from the instructions. Do not skip steps or invent rules beyond what the instructions specify.
 
 That's it. Everything you need is inside `get_preferences`. Go.
 

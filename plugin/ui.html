@@ -585,6 +585,42 @@
       }
       /* Stacked-modal: explainer sits above the ignored-list popup */
       #inherited-overlay { z-index: 200; }
+      /* Full-UI overlay shown when another Figma tab has taken over the
+         plugin connection. Higher z-index than every other overlay so
+         nothing shows through. */
+      #replaced-overlay { z-index: 300; background: rgba(0,0,0,0.45); }
+      #replaced-overlay .suggestion-card {
+        gap: 12px;
+        text-align: center;
+        align-items: center;
+        max-width: 360px;
+      }
+      #replaced-overlay .replaced-title {
+        font-size: 14px;
+        font-weight: 700;
+        color: var(--text);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      #replaced-overlay .replaced-body {
+        font-size: 12px;
+        line-height: 1.5;
+        color: var(--text-secondary);
+        margin: 0;
+      }
+      #replaced-overlay .replaced-btn {
+        background: var(--accent);
+        color: #fff;
+        border: 0;
+        border-radius: var(--radius-sm);
+        padding: 8px 14px;
+        font-size: 12px;
+        font-weight: 600;
+        font-family: inherit;
+        cursor: pointer;
+      }
+      #replaced-overlay .replaced-btn:hover { background: #5b21b6; }
       .chip-icon {
         flex-shrink: 0;
         display: inline-flex;
@@ -1178,6 +1214,19 @@
           <div id="conn-dot" class="conn-dot"></div>
           <span id="conn-label">disconnected</span>
         </div>
+      </div>
+    </div>
+
+    <div id="replaced-overlay" class="suggestion-overlay" style="display:none">
+      <div class="suggestion-card">
+        <div class="replaced-title">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="9" rx="1.5"/><path d="M5 13v1h6v-1"/></svg>
+          Active in another Figma tab
+        </div>
+        <p class="replaced-body">
+          To avoid conflicts, only one tab can connect at a time.
+        </p>
+        <button id="replaced-reclaim" class="replaced-btn">Use this tab instead</button>
       </div>
     </div>
 
@@ -1795,9 +1844,28 @@
         if (connBadge) connBadge.style.display = isSimple ? "none" : "";
       }
       let heartbeatTimer = null;
+      // "Replaced" overlay: server closes this socket with reason "replaced"
+      // when another Figma tab opens the plugin and takes over. We stop
+      // auto-reconnecting and show the overlay so the user isn't dropped
+      // into an invisible ping-pong between tabs.
+      const replacedOverlay = document.getElementById("replaced-overlay");
+      const replacedReclaimBtn = document.getElementById("replaced-reclaim");
+      function showReplacedOverlay() { if (replacedOverlay) replacedOverlay.style.display = ""; }
+      function hideReplacedOverlay() { if (replacedOverlay) replacedOverlay.style.display = "none"; }
+      if (replacedReclaimBtn) {
+        replacedReclaimBtn.addEventListener("click", () => {
+          // User wants THIS tab to win — reconnect, which will cause the
+          // server to close the other tab's socket with reason "replaced"
+          // and the other tab will display its own overlay.
+          hideReplacedOverlay();
+          connect();
+        });
+      }
+
       function connect() {
         clearTimeout(reconnectTimer);
         if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+        hideReplacedOverlay();
         try { ws = new WebSocket(BRIDGE_URL); }
         catch (e) { setConnected(false); reconnectTimer = setTimeout(connect, 2000); return; }
 
@@ -1812,9 +1880,15 @@
             }
           }, 15000);
         };
-        ws.onclose = () => {
+        ws.onclose = (ev) => {
           if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
           setConnected(false);
+          // Honour the server's intentional kick: another tab took over.
+          // Don't auto-reconnect or we'd ping-pong forever.
+          if (ev && ev.reason === "replaced") {
+            showReplacedOverlay();
+            return;
+          }
           reconnectTimer = setTimeout(connect, 2000);
         };
         ws.onerror = () => {};

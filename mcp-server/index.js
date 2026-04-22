@@ -311,7 +311,14 @@ server.registerTool(
               nodeId: z.string(),
               name: z.string(),
               detail: z.string(),
-              suggestedName: z.string().optional()
+              suggestedName: z.string().optional(),
+              suggestedToken: z.object({
+                kind: z.enum(["variable", "style"]),
+                id: z.string(),
+                name: z.string(),
+                slot: z.enum(["fill", "stroke"]),
+                reason: z.string()
+              }).optional()
             }))
           })),
           issues: z.array(z.object({

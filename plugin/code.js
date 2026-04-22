@@ -60,7 +60,37 @@ Be specific in the detail: reference what you see in the screenshot AND the node
   colors: `### colors
 Every visible SOLID fill or stroke must have either a boundVariable (non-null) OR a fillStyleId/strokeStyleId (non-null). A raw hex color with no binding is an offender. Only SOLID fills/strokes are checked — IMAGE, VIDEO, and gradient fills are never flagged (they don't carry color tokens). Skip fills/strokes where visible is false. Skip nodes inside INSTANCE children (library internals). Skip device chrome nodes.
 
-IMPORTANT — Size tokens are NEVER an issue. The team does not use Figma variables for width, height, or any dimensional values. Do NOT flag missing size tokens. Do NOT suggest "adding sizing variables" or "binding width/height to tokens." This is an absolute rule.`,
+SKIP all fills and strokes on COMPONENT_SET nodes. Figma automatically renders a dotted purple outline around a component set to visually mark the variant container on the canvas — that's an editor affordance, not a product style, and it has no color token by design. Never flag it.
+
+IMPORTANT — Size tokens are NEVER an issue. The team does not use Figma variables for width, height, or any dimensional values. Do NOT flag missing size tokens. Do NOT suggest "adding sizing variables" or "binding width/height to tokens." This is an absolute rule.
+
+#### Token suggestions (attach \`suggestedToken\` to color offenders)
+
+For every color offender, attempt to suggest a specific token from the DS catalog (provided in the scan response as \`designSystem: { variables: [...], paintStyles: [...] }\`). Follow these rules:
+
+1. **Skip the suggestion entirely if the node has \`hasMultipleFills: true\` (for fill offenders) or \`hasMultipleStrokes: true\` (for stroke offenders).** Multi-paint nodes have ambiguous intent; don't guess.
+2. **Only suggest tokens whose \`color\` exactly matches the offender's hex value (including alpha).** No "close enough" matching.
+3. **If zero tokens match**: no suggestion. Leave the offender without \`suggestedToken\`.
+4. **If exactly one token matches**: suggest it. The \`reason\` is simply "Found a token with exact match."
+5. **If multiple tokens match**: pick the MOST appropriate one based on the screenshot and the context of this specific use. Consider the layer's role (button background, surface, text color, etc.) and match it to the token's semantic name.
+6. **Prefer semantic tokens over primitives when values are equal.** Primitives (e.g. \`colors/blue-500\`, \`primitives/neutral/100\`) are scale-style raw values; semantic tokens (e.g. \`colors/surface/primary\`, \`colors/brand/accent\`) encode intent. Variables marked \`isPrimitive: true\` in the catalog are primitives. When the semantic choice differs in value from what the designer drew, still prefer the closest-semantic-match if the value is equal; NEVER override an exact-value match to pick a semantic one with a different value.
+7. **Prefer variables over paint styles** when both match — variables are the modern system.
+
+When you pick a token for cases #5 or #6, the \`reason\` field must explain WHY. Short, one-sentence justification. Examples:
+- "Chosen over colors/neutral/100 (same value) because semantic tokens are preferred over primitives."
+- "Matches the button-background role in the screenshot — other exact matches (colors/surface/raised) don't fit the interactive context."
+- "Exact match; only token in the DS with this value."
+
+The \`suggestedToken\` object shape:
+\`\`\`
+{
+  kind: "variable" | "style",  // which system the token belongs to
+  id: string,                  // the variable or style id from the catalog
+  name: string,                // display name (e.g. "colors/brand/primary")
+  slot: "fill" | "stroke",     // which paint slot it binds to on the node
+  reason: string               // one-sentence "why"
+}
+\`\`\``,
 
   typography: `### typography
 Every TEXT node must have textStyleId set (non-null), OR have ALL of boundTypography.fontSize, boundTypography.fontFamily, boundTypography.fontWeight, and boundTypography.lineHeight bound (non-null). If neither condition is met, the text node is an offender. Skip TEXT nodes inside INSTANCE children.`,
@@ -78,7 +108,7 @@ SKIP the following — they are NEVER spacing offenders:
 - **\`itemSpacing\` on nodes with fewer than 2 children**. itemSpacing is the gap *between* siblings; with 0 or 1 children, the value has no visible effect regardless of how it's set. Evaluate other spacing properties on the node normally, but skip \`itemSpacing\` itself.`,
 
   effects: `### effects
-Every visible effect (in the effects array) must come from an effectStyleId (non-null on the node). If a node has visible effects but no effectStyleId, it is an offender. Skip nodes inside INSTANCE children.`,
+Every visible effect (in the effects array) must come from an effectStyleId (non-null on the node). If a node has visible effects but no effectStyleId, it is an offender. Skip nodes inside INSTANCE children. Skip COMPONENT_SET nodes — their effects (if any) are canvas affordances for the variant container, not product styles.`,
 
   naming: `### naming (smart)
 Every designer-owned node should have a semantic, descriptive name that accurately reflects what the layer is. Run the two checks below on every designer-owned node, INCLUDING the root frame (a selected frame named "Frame 1" is itself a naming problem). Skip nodes inside INSTANCE children and skip device chrome.
@@ -388,12 +418,19 @@ figma.ui.onmessage = async (msg) => {
       }
       // In Simple mode we run the naive versions of every enabled rule, including naming.
       const lintRules = Object.assign({}, prefs);
+      // Fetch the DS catalog once per review — it's the same for every frame.
+      // Used by lintColors to suggest a token when a color offender has an
+      // unambiguous exact match.
+      let ds = null;
+      try { ds = await getDesignSystem(); } catch (e) {
+        console.warn("[figma-ai-score] getDesignSystem (run-lint) failed:", e && e.message);
+      }
       const frameReports = [];
       for (const f of summary.frames) {
         const node = figma.getNodeById(f.id);
         if (!node) continue;
         const tree = extractNode(node);
-        const result = lintFrame(tree, lintRules);
+        const result = lintFrame(tree, lintRules, ds);
         frameReports.push({
           nodeId: f.id,
           name: f.name,
@@ -425,6 +462,50 @@ figma.ui.onmessage = async (msg) => {
         figma.ui.postMessage({ type: "rename-done", nodeId: msg.nodeId, newName: msg.newName });
       } catch (e) {
         figma.ui.postMessage({ type: "rename-failed", nodeId: msg.nodeId, error: String(e && e.message || e) });
+      }
+      return;
+    }
+    if (msg.type === "apply-token") {
+      // Bind a color token (variable or paint style) to a node's first
+      // fill or stroke. Skipped deliberately on multi-fill/multi-stroke
+      // nodes — suggestions are only generated for single-paint layers,
+      // so this handler expects a node in that shape.
+      try {
+        const { nodeId, slot, kind, tokenId } = msg;
+        let node = null;
+        if (typeof figma.getNodeByIdAsync === "function") {
+          try { node = await figma.getNodeByIdAsync(nodeId); } catch (e) {}
+        }
+        if (!node) node = figma.getNodeById(nodeId);
+        if (!node) throw new Error("node not found");
+
+        if (kind === "style") {
+          if (slot === "fill") node.fillStyleId = tokenId;
+          else if (slot === "stroke") node.strokeStyleId = tokenId;
+          else throw new Error("unknown slot: " + slot);
+        } else if (kind === "variable") {
+          const variable = typeof figma.variables.getVariableByIdAsync === "function"
+            ? await figma.variables.getVariableByIdAsync(tokenId)
+            : figma.variables.getVariableById(tokenId);
+          if (!variable) throw new Error("variable not found");
+          const prop = slot === "fill" ? "fills" : slot === "stroke" ? "strokes" : null;
+          if (!prop) throw new Error("unknown slot: " + slot);
+          const paints = [...(node[prop] || [])];
+          if (paints.length === 0) throw new Error("no paints on this node to bind");
+          // Bind only the first paint (matches the single-paint assumption).
+          paints[0] = figma.variables.setBoundVariableForPaint(paints[0], "color", variable);
+          node[prop] = paints;
+        } else {
+          throw new Error("unknown kind: " + kind);
+        }
+        figma.ui.postMessage({ type: "apply-token-done", nodeId, slot });
+      } catch (e) {
+        figma.ui.postMessage({
+          type: "apply-token-failed",
+          nodeId: msg.nodeId,
+          slot: msg.slot,
+          error: (e && e.message) ? e.message : String(e)
+        });
       }
       return;
     }
@@ -561,13 +642,21 @@ async function handleRpc(method, params) {
         thumbError = String(e && e.message || e);
         console.error("[figma-ai-score] thumbnail export failed:", e);
       }
+      // DS catalog — used by Claude in Smart mode to suggest color tokens.
+      // Simple mode doesn't come through here (it lints locally), it fetches
+      // its own via the run-lint handler.
+      let designSystem = null;
+      try { designSystem = await getDesignSystem(); } catch (e) {
+        console.warn("[figma-ai-score] getDesignSystem failed:", e && e.message);
+      }
       return {
         fileName: figma.root.name,
         pageName: figma.currentPage.name,
         root: { id: node.id, name: node.name, type: node.type },
         tree,
         thumbnail,
-        thumbError
+        thumbError,
+        designSystem
       };
     }
     case "highlight_nodes": {
@@ -723,10 +812,15 @@ function lintComponents(root) {
 }
 
 // ── colors rule ──
-function lintColors(root) {
+function lintColors(root, ds) {
   const offenders = [];
   let totalChecked = 0;
+  const hasDs = ds && ((ds.variables || []).length > 0 || (ds.paintStyles || []).length > 0);
   walkDesignerNodes(root, (node) => {
+    // Skip COMPONENT_SET — its fills/strokes are Figma canvas affordances
+    // (the dotted purple outline around a variant container), not design
+    // decisions that need a token.
+    if (node.type === "COMPONENT_SET") return;
     // Only SOLID fills can be tokenized. Image/video/gradient fills are skipped
     // (they don't carry color tokens). A layer with only an image fill and no
     // SOLID fill produces nothing to check.
@@ -734,14 +828,44 @@ function lintColors(root) {
       if (f.type !== "SOLID" || f.visible === false) continue;
       totalChecked++;
       if (!f.boundVariable && !node.fillStyleId) {
-        offenders.push({ nodeId: node.id, name: node.name, detail: `Fill ${f.color || ""} is not using a color token or style.` });
+        const o = {
+          nodeId: node.id,
+          name: node.name,
+          detail: `Fill ${f.color || ""} is not using a color token or style.`
+        };
+        // Suggest a token only when unambiguous: single fill on the node
+        // AND exactly one matching token in the DS.
+        if (hasDs && !node.hasMultipleFills) {
+          const match = findTokensByColor(ds, f.color);
+          if (match) {
+            o.suggestedToken = Object.assign({}, match, {
+              slot: "fill",
+              reason: "Found a token with exact match."
+            });
+          }
+        }
+        offenders.push(o);
       }
     }
     for (const s of (node.strokes || [])) {
       if (s.type !== "SOLID" || s.visible === false) continue;
       totalChecked++;
       if (!s.boundVariable && !node.strokeStyleId) {
-        offenders.push({ nodeId: node.id, name: node.name, detail: `Stroke ${s.color || ""} is not using a color token or style.` });
+        const o = {
+          nodeId: node.id,
+          name: node.name,
+          detail: `Stroke ${s.color || ""} is not using a color token or style.`
+        };
+        if (hasDs && !node.hasMultipleStrokes) {
+          const match = findTokensByColor(ds, s.color);
+          if (match) {
+            o.suggestedToken = Object.assign({}, match, {
+              slot: "stroke",
+              reason: "Found a token with exact match."
+            });
+          }
+        }
+        offenders.push(o);
       }
     }
   });
@@ -827,6 +951,8 @@ function lintEffects(root) {
   const offenders = [];
   let totalChecked = 0;
   walkDesignerNodes(root, (node) => {
+    // COMPONENT_SET effects are Figma-canvas affordances, not product code.
+    if (node.type === "COMPONENT_SET") return;
     const visible = (node.effects || []).filter(e => e.visible !== false);
     if (visible.length === 0) return;
     totalChecked++;
@@ -881,10 +1007,10 @@ function lintNaming(root) {
 }
 
 // ── orchestrator ──
-function lintFrame(tree, enabledRules) {
+function lintFrame(tree, enabledRules, ds) {
   const breakdown = {};
   if (enabledRules.components) breakdown.components = lintComponents(tree);
-  if (enabledRules.colors) breakdown.colors = lintColors(tree);
+  if (enabledRules.colors) breakdown.colors = lintColors(tree, ds);
   if (enabledRules.typography) breakdown.typography = lintTypography(tree);
   if (enabledRules.spacing) breakdown.spacing = lintSpacing(tree);
   if (enabledRules.effects) breakdown.effects = lintEffects(tree);
@@ -952,10 +1078,14 @@ function extractNode(node, depth = 0, maxDepth = 8) {
   if ("fills" in node && Array.isArray(node.fills)) {
     out.fills = node.fills.map(serializePaint);
     out.fillStyleId = node.fillStyleId || null;
+    // Token-suggestion logic skips nodes with more than one fill (visible
+    // or hidden) — the intent is ambiguous with multiple paints stacked.
+    out.hasMultipleFills = node.fills.length > 1;
   }
   if ("strokes" in node && Array.isArray(node.strokes)) {
     out.strokes = node.strokes.map(serializePaint);
     out.strokeStyleId = node.strokeStyleId || null;
+    out.hasMultipleStrokes = node.strokes.length > 1;
   }
   if ("effects" in node && Array.isArray(node.effects)) {
     out.effects = node.effects.map(serializeEffect);
@@ -1038,6 +1168,139 @@ function rgbToHex(c, opacity) {
   let s = "#" + h(c.r) + h(c.g) + h(c.b);
   if (typeof opacity === "number" && opacity < 1) s += h(opacity);
   return s;
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Design System catalog — local color variables + paint styles.
+// Feeds the color-token suggestion feature (Simple and Smart modes).
+//
+// - Variables are resolved to their concrete hex value using the
+//   collection's default mode. One-hop alias resolution (a semantic
+//   token aliasing a primitive both show the same hex).
+// - Paint styles: only SOLID-fill styles included; gradients / images
+//   can't be bound as color tokens.
+// - isPrimitive: a heuristic hint ("primitives", "raw", scale numerics
+//   like blue-500). Simple mode doesn't use this — it only cares about
+//   exact matches. Smart mode uses it as a tie-breaker, preferring
+//   semantic tokens over primitives when values are equal.
+// ──────────────────────────────────────────────────────────────────
+function isPrimitiveTokenName(variableName, collectionName) {
+  const hay = ((variableName || "") + " " + (collectionName || "")).toLowerCase();
+  if (/\bprimitive(s)?\b|\braw\b|\bcore\b|\bbase\b/.test(hay)) return true;
+  // Leaf segment like "blue-500", "gray-100" — classic primitive scale.
+  const lastSeg = (variableName || "").split("/").pop() || "";
+  if (/^[a-z]+-?\d{2,4}$/i.test(lastSeg)) return true;
+  return false;
+}
+
+async function getDesignSystem() {
+  const variables = [];
+  const paintStyles = [];
+
+  // ── Color variables ──
+  try {
+    if (figma.variables && typeof figma.variables.getLocalVariablesAsync === "function") {
+      const vars = await figma.variables.getLocalVariablesAsync("COLOR");
+      const collCache = new Map();
+      for (const v of vars) {
+        let coll = collCache.get(v.variableCollectionId);
+        if (!coll) {
+          try {
+            if (typeof figma.variables.getVariableCollectionByIdAsync === "function") {
+              coll = await figma.variables.getVariableCollectionByIdAsync(v.variableCollectionId);
+            } else if (typeof figma.variables.getVariableCollectionById === "function") {
+              coll = figma.variables.getVariableCollectionById(v.variableCollectionId);
+            }
+          } catch (e) {}
+          if (coll) collCache.set(v.variableCollectionId, coll);
+        }
+        const modeId = coll && coll.defaultModeId;
+        let raw = v.valuesByMode && modeId ? v.valuesByMode[modeId] : null;
+        // One-hop alias resolution — a semantic token that aliases a primitive.
+        if (raw && raw.type === "VARIABLE_ALIAS") {
+          try {
+            const referenced = typeof figma.variables.getVariableByIdAsync === "function"
+              ? await figma.variables.getVariableByIdAsync(raw.id)
+              : figma.variables.getVariableById(raw.id);
+            if (referenced && referenced.valuesByMode) {
+              // Prefer the REFERENCED variable's own collection default mode
+              // (the collection that owns the concrete value).
+              let refColl = collCache.get(referenced.variableCollectionId);
+              if (!refColl) {
+                try {
+                  refColl = typeof figma.variables.getVariableCollectionByIdAsync === "function"
+                    ? await figma.variables.getVariableCollectionByIdAsync(referenced.variableCollectionId)
+                    : figma.variables.getVariableCollectionById(referenced.variableCollectionId);
+                  if (refColl) collCache.set(referenced.variableCollectionId, refColl);
+                } catch (e) {}
+              }
+              const refModeId = refColl && refColl.defaultModeId;
+              raw = refModeId ? referenced.valuesByMode[refModeId] : null;
+            }
+          } catch (e) { raw = null; }
+        }
+        if (!raw || typeof raw !== "object" || !("r" in raw)) continue;
+        // Note: variable color objects are {r,g,b,a}; rgbToHex accepts
+        // opacity as a separate arg, so pass raw.a.
+        const hex = rgbToHex(raw, typeof raw.a === "number" ? raw.a : undefined);
+        variables.push({
+          id: v.id,
+          name: v.name,
+          color: hex,
+          collectionName: coll ? coll.name : null,
+          isPrimitive: isPrimitiveTokenName(v.name, coll ? coll.name : null)
+        });
+      }
+    }
+  } catch (e) {
+    console.warn("[figma-ai-score] variables enumeration failed:", e && e.message);
+  }
+
+  // ── Paint styles (the older style system) ──
+  try {
+    let styles = [];
+    if (typeof figma.getLocalPaintStylesAsync === "function") {
+      styles = await figma.getLocalPaintStylesAsync();
+    } else if (typeof figma.getLocalPaintStyles === "function") {
+      styles = figma.getLocalPaintStyles();
+    }
+    for (const s of styles) {
+      const paints = s.paints || [];
+      const solid = paints.find(p => p && p.type === "SOLID" && p.color);
+      if (!solid) continue;
+      paintStyles.push({
+        id: s.id,
+        name: s.name,
+        color: rgbToHex(solid.color, solid.opacity)
+      });
+    }
+  } catch (e) {
+    console.warn("[figma-ai-score] paint-style enumeration failed:", e && e.message);
+  }
+
+  return { variables, paintStyles };
+}
+
+// Find tokens (variable preferred over style when both match).
+// Returns { kind: "variable"|"style", id, name, color, isPrimitive? } or null.
+// If `allMatches` is true, returns an array of all matches instead.
+function findTokensByColor(ds, hex, opts) {
+  opts = opts || {};
+  const norm = (c) => (c || "").toLowerCase();
+  const target = norm(hex);
+  const varMatches = (ds.variables || [])
+    .filter(v => norm(v.color) === target)
+    .map(v => ({ kind: "variable", id: v.id, name: v.name, color: v.color, isPrimitive: v.isPrimitive, collectionName: v.collectionName }));
+  const styleMatches = (ds.paintStyles || [])
+    .filter(s => norm(s.color) === target)
+    .map(s => ({ kind: "style", id: s.id, name: s.name, color: s.color }));
+  if (opts.allMatches) return [...varMatches, ...styleMatches];
+  // Prefer variable over style when both match (user's call).
+  if (varMatches.length === 1 && styleMatches.length === 0) return varMatches[0];
+  if (varMatches.length === 0 && styleMatches.length === 1) return styleMatches[0];
+  // Variable AND style both exactly one each → prefer variable.
+  if (varMatches.length === 1 && styleMatches.length === 1) return varMatches[0];
+  return null; // 0 matches, or ambiguous
 }
 function bytesToBase64(bytes) {
   // Pure-JS base64 encoder. Figma's plugin sandbox doesn't provide btoa().

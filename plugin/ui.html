@@ -968,6 +968,15 @@
         outline: none;
       }
       button.apply-rename-btn:disabled { opacity: 0.5; cursor: default; }
+      /* Reason text shown under a token-apply button (color suggestions).
+         Explains why this particular token was picked. */
+      .apply-reason {
+        font-size: 9.5px;
+        line-height: 1.4;
+        color: var(--text-tertiary);
+        margin-top: 3px;
+        max-width: 100%;
+      }
       button.bullseye-btn {
         flex-shrink: 0;
         width: 22px;
@@ -2233,9 +2242,20 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
                 : '';
               const offendersHtml = hasOffenders
                 ? '<div class="breakdown-offenders">' + offenders.map(o => {
-                    const applyBtn = (rule === "naming" && o.suggestedName)
-                      ? `<button class="apply-rename-btn" data-apply-rename="${esc(o.nodeId)}" data-new-name="${esc(o.suggestedName)}" title="Rename layer to '${esc(o.suggestedName)}'">Rename to "${esc(o.suggestedName)}"</button>`
-                      : '';
+                    let applyBtn = '';
+                    if (rule === "naming" && o.suggestedName) {
+                      applyBtn = `<button class="apply-rename-btn" data-apply-rename="${esc(o.nodeId)}" data-new-name="${esc(o.suggestedName)}" title="Rename layer to '${esc(o.suggestedName)}'">Rename to "${esc(o.suggestedName)}"</button>`;
+                    } else if (rule === "colors" && o.suggestedToken) {
+                      const t = o.suggestedToken;
+                      applyBtn =
+                        `<button class="apply-rename-btn" ` +
+                          `data-apply-token="${esc(o.nodeId)}" ` +
+                          `data-token-kind="${esc(t.kind)}" ` +
+                          `data-token-id="${esc(t.id)}" ` +
+                          `data-token-slot="${esc(t.slot)}" ` +
+                          `title="Bind this ${esc(t.slot)} to ${esc(t.name)}">Use ${esc(t.name)}</button>` +
+                        (t.reason ? `<div class="apply-reason">${esc(t.reason)}</div>` : '');
+                    }
                     return `<div class="offender-row" data-offender-node="${esc(o.nodeId)}" data-offender-rule="${esc(rule)}">
                       <div class="offender-body">
                         <div class="offender-name">${esc(o.name)}</div>
@@ -2287,14 +2307,28 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         const applyBtn = ev.target.closest(".apply-rename-btn");
         if (applyBtn) {
           ev.stopPropagation();
-          const nodeId = applyBtn.getAttribute("data-apply-rename");
+          // Rename suggestion (naming rule)
+          const renameId = applyBtn.getAttribute("data-apply-rename");
           const newName = applyBtn.getAttribute("data-new-name");
-          if (nodeId && newName) {
+          if (renameId && newName) {
             applyBtn.disabled = true;
             applyBtn.textContent = "Renaming…";
-            parent.postMessage({ pluginMessage: { type: "rename-node", nodeId, newName } }, "*");
+            parent.postMessage({ pluginMessage: { type: "rename-node", nodeId: renameId, newName } }, "*");
+            return;
           }
-          return;
+          // Token-binding suggestion (colors rule)
+          const tokenNodeId = applyBtn.getAttribute("data-apply-token");
+          if (tokenNodeId) {
+            const kind = applyBtn.getAttribute("data-token-kind");
+            const tokenId = applyBtn.getAttribute("data-token-id");
+            const slot = applyBtn.getAttribute("data-token-slot");
+            applyBtn.disabled = true;
+            applyBtn.textContent = "Applying…";
+            parent.postMessage({
+              pluginMessage: { type: "apply-token", nodeId: tokenNodeId, kind, tokenId, slot }
+            }, "*");
+            return;
+          }
         }
         const bullseye = ev.target.closest(".bullseye-btn");
         if (bullseye) {
@@ -2353,11 +2387,51 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         renderReport(lastReport);
       }
 
-      // Listen for rename-done / rename-failed from the sandbox
+      // Called when a color-token binding succeeded. Mirrors handleRenameDone
+      // — removes the color offender from the report, bumps the frame score,
+      // and re-renders. Native Figma undo handles rollback if the user regrets.
+      function handleTokenApplied(nodeId) {
+        if (!lastReport || !lastReport.frames) return;
+        for (const frame of lastReport.frames) {
+          const colors = frame.breakdown && frame.breakdown.colors;
+          if (!colors || !colors.offenders) continue;
+          const before = colors.offenders.length;
+          const removedOne = colors.offenders.some(o => o.nodeId === nodeId);
+          if (!removedOne) continue;
+          colors.offenders = colors.offenders.filter(o => o.nodeId !== nodeId);
+          const justEmptied = before > 0 && colors.offenders.length === 0;
+          if (justEmptied) colors.passed = true;
+          if (frame.issues) {
+            frame.issues = frame.issues.filter(i => !(i.nodeId === nodeId && i.rule === "colors"));
+          }
+          const rules = frame.breakdown ? Object.values(frame.breakdown).filter(r => r.enabled !== false) : [];
+          const ruleShare = rules.length ? 100 / rules.length : 0;
+          const current = frame.score || 0;
+          let next = current;
+          if (justEmptied) {
+            next = current + Math.round(ruleShare * 0.6);
+          } else {
+            next = current + Math.max(1, Math.round(ruleShare / (before + 1)));
+          }
+          frame.perfect = rules.every(r => r.passed);
+          if (frame.perfect) frame.score = 100;
+          else frame.score = Math.max(current, Math.min(100, next));
+        }
+        renderReport(lastReport);
+      }
+
+      // Listen for rename-done / rename-failed / apply-token-* from the sandbox
       window.addEventListener("message", (ev) => {
         const msg = ev.data && ev.data.pluginMessage;
         if (!msg) return;
         if (msg.type === "rename-done") handleRenameDone(msg.nodeId, msg.newName);
+        if (msg.type === "apply-token-done") handleTokenApplied(msg.nodeId);
+        if (msg.type === "apply-token-failed") {
+          console.error("[figma-ai-score] token apply failed:", msg.error);
+          alert("Couldn't apply the token: " + (msg.error || "unknown error"));
+          // Re-render so the disabled/loading button resets from the report.
+          if (lastReport) renderReport(lastReport);
+        }
         if (msg.type === "export-image-result") {
           if (!pendingExportResolver) return;
           const resolver = pendingExportResolver;

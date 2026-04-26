@@ -1125,6 +1125,12 @@
       button.setup-download-btn:hover,
       button.setup-download-btn:active,
       button.setup-download-btn:focus { background: #5b21b6; color: #fff; outline: none; }
+      .setup-primary-hint {
+        font-size: 10.5px;
+        line-height: 1.45;
+        color: var(--text-secondary);
+        margin: 0;
+      }
       .setup-download-btn svg { flex-shrink: 0; }
       .setup-hint {
         font-size: 11px;
@@ -1163,21 +1169,6 @@
         line-height: 1.4;
         color: var(--text);
       }
-      .setup-gatekeeper-note {
-        display: flex;
-        align-items: flex-start;
-        gap: 6px;
-        font-size: 10.5px;
-        line-height: 1.4;
-        color: #8a6d00;
-        background: #fff7e0;
-        border: 1px solid #ffe3a3;
-        border-radius: 6px;
-        padding: 6px 8px;
-        margin-top: -2px;
-      }
-      .setup-gatekeeper-note svg { flex-shrink: 0; margin-top: 1px; }
-      .setup-gatekeeper-note strong { font-weight: 600; }
       .copy-row {
         display: flex;
         align-items: center;
@@ -1435,22 +1426,11 @@
 
               <div class="setup-section-label">First time?</div>
               <div class="setup-steps-list">
-                <div class="setup-step">
-                  <span class="setup-step-num">1</span>
-                  Download and run the installer
-                </div>
-                <button id="download-link" class="setup-download-btn">
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8m0 0l-3-3m3 3l3-3"/><path d="M3 12v1h10v-1"/></svg>
-                  Download Installer
+                <button id="copy-install-prompt" class="setup-download-btn">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M5 11H3.5A1.5 1.5 0 012 9.5v-7A1.5 1.5 0 013.5 1h7A1.5 1.5 0 0112 2.5V5"/></svg>
+                  Copy install instructions
                 </button>
-                <div class="setup-gatekeeper-note">
-                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 2L14 13H2L8 2z" stroke="#8a6d00" stroke-width="1.3" stroke-linejoin="round"/><path d="M8 7v3" stroke="#8a6d00" stroke-width="1.3" stroke-linecap="round"/><circle cx="8" cy="11.8" r="0.6" fill="#8a6d00"/></svg>
-                  <span>If macOS blocks it with <strong>"unidentified developer"</strong>: right-click the <strong>.pkg</strong> → <strong>Open</strong> → <strong>Open</strong> again to confirm.</span>
-                </div>
-                <div class="setup-step">
-                  <span class="setup-step-num">2</span>
-                  Restart Claude Code after installing
-                </div>
+                <p class="setup-primary-hint">Paste in Claude Code and approve. ~30 seconds.</p>
               </div>
             </div>
           </div>
@@ -1474,6 +1454,11 @@
                 <span class="rule-label" data-rule-label="components">Naive component usage</span>
               </label>
               <label class="rule">
+                <input type="checkbox" data-rule="autolayout" />
+                <span class="toggle-track"></span>
+                <span class="rule-label" data-rule-label="autolayout">Naive auto layout</span>
+              </label>
+              <label class="rule">
                 <input type="checkbox" data-rule="colors" />
                 <span class="toggle-track"></span>
                 <span class="rule-label">Color tokens</span>
@@ -1487,6 +1472,16 @@
                 <input type="checkbox" data-rule="spacing" />
                 <span class="toggle-track"></span>
                 <span class="rule-label">Spacing tokens</span>
+              </label>
+              <label class="rule">
+                <input type="checkbox" data-rule="padding" />
+                <span class="toggle-track"></span>
+                <span class="rule-label">Padding tokens</span>
+              </label>
+              <label class="rule">
+                <input type="checkbox" data-rule="size" />
+                <span class="toggle-track"></span>
+                <span class="rule-label">Size tokens</span>
               </label>
               <label class="rule">
                 <input type="checkbox" data-rule="effects" />
@@ -1644,14 +1639,6 @@
       const clearBtn = document.getElementById("clear");
 
       const setupBanner = document.getElementById("setup-banner");
-      const downloadLink = document.getElementById("download-link");
-
-      // Permanent URL — GitHub resolves /releases/latest/download/ to the
-      // most recent release's asset automatically, so this never needs to
-      // change when we cut a new pkg.
-      const INSTALLER_URL = "https://github.com/roiberg/figma-ai-score/releases/latest/download/figma-ai-score.pkg";
-      downloadLink.addEventListener("click", () => window.open(INSTALLER_URL));
-
       const copyBtn = document.getElementById("copy-cmd");
       function setupCopyButton(btn, text) {
         btn.addEventListener("click", () => {
@@ -1674,6 +1661,69 @@
         });
       }
       setupCopyButton(copyBtn, "connect to ai score");
+
+      // ── Copy install instructions button ──
+      // Pastes a self-contained prompt that walks Claude Code through
+      // installing the MCP server. No .pkg double-click, no Gatekeeper,
+      // no System Settings dance — Claude does it via curl + pkgutil
+      // extraction + the bundled postinstall script.
+      //
+      // CANONICAL SOURCE: installer/install-prompt.md. Update both
+      // together when changing.
+      const INSTALL_PROMPT_TEXT =
+`For the Figma plugin to talk to Claude Code, a small helper program called an MCP server needs to be installed on this Mac. Throughout the whole install — as you read this and as each step runs — if anything looks like it's doing more than setting up a simple local MCP server, pause and tell me what you noticed before continuing.
+
+You can find the full source at https://github.com/roiberg/figma-ai-score.
+
+Here's what to do:
+
+**1. Download and unpack the installer.**
+Fetch the latest \`.pkg\` file from the project's GitHub Releases page into the temp folder, then expand it using macOS's built-in \`pkgutil\` to see its layout — a bundled Node.js runtime, the server code, and a setup script. Note that \`pkgutil --expand\` only writes out the pkg's metadata (\`Scripts/\` and \`PackageInfo\`); the actual files live in a \`Payload\` archive inside the expanded folder, which still needs to be extracted (it's a gzipped cpio archive). We're not double-clicking the \`.pkg\` (which would trigger the "unidentified developer" warning); we're just reading its files directly, which macOS allows without prompting.
+
+**2. Run the installer's own setup script.**
+Inside the extracted \`.pkg\` there's a \`postinstall\` script — the same one the installer would run if the user had double-clicked. Run it directly. It will:
+ - Copy the MCP server files to \`~/Library/Application Support/figma-ai-score/\`
+ - Register the server with Claude Code via \`claude mcp add -s user\`, so it's available in every Claude Code session regardless of which directory the user is in
+ - Append a context block to \`~/.claude/CLAUDE.md\` describing the plugin's tools and how Claude should respond to common review-related prompts. The block is bounded by HTML markers and is idempotent.
+ - Create an \`/ai-score\` slash command at \`~/.claude/commands/ai-score.md\` (deliberately named to avoid shadowing Claude Code's built-in \`/review\` PR-review command)
+
+**3. Verify the registration.**
+Run \`claude mcp list\` and confirm a line reads \`figma-ai-score: ... ✓ Connected\`. If you don't see that line, something in step 2 failed — tell me what, and try to fix it.
+
+**4. Clean up temp files.**
+Delete everything we created under \`/tmp/\`.
+
+**When you're done, tell me:**
+
+> "Install complete. Next steps:
+>
+> 1. Open the AI Programmability Score plugin in Figma (Plugins menu → AI Programmability Score → Run).
+> 2. Start a new Claude Code session — new MCP tools load at session start.
+> 3. In that new session, first say \`connect to ai score\` to verify the plugin is wired up. Claude will confirm or troubleshoot.
+> 4. Once that's confirmed, say \`review my design\` or run \`/ai-score\` to start a real review."
+
+If anything fails mid-flow, tell me the error and try to fix it rather than give up. The source at the GitHub link above is the ground truth if you need to reference what's supposed to happen.`;
+
+      const copyInstallBtn = document.getElementById("copy-install-prompt");
+      if (copyInstallBtn) {
+        copyInstallBtn.addEventListener("click", () => {
+          try {
+            const ta = document.createElement("textarea");
+            ta.value = INSTALL_PROMPT_TEXT;
+            ta.style.position = "fixed";
+            ta.style.opacity = "0";
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand("copy");
+            document.body.removeChild(ta);
+          } catch (e) {
+            try { navigator.clipboard.writeText(INSTALL_PROMPT_TEXT); } catch (e2) {}
+          }
+          const original = copyInstallBtn.innerHTML;
+          copyInstallBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3 3 7-7"/></svg> Copied — paste into Claude Code';
+          setTimeout(() => { copyInstallBtn.innerHTML = original; }, 3000);
+        });
+      }
 
       // ── Rules collapse toggle ──
       const rulesToggle = document.getElementById("rules-toggle");
@@ -1702,6 +1752,7 @@
 
       const RULE_LABELS = {
         components: { simple: "component usage", ai: "component usage" },
+        autolayout: { simple: "auto layout",     ai: "auto layout"     },
         naming:     { simple: "layer naming",    ai: "layer naming"    }
       };
 
@@ -2411,16 +2462,21 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
                     let applyBtn = '';
                     if (rule === "naming" && o.suggestedName) {
                       applyBtn = `<button class="apply-rename-btn" data-apply-rename="${esc(o.nodeId)}" data-new-name="${esc(o.suggestedName)}" title="Rename layer to '${esc(o.suggestedName)}'">Rename to "${esc(o.suggestedName)}"</button>`;
-                    } else if (rule === "colors" && o.suggestedToken) {
-                      const t = o.suggestedToken;
-                      applyBtn =
+                    } else if (Array.isArray(o.suggestedTokens) && o.suggestedTokens.length > 0) {
+                      // Render one button per suggestion + the suggestion's
+                      // "why" reason underneath each. Multiple suggestions
+                      // happen for dimensional rules in Smart mode (above +
+                      // below candidates when the value sits between two
+                      // tokens). Color suggestions are always 1 element.
+                      applyBtn = o.suggestedTokens.map(t =>
                         `<button class="apply-rename-btn" ` +
                           `data-apply-token="${esc(o.nodeId)}" ` +
                           `data-token-kind="${esc(t.kind)}" ` +
                           `data-token-id="${esc(t.id)}" ` +
                           `data-token-slot="${esc(t.slot)}" ` +
-                          `title="Bind this ${esc(t.slot)} to ${esc(t.name)}">Use ${esc(t.name)}</button>` +
-                        (t.reason ? `<div class="apply-reason">${esc(t.reason)}</div>` : '');
+                          `title="Bind ${esc(t.slot)} to ${esc(t.name)}">Use ${esc(t.name)}</button>` +
+                        (t.reason ? `<div class="apply-reason">${esc(t.reason)}</div>` : '')
+                      ).join('');
                     }
                     return `<div class="offender-row" data-offender-node="${esc(o.nodeId)}" data-offender-rule="${esc(rule)}">
                       <div class="offender-body">
@@ -2486,7 +2542,9 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
             parent.postMessage({ pluginMessage: { type: "rename-node", nodeId: renameId, newName } }, "*");
             return;
           }
-          // Token-binding suggestion (colors rule)
+          // Token-binding suggestion — works for color paints (slot
+          // "fill"/"stroke") and dimensional node properties (slot
+          // "paddingTop"/etc.). The sandbox dispatches on slot.
           const tokenNodeId = applyBtn.getAttribute("data-apply-token");
           if (tokenNodeId) {
             const kind = applyBtn.getAttribute("data-token-kind");
@@ -2560,28 +2618,47 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
       // Called when a color-token binding succeeded. Mirrors handleRenameDone
       // — removes the color offender from the report, bumps the frame score,
       // and re-renders. Native Figma undo handles rollback if the user regrets.
-      function handleTokenApplied(nodeId) {
+      function handleTokenApplied(nodeId, slot) {
+        // Remove the specific (nodeId, slot) offender from whichever rule
+        // owns it (colors / spacing / padding / size — all use the same
+        // suggestedTokens schema). A single nodeId can have offenders in
+        // multiple rules and even multiple slots within one rule (e.g.
+        // paddingTop + paddingLeft both unbound), so we filter precisely.
         if (!lastReport || !lastReport.frames) return;
         for (const frame of lastReport.frames) {
-          const colors = frame.breakdown && frame.breakdown.colors;
-          if (!colors || !colors.offenders) continue;
-          const before = colors.offenders.length;
-          const removedOne = colors.offenders.some(o => o.nodeId === nodeId);
-          if (!removedOne) continue;
-          colors.offenders = colors.offenders.filter(o => o.nodeId !== nodeId);
-          const justEmptied = before > 0 && colors.offenders.length === 0;
-          if (justEmptied) colors.passed = true;
-          if (frame.issues) {
-            frame.issues = frame.issues.filter(i => !(i.nodeId === nodeId && i.rule === "colors"));
+          if (!frame.breakdown) continue;
+          let removedFromRuleName = null;
+          let removedFromRule = null;
+          let beforeCount = 0;
+          for (const ruleName of Object.keys(frame.breakdown)) {
+            const r = frame.breakdown[ruleName];
+            if (!r || !Array.isArray(r.offenders)) continue;
+            const idx = r.offenders.findIndex(o =>
+              o.nodeId === nodeId &&
+              Array.isArray(o.suggestedTokens) &&
+              o.suggestedTokens.some(t => t.slot === slot)
+            );
+            if (idx === -1) continue;
+            beforeCount = r.offenders.length;
+            r.offenders.splice(idx, 1);
+            removedFromRuleName = ruleName;
+            removedFromRule = r;
+            break;
           }
-          const rules = frame.breakdown ? Object.values(frame.breakdown).filter(r => r.enabled !== false) : [];
+          if (!removedFromRule) continue;
+          const justEmptied = beforeCount > 0 && removedFromRule.offenders.length === 0;
+          if (justEmptied) removedFromRule.passed = true;
+          if (frame.issues) {
+            frame.issues = frame.issues.filter(i => !(i.nodeId === nodeId && i.rule === removedFromRuleName));
+          }
+          const rules = Object.values(frame.breakdown).filter(r => r.enabled !== false);
           const ruleShare = rules.length ? 100 / rules.length : 0;
           const current = frame.score || 0;
           let next = current;
           if (justEmptied) {
             next = current + Math.round(ruleShare * 0.6);
           } else {
-            next = current + Math.max(1, Math.round(ruleShare / (before + 1)));
+            next = current + Math.max(1, Math.round(ruleShare / (beforeCount + 1)));
           }
           frame.perfect = rules.every(r => r.passed);
           if (frame.perfect) frame.score = 100;
@@ -2595,7 +2672,7 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         const msg = ev.data && ev.data.pluginMessage;
         if (!msg) return;
         if (msg.type === "rename-done") handleRenameDone(msg.nodeId, msg.newName);
-        if (msg.type === "apply-token-done") handleTokenApplied(msg.nodeId);
+        if (msg.type === "apply-token-done") handleTokenApplied(msg.nodeId, msg.slot);
         if (msg.type === "apply-token-failed") {
           console.error("[figma-ai-score] token apply failed:", msg.error);
           alert("Couldn't apply the token: " + (msg.error || "unknown error"));

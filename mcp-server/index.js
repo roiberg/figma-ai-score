@@ -312,13 +312,28 @@ server.registerTool(
               name: z.string(),
               detail: z.string(),
               suggestedName: z.string().optional(),
-              suggestedToken: z.object({
+              // Array of token suggestions:
+              //   - Color offenders: 0 or 1 element (always exact match)
+              //   - Dimensional offenders: 0, 1, or 2 elements
+              //     (1 = exact match, 2 = above + below candidates)
+              suggestedTokens: z.array(z.object({
+                // Dimensional suggestions are always "variable".
+                // Color suggestions can be either "variable" or "style".
                 kind: z.enum(["variable", "style"]),
                 id: z.string(),
                 name: z.string(),
-                slot: z.enum(["fill", "stroke"]),
+                // "fill" / "stroke" → color paint binding.
+                // "paddingTop" / "paddingRight" / "paddingBottom" /
+                // "paddingLeft" / "itemSpacing" / "width" / "height"
+                //   → node-property binding.
+                slot: z.enum([
+                  "fill", "stroke",
+                  "paddingTop", "paddingRight", "paddingBottom", "paddingLeft",
+                  "itemSpacing",
+                  "width", "height"
+                ]),
                 reason: z.string()
-              }).optional()
+              })).optional()
             }))
           })),
           issues: z.array(z.object({

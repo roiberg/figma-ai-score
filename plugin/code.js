@@ -10,12 +10,15 @@ console.log("[figma-ai-score] plugin loaded (build: image-fill-exempt, 2026-04-2
 figma.showUI(__html__, { width: 653, height: 739, themeColors: true });
 
 const DEFAULT_RULES = {
+  naming: true,
   components: true,
+  autolayout: true,
   colors: true,
   typography: true,
   spacing: true,
-  effects: true,
-  naming: true
+  padding: true,
+  size: true,
+  effects: true
 };
 const PREFS_KEY = "figma-ai-score.prefs.v1";
 
@@ -62,16 +65,14 @@ Every visible SOLID fill or stroke must have either a boundVariable (non-null) O
 
 SKIP all fills and strokes on COMPONENT_SET nodes. Figma automatically renders a dotted purple outline around a component set to visually mark the variant container on the canvas — that's an editor affordance, not a product style, and it has no color token by design. Never flag it.
 
-IMPORTANT — Size tokens are NEVER an issue. The team does not use Figma variables for width, height, or any dimensional values. Do NOT flag missing size tokens. Do NOT suggest "adding sizing variables" or "binding width/height to tokens." This is an absolute rule.
+#### Token suggestions (attach \`suggestedTokens\` array to color offenders)
 
-#### Token suggestions (attach \`suggestedToken\` to color offenders)
-
-For every color offender, attempt to suggest a specific token from the DS catalog (provided in the scan response as \`designSystem: { variables: [...], paintStyles: [...] }\`). Follow these rules:
+For every color offender, attempt to suggest a specific token from the DS catalog (provided in the scan response as \`designSystem: { variables: [...], numberVariables: [...], paintStyles: [...] }\`). Follow these rules:
 
 1. **Skip the suggestion entirely if the node has \`hasMultipleFills: true\` (for fill offenders) or \`hasMultipleStrokes: true\` (for stroke offenders).** Multi-paint nodes have ambiguous intent; don't guess.
-2. **Only suggest tokens whose \`color\` exactly matches the offender's hex value (including alpha).** No "close enough" matching.
-3. **If zero tokens match**: no suggestion. Leave the offender without \`suggestedToken\`.
-4. **If exactly one token matches**: suggest it. The \`reason\` is simply "Found a token with exact match."
+2. **Only suggest tokens whose \`color\` exactly matches the offender's hex value (including alpha).** No "close enough" matching for colors — colors are unlike dimensional tokens; non-exact color matches are almost never what the designer wants.
+3. **If zero tokens match**: no suggestion. Leave the offender without \`suggestedTokens\`.
+4. **If exactly one token matches**: suggest it as a 1-element array. The \`reason\` is simply "Found a token with exact match."
 5. **If multiple tokens match**: pick the MOST appropriate one based on the screenshot and the context of this specific use. Consider the layer's role (button background, surface, text color, etc.) and match it to the token's semantic name.
 6. **Prefer semantic tokens over primitives when values are equal.** Primitives (e.g. \`colors/blue-500\`, \`primitives/neutral/100\`) are scale-style raw values; semantic tokens (e.g. \`colors/surface/primary\`, \`colors/brand/accent\`) encode intent. Variables marked \`isPrimitive: true\` in the catalog are primitives. When the semantic choice differs in value from what the designer drew, still prefer the closest-semantic-match if the value is equal; NEVER override an exact-value match to pick a semantic one with a different value.
 7. **Prefer variables over paint styles** when both match — variables are the modern system.
@@ -81,7 +82,9 @@ When you pick a token for cases #5 or #6, the \`reason\` field must explain WHY.
 - "Matches the button-background role in the screenshot — other exact matches (colors/surface/raised) don't fit the interactive context."
 - "Exact match; only token in the DS with this value."
 
-The \`suggestedToken\` object shape:
+Color offenders always get an array of length 0 or 1 in \`suggestedTokens\`. Multiple-candidate suggestions (above + below) are reserved for dimensional rules.
+
+The \`suggestedTokens[i]\` object shape for color suggestions:
 \`\`\`
 {
   kind: "variable" | "style",  // which system the token belongs to
@@ -96,16 +99,106 @@ The \`suggestedToken\` object shape:
 Every TEXT node must have textStyleId set (non-null), OR have ALL of boundTypography.fontSize, boundTypography.fontFamily, boundTypography.fontWeight, and boundTypography.lineHeight bound (non-null). If neither condition is met, the text node is an offender. Skip TEXT nodes inside INSTANCE children.`,
 
   spacing: `### spacing
-For every node that has an autolayout property, check each of its spacing properties (paddingTop, paddingRight, paddingBottom, paddingLeft, itemSpacing). A property is an offender only when ALL of these are true:
-  1. Its numeric value is non-zero (zero values are always fine — 0px has nothing to tokenize).
-  2. Its corresponding bound (e.g. bound.paddingTop) is null.
-If a node has any such offending property, the node is an offender. Properties with a value of 0 are ALWAYS fine regardless of their bound status. Spacing tokens (gap, padding) ARE expected — spacing ≠ sizing.
+For every auto-layout node (\`node.autolayout\` is truthy), check \`itemSpacing\` — the gap between siblings. A node is an offender when ALL of these are true:
+  1. \`itemSpacing\` is a non-zero number (zero is always fine).
+  2. \`autolayout.bound.itemSpacing\` is null (no variable bound).
+  3. The node has 2 or more children (with 0 or 1 children, itemSpacing has no visible effect — skip).
 
-SKIP the following — they are NEVER spacing offenders:
-- The root frame and component set roots.
-- INSTANCE nodes. An instance's padding/itemSpacing is defined by the library component it was created from — the designer cannot bind those values on the instance itself. Evaluate the library component, not the instance.
-- **Vertical padding on fixed-height atoms** (buttons, chips, inputs, pills, tags). When a node has \`autolayout.sizingVertical === "FIXED"\` AND \`paddingTop === paddingBottom\`, those two paddings are derived from the element's fixed height and a centered content — they're not independent design decisions and shouldn't be tokenized. Skip \`paddingTop\` and \`paddingBottom\` on these nodes. Horizontal paddings on the same node still need to be bound (they ARE design decisions — how much breathing room around the content). In vision mode, use the screenshot to confirm: button/chip/pill/input shapes visually reading as fixed-height atoms get this exemption.
-- **\`itemSpacing\` on nodes with fewer than 2 children**. itemSpacing is the gap *between* siblings; with 0 or 1 children, the value has no visible effect regardless of how it's set. Evaluate other spacing properties on the node normally, but skip \`itemSpacing\` itself.`,
+SKIP — these are NEVER spacing offenders:
+- The root frame.
+- INSTANCE nodes (library-controlled).
+- COMPONENT_SET nodes (Figma editor affordance, not product code).
+
+#### Token suggestions for spacing offenders
+
+Use the FLOAT-typed entries in \`designSystem.numberVariables\`. For each offender:
+- **Filter to spacing-appropriate tokens.** Look at variable name + collection name; prefer ones with "spacing", "gap", "space" in either. Reject tokens whose names hint at unrelated dimensions (font-size, line-height, border-radius, opacity).
+- **Exact value match → 1 candidate.** If exactly one filtered token has \`value === itemSpacing\`, suggest that one with reason "Found a token with exact match."
+- **No exact match → 2 candidates (above + below).** Find the highest token \`value < offender\` and the lowest \`value > offender\`. Push both. Reason for each: explain where the value sits, e.g. "13px sits between spacing-medium (12px) and spacing-large (16px) — pick whichever fits the design intent."
+- **Tie-breakers when multiple exact matches**: prefer semantic over primitive. Same heuristic as colors.
+- **No appropriate tokens at all** → empty \`suggestedTokens\` array.
+
+The \`suggestedTokens[i]\` object shape for dimensional suggestions:
+\`\`\`
+{
+  kind: "variable",            // dimensional suggestions are always variables
+  id: string,                  // variable id from the catalog
+  name: string,                // display name (e.g. "spacing/medium")
+  slot: "itemSpacing",         // for the spacing rule, always this
+  reason: string               // one-sentence "why"
+}
+\`\`\``,
+
+  padding: `### padding
+For every auto-layout node, check the four padding properties: \`paddingTop\`, \`paddingRight\`, \`paddingBottom\`, \`paddingLeft\`. A property is an offender when:
+  1. Its numeric value is non-zero.
+  2. Its corresponding \`autolayout.bound.<prop>\` is null.
+
+Each failing property is its own offender entry (so a node with three unbound paddings produces three offender rows).
+
+SKIP — these are NEVER padding offenders:
+- The root frame.
+- INSTANCE nodes.
+- COMPONENT_SET nodes.
+- **Vertical paddings on fixed-height atoms.** When a node has \`autolayout.sizingVertical === "FIXED"\` AND \`paddingTop === paddingBottom\`, those two paddings are derived from the fixed height (centering content) — not independent design decisions. Skip both \`paddingTop\` and \`paddingBottom\` on these nodes. Horizontal paddings on the same node still need to be bound (they ARE design decisions). Use the screenshot to confirm: button/chip/pill/input shapes visually reading as fixed-height atoms get this exemption.
+
+#### Token suggestions for padding offenders
+
+Use \`designSystem.numberVariables\`. For each offender:
+- **Filter to padding-appropriate tokens.** Names/collections containing "padding" or "pad". Reject obvious mismatches.
+- **Exact value match → 1 candidate.**
+- **No exact match → 2 candidates (above + below).** Highest token below and lowest above the offender's value. Reason for each explains the gap.
+- **Multiple exact matches → semantic preferred over primitive.**
+- **No appropriate tokens at all** → empty array.
+
+\`suggestedTokens[i].slot\` is the property name itself: \`"paddingTop"\` | \`"paddingRight"\` | \`"paddingBottom"\` | \`"paddingLeft"\`.`,
+
+  size: `### size
+For every eligible node (FRAME, GROUP, COMPONENT, INSTANCE), check whether its width and height are using a size token:
+- **If the node has auto-layout**: check \`sizingHorizontal === "FIXED"\` (flag width) and \`sizingVertical === "FIXED"\` (flag height). Each FIXED axis whose corresponding \`sizeBound.width\` / \`sizeBound.height\` is null is an offender.
+- **If the node is non-autolayout**: width and height are intrinsically fixed (no hug/fill). Treat both as FIXED — flag both if not bound.
+
+Each failing axis is its own offender (so a non-autolayout frame with neither width nor height bound produces two offenders).
+
+SKIP — never size offenders:
+- The root frame.
+- INSTANCE nodes themselves (the library author owns instance dimensions; the designer can sometimes resize but the binding is library-controlled).
+- COMPONENT_SET nodes (variant container layout is Figma-canvas affordance).
+- Node types that don't have meaningful width/height for tokenization: TEXT, RECTANGLE, ELLIPSE, VECTOR, BOOLEAN_OPERATION, STAR, LINE, POLYGON, etc. The eligible types are FRAME, GROUP, COMPONENT, INSTANCE.
+
+There is **no fixed-height-atom exemption for size**. A button at fixed height 39px is exactly the kind of node that should be tokenized to a "button-height" or "size-md" token. Flag it.
+
+#### Token suggestions for size offenders
+
+Use \`designSystem.numberVariables\`. For each offender:
+- **Filter to size-appropriate tokens.** Names/collections containing "size", "height", "width", "dim". Explicitly EXCLUDE tokens whose names hint at typography (font-size, line-height, letter-spacing) or radius (border-radius, radius).
+- **Exact value match → 1 candidate.**
+- **No exact match → 2 candidates (above + below).**
+- **Multiple exact matches → semantic preferred over primitive.**
+- **No appropriate tokens** → empty array.
+
+\`suggestedTokens[i].slot\` is \`"width"\` or \`"height"\`.`,
+
+  autolayout: `### auto layout
+Every eligible container node should be using auto-layout. Eligible types: FRAME, GROUP, COMPONENT, COMPONENT_SET, INSTANCE. A container without auto-layout is an offender — the layout becomes brittle in code-generation contexts because positions are absolute, and changes to one element don't ripple through siblings.
+
+This rule does NOT skip device chrome, the root frame, COMPONENT_SET, or the INSTANCE node itself. The user has an explicit "ignore" mechanism in the plugin UI for case-by-case exclusions; rules don't bake in those exclusions. Only skip:
+- Nodes the user has explicitly marked ignored (\`node.ignored === true\`).
+- INSTANCE *children* (library internals — designer can't change them on the instance side). The instance node itself IS evaluated.
+- Ineligible types (TEXT, RECTANGLE, ELLIPSE, VECTOR, etc.) — they can't be auto-layout by Figma's data model.
+
+#### Smart (vision) check on top of the deterministic baseline
+
+In addition to the boolean "is this node auto-layout?" check, use the screenshot to evaluate quality:
+- **Pathologically structured auto-layout** that's technically present but useless — e.g. a single auto-layout wrapper containing 50 absolutely-positioned children. Flag with detail explaining the problem.
+- **Auto-layout that's clearly wrong for the visual** — wrong direction (HORIZONTAL where the layout reads VERTICAL), incorrect alignment that would break in code-gen, mismatched paddings between siblings that look broken.
+- **Decorative compositions** (illustrations, vector groups that aren't laid out) can be reasonable as non-autolayout if the visual structure clearly isn't grid-like. Use judgment: if this group's children would always render as a unit (an icon, a graphic), flag is unnecessary.
+
+Detail format for offenders:
+- "<type> isn't using auto layout." — for the deterministic case.
+- "<type> uses auto layout but [vision-derived problem description]." — for the smart case.
+
+No token suggestions for autolayout offenders — this rule isn't about token bindings.`,
 
   effects: `### effects
 Every visible effect (in the effects array) must come from an effectStyleId (non-null on the node). If a node has visible effects but no effectStyleId, it is an offender. Skip nodes inside INSTANCE children. Skip COMPONENT_SET nodes — their effects (if any) are canvas affordances for the variant container, not product styles.`,
@@ -481,10 +574,14 @@ figma.ui.onmessage = async (msg) => {
       return;
     }
     if (msg.type === "apply-token") {
-      // Bind a color token (variable or paint style) to a node's first
-      // fill or stroke. Skipped deliberately on multi-fill/multi-stroke
-      // nodes — suggestions are only generated for single-paint layers,
-      // so this handler expects a node in that shape.
+      // Bind a token to a node. The slot determines whether we're binding
+      // a color paint or a node property:
+      //   - "fill" / "stroke" → bind variable/style to the first paint of
+      //     that array (single-paint nodes only — guaranteed by suggestion
+      //     logic).
+      //   - "paddingTop" / "paddingRight" / "paddingBottom" / "paddingLeft"
+      //     / "itemSpacing" / "width" / "height" → bind variable to the
+      //     node property directly via setBoundVariable.
       try {
         const { nodeId, slot, kind, tokenId } = msg;
         let node = null;
@@ -494,24 +591,43 @@ figma.ui.onmessage = async (msg) => {
         if (!node) node = figma.getNodeById(nodeId);
         if (!node) throw new Error("node not found");
 
-        if (kind === "style") {
-          if (slot === "fill") node.fillStyleId = tokenId;
-          else if (slot === "stroke") node.strokeStyleId = tokenId;
-          else throw new Error("unknown slot: " + slot);
-        } else if (kind === "variable") {
+        const PAINT_SLOTS = new Set(["fill", "stroke"]);
+        const NODE_PROP_SLOTS = new Set([
+          "paddingTop", "paddingRight", "paddingBottom", "paddingLeft",
+          "itemSpacing", "width", "height"
+        ]);
+
+        if (PAINT_SLOTS.has(slot)) {
+          // Color path (existing behaviour).
+          if (kind === "style") {
+            if (slot === "fill") node.fillStyleId = tokenId;
+            else node.strokeStyleId = tokenId;
+          } else if (kind === "variable") {
+            const variable = typeof figma.variables.getVariableByIdAsync === "function"
+              ? await figma.variables.getVariableByIdAsync(tokenId)
+              : figma.variables.getVariableById(tokenId);
+            if (!variable) throw new Error("variable not found");
+            const prop = slot === "fill" ? "fills" : "strokes";
+            const paints = [...(node[prop] || [])];
+            if (paints.length === 0) throw new Error("no paints on this node to bind");
+            paints[0] = figma.variables.setBoundVariableForPaint(paints[0], "color", variable);
+            node[prop] = paints;
+          } else {
+            throw new Error("unknown kind: " + kind);
+          }
+        } else if (NODE_PROP_SLOTS.has(slot)) {
+          // Dimensional path. Only variables apply (no styles for numbers).
+          if (kind !== "variable") throw new Error("dimensional tokens must be variables, got: " + kind);
           const variable = typeof figma.variables.getVariableByIdAsync === "function"
             ? await figma.variables.getVariableByIdAsync(tokenId)
             : figma.variables.getVariableById(tokenId);
           if (!variable) throw new Error("variable not found");
-          const prop = slot === "fill" ? "fills" : slot === "stroke" ? "strokes" : null;
-          if (!prop) throw new Error("unknown slot: " + slot);
-          const paints = [...(node[prop] || [])];
-          if (paints.length === 0) throw new Error("no paints on this node to bind");
-          // Bind only the first paint (matches the single-paint assumption).
-          paints[0] = figma.variables.setBoundVariableForPaint(paints[0], "color", variable);
-          node[prop] = paints;
+          // setBoundVariable is the modern API; if the property isn't
+          // writable in the current sizing mode (e.g. width on a HUG axis),
+          // Figma throws — surface that as a clear error.
+          node.setBoundVariable(slot, variable);
         } else {
-          throw new Error("unknown kind: " + kind);
+          throw new Error("unknown slot: " + slot);
         }
         figma.ui.postMessage({ type: "apply-token-done", nodeId, slot });
       } catch (e) {
@@ -853,10 +969,10 @@ function lintColors(root, ds) {
         if (hasDs && !node.hasMultipleFills) {
           const match = findTokensByColor(ds, f.color);
           if (match) {
-            o.suggestedToken = Object.assign({}, match, {
+            o.suggestedTokens = [Object.assign({}, match, {
               slot: "fill",
               reason: "Found a token with exact match."
-            });
+            })];
           }
         }
         offenders.push(o);
@@ -874,10 +990,10 @@ function lintColors(root, ds) {
         if (hasDs && !node.hasMultipleStrokes) {
           const match = findTokensByColor(ds, s.color);
           if (match) {
-            o.suggestedToken = Object.assign({}, match, {
+            o.suggestedTokens = [Object.assign({}, match, {
               slot: "stroke",
               reason: "Found a token with exact match."
-            });
+            })];
           }
         }
         offenders.push(o);
@@ -914,8 +1030,29 @@ function lintTypography(root) {
   };
 }
 
-// ── spacing rule (per-property zero-pass) ──
-function lintSpacing(root) {
+// ── Helpers shared by padding/spacing/size suggestion logic ──
+// Build the suggestedTokens array for a numeric offender. Returns either:
+//   - [single match] when there's exactly one DS token at the same value
+//     (filtered to the rule-appropriate keyword set)
+//   - []           when 0 or 2+ matches (Simple-mode safe failure)
+// AI mode is responsible for the "above + below" path; that requires
+// vision context Claude has and we don't.
+function buildDimensionalSuggestion(ds, rule, slot, value) {
+  if (!ds || !Array.isArray(ds.numberVariables) || !ds.numberVariables.length) return null;
+  const filtered = filterDimensionTokensForRule(ds.numberVariables, rule);
+  const match = findTokensByValue(filtered, value);
+  if (!match) return null;
+  return {
+    kind: "variable",
+    id: match.id,
+    name: match.name,
+    slot,                         // e.g. "paddingTop", "itemSpacing", "width"
+    reason: "Found a token with exact match."
+  };
+}
+
+// ── spacing rule — itemSpacing only ──
+function lintSpacing(root, ds) {
   const offenders = [];
   let totalChecked = 0;
   walkDesignerNodes(root, (node, isRoot) => {
@@ -923,35 +1060,175 @@ function lintSpacing(root) {
     if (!node.autolayout) return;
     if (isInstance(node)) return;
     if (node.type === "COMPONENT_SET") return;
-    totalChecked++;
     const al = node.autolayout;
     const b = al.bound || {};
-    // Fixed-height atom exemption: buttons, chips, inputs — when height is
-    // fixed and top == bottom padding, those paddings are derived from
-    // height (content-centered), not an independent design decision.
-    const skipVertical = al.sizingVertical === "FIXED" && al.paddingTop === al.paddingBottom;
     // itemSpacing has no visible effect when there are fewer than 2
     // children — it's purely a gap between siblings. Don't flag it in
     // that case even if the value is hardcoded.
     const childCount = (node.children || []).length;
-    const skipItemSpacing = childCount < 2;
-    const props = ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft", "itemSpacing"];
-    const failed = [];
+    if (childCount < 2) return;
+    totalChecked++;
+    const val = al.itemSpacing;
+    if (val === 0 || val === null || val === undefined) return; // zero is fine
+    if (b.itemSpacing) return; // already bound
+    const o = {
+      nodeId: node.id,
+      name: node.name,
+      detail: `itemSpacing ${val}px is not using a spacing token.`
+    };
+    const sug = buildDimensionalSuggestion(ds, "spacing", "itemSpacing", val);
+    if (sug) o.suggestedTokens = [sug];
+    offenders.push(o);
+  });
+  return {
+    enabled: true,
+    passed: offenders.length === 0,
+    offenders: offenders.slice(0, 30),
+    _totalChecked: totalChecked,
+    _offenderCount: offenders.length
+  };
+}
+
+// ── padding rule — paddingTop/Right/Bottom/Left ──
+// Keeps the fixed-height-atom exemption: when the node has FIXED vertical
+// sizing AND paddingTop === paddingBottom, those vertical paddings are
+// derived from centering content in the fixed height (not independent
+// design decisions). Skip them.
+function lintPadding(root, ds) {
+  const offenders = [];
+  let totalChecked = 0;
+  walkDesignerNodes(root, (node, isRoot) => {
+    if (isRoot) return;
+    if (!node.autolayout) return;
+    if (isInstance(node)) return;
+    if (node.type === "COMPONENT_SET") return;
+    const al = node.autolayout;
+    const b = al.bound || {};
+    const skipVertical = al.sizingVertical === "FIXED" && al.paddingTop === al.paddingBottom;
+    const props = ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"];
+    const failedProps = [];
     for (const p of props) {
       if (skipVertical && (p === "paddingTop" || p === "paddingBottom")) continue;
-      if (skipItemSpacing && p === "itemSpacing") continue;
+      totalChecked++;
       const val = al[p];
-      if (val === 0 || val === null || val === undefined) continue; // zero is fine
-      if (!b[p]) failed.push(p);
+      if (val === 0 || val === null || val === undefined) continue;
+      if (!b[p]) failedProps.push(p);
     }
-    if (failed.length) {
-      offenders.push({
+    if (!failedProps.length) return;
+    // One offender per node per failed property.
+    for (const p of failedProps) {
+      const o = {
         nodeId: node.id,
         name: node.name,
-        detail: `${failed.join(", ")} not using a spacing token.`
-      });
+        detail: `${p} ${al[p]}px is not using a padding token.`
+      };
+      const sug = buildDimensionalSuggestion(ds, "padding", p, al[p]);
+      if (sug) o.suggestedTokens = [sug];
+      offenders.push(o);
     }
   });
+  return {
+    enabled: true,
+    passed: offenders.length === 0,
+    offenders: offenders.slice(0, 30),
+    _totalChecked: totalChecked,
+    _offenderCount: offenders.length
+  };
+}
+
+// ── size rule — fixed dimensions ──
+// Flags any FIXED width/height that isn't bound to a variable.
+// - Auto-layout child: sizingHorizontal/Vertical === "FIXED" → check that axis.
+// - Non-autolayout eligible nodes (FRAME/GROUP/COMPONENT/INSTANCE):
+//   width and height are intrinsically FIXED (no hug/fill). Check both.
+function lintSize(root, ds) {
+  const offenders = [];
+  let totalChecked = 0;
+  walkDesignerNodes(root, (node, isRoot) => {
+    if (isRoot) return;
+    if (isInstance(node)) {
+      // The instance node itself can have its width/height bound; its
+      // children are library territory and we don't recurse into them.
+    }
+    if (node.type === "COMPONENT_SET") return;
+    const eligibleTypes = new Set(["FRAME", "GROUP", "COMPONENT", "INSTANCE"]);
+    if (!eligibleTypes.has(node.type)) return;
+    const sb = node.sizeBound || {};
+    const al = node.autolayout;
+    let hCheck = false, vCheck = false;
+    if (al) {
+      hCheck = al.sizingHorizontal === "FIXED";
+      vCheck = al.sizingVertical === "FIXED";
+    } else {
+      // Non-autolayout: dimensions are intrinsically fixed.
+      hCheck = true;
+      vCheck = true;
+    }
+    if (hCheck) {
+      totalChecked++;
+      if (!sb.width && typeof node.width === "number") {
+        const o = {
+          nodeId: node.id,
+          name: node.name,
+          detail: `width ${node.width}px is not using a size token.`
+        };
+        const sug = buildDimensionalSuggestion(ds, "size", "width", node.width);
+        if (sug) o.suggestedTokens = [sug];
+        offenders.push(o);
+      }
+    }
+    if (vCheck) {
+      totalChecked++;
+      if (!sb.height && typeof node.height === "number") {
+        const o = {
+          nodeId: node.id,
+          name: node.name,
+          detail: `height ${node.height}px is not using a size token.`
+        };
+        const sug = buildDimensionalSuggestion(ds, "size", "height", node.height);
+        if (sug) o.suggestedTokens = [sug];
+        offenders.push(o);
+      }
+    }
+  });
+  return {
+    enabled: true,
+    passed: offenders.length === 0,
+    offenders: offenders.slice(0, 30),
+    _totalChecked: totalChecked,
+    _offenderCount: offenders.length
+  };
+}
+
+// ── auto-layout rule (Simple mode — deterministic) ──
+// Flags eligible container nodes (FRAME/GROUP/COMPONENT/COMPONENT_SET/
+// INSTANCE) that aren't using auto-layout. Walks ALL nodes — no name-based
+// device-chrome skip; the user marks specific nodes ignored if they don't
+// want them flagged. INSTANCE children are still skipped (designer can't
+// fix them on the instance side).
+function lintAutolayoutSimple(root) {
+  const offenders = [];
+  let totalChecked = 0;
+  const eligibleTypes = new Set(["FRAME", "GROUP", "COMPONENT", "COMPONENT_SET", "INSTANCE"]);
+  (function recurse(node, isRoot) {
+    if (!node) return;
+    if (isExplicitlyIgnored(node)) return;
+    if (eligibleTypes.has(node.type)) {
+      totalChecked++;
+      // Auto-layout means `node.autolayout` is truthy in our extracted shape.
+      if (!node.autolayout) {
+        offenders.push({
+          nodeId: node.id,
+          name: node.name,
+          detail: `${node.type.toLowerCase()} isn't using auto layout.`
+        });
+      }
+    }
+    // Don't recurse into INSTANCE children — library internals.
+    if (!isRoot && isInstance(node)) return;
+    if (!node.children) return;
+    for (const c of node.children) recurse(c, false);
+  })(root, true);
   return {
     enabled: true,
     passed: offenders.length === 0,
@@ -1024,12 +1301,15 @@ function lintNaming(root) {
 // ── orchestrator ──
 function lintFrame(tree, enabledRules, ds) {
   const breakdown = {};
+  if (enabledRules.naming) breakdown.naming = lintNaming(tree);
   if (enabledRules.components) breakdown.components = lintComponents(tree);
+  if (enabledRules.autolayout) breakdown.autolayout = lintAutolayoutSimple(tree);
   if (enabledRules.colors) breakdown.colors = lintColors(tree, ds);
   if (enabledRules.typography) breakdown.typography = lintTypography(tree);
-  if (enabledRules.spacing) breakdown.spacing = lintSpacing(tree);
+  if (enabledRules.spacing) breakdown.spacing = lintSpacing(tree, ds);
+  if (enabledRules.padding) breakdown.padding = lintPadding(tree, ds);
+  if (enabledRules.size) breakdown.size = lintSize(tree, ds);
   if (enabledRules.effects) breakdown.effects = lintEffects(tree);
-  if (enabledRules.naming) breakdown.naming = lintNaming(tree);
 
   const ruleScores = [];
   const topIssues = [];
@@ -1139,6 +1419,16 @@ function extractNode(node, depth = 0, maxDepth = 8) {
     };
   }
 
+  // Dimensions — used by the size rule. We always extract width/height
+  // and which side(s) are bound to a variable; the linter decides
+  // whether to flag based on autolayout sizing mode (or non-autolayout).
+  if (typeof node.width === "number") out.width = node.width;
+  if (typeof node.height === "number") out.height = node.height;
+  out.sizeBound = {
+    width: boundVarId(node, "width"),
+    height: boundVarId(node, "height")
+  };
+
   // Stop recursion at INSTANCE boundaries — their children are library
   // internals the designer doesn't control, and skipping them shrinks
   // typical scan payloads from megabytes to kilobytes.
@@ -1210,25 +1500,30 @@ function isPrimitiveTokenName(variableName, collectionName) {
 
 async function getDesignSystem() {
   const variables = [];
+  const numberVariables = [];
   const paintStyles = [];
+  // Shared collection cache across both COLOR and FLOAT enumerations.
+  const collCache = new Map();
+  async function getColl(id) {
+    let c = collCache.get(id);
+    if (c) return c;
+    try {
+      if (typeof figma.variables.getVariableCollectionByIdAsync === "function") {
+        c = await figma.variables.getVariableCollectionByIdAsync(id);
+      } else if (typeof figma.variables.getVariableCollectionById === "function") {
+        c = figma.variables.getVariableCollectionById(id);
+      }
+    } catch (_e) {}
+    if (c) collCache.set(id, c);
+    return c;
+  }
 
   // ── Color variables ──
   try {
     if (figma.variables && typeof figma.variables.getLocalVariablesAsync === "function") {
       const vars = await figma.variables.getLocalVariablesAsync("COLOR");
-      const collCache = new Map();
       for (const v of vars) {
-        let coll = collCache.get(v.variableCollectionId);
-        if (!coll) {
-          try {
-            if (typeof figma.variables.getVariableCollectionByIdAsync === "function") {
-              coll = await figma.variables.getVariableCollectionByIdAsync(v.variableCollectionId);
-            } else if (typeof figma.variables.getVariableCollectionById === "function") {
-              coll = figma.variables.getVariableCollectionById(v.variableCollectionId);
-            }
-          } catch (e) {}
-          if (coll) collCache.set(v.variableCollectionId, coll);
-        }
+        const coll = await getColl(v.variableCollectionId);
         const modeId = coll && coll.defaultModeId;
         let raw = v.valuesByMode && modeId ? v.valuesByMode[modeId] : null;
         // One-hop alias resolution — a semantic token that aliases a primitive.
@@ -1238,17 +1533,7 @@ async function getDesignSystem() {
               ? await figma.variables.getVariableByIdAsync(raw.id)
               : figma.variables.getVariableById(raw.id);
             if (referenced && referenced.valuesByMode) {
-              // Prefer the REFERENCED variable's own collection default mode
-              // (the collection that owns the concrete value).
-              let refColl = collCache.get(referenced.variableCollectionId);
-              if (!refColl) {
-                try {
-                  refColl = typeof figma.variables.getVariableCollectionByIdAsync === "function"
-                    ? await figma.variables.getVariableCollectionByIdAsync(referenced.variableCollectionId)
-                    : figma.variables.getVariableCollectionById(referenced.variableCollectionId);
-                  if (refColl) collCache.set(referenced.variableCollectionId, refColl);
-                } catch (e) {}
-              }
+              const refColl = await getColl(referenced.variableCollectionId);
               const refModeId = refColl && refColl.defaultModeId;
               raw = refModeId ? referenced.valuesByMode[refModeId] : null;
             }
@@ -1269,6 +1554,41 @@ async function getDesignSystem() {
     }
   } catch (e) {
     console.warn("[figma-ai-score] variables enumeration failed:", e && e.message);
+  }
+
+  // ── Number (FLOAT) variables — used by padding/spacing/size rules ──
+  try {
+    if (figma.variables && typeof figma.variables.getLocalVariablesAsync === "function") {
+      const vars = await figma.variables.getLocalVariablesAsync("FLOAT");
+      for (const v of vars) {
+        const coll = await getColl(v.variableCollectionId);
+        const modeId = coll && coll.defaultModeId;
+        let raw = v.valuesByMode && modeId ? v.valuesByMode[modeId] : null;
+        // One-hop alias resolution.
+        if (raw && typeof raw === "object" && raw.type === "VARIABLE_ALIAS") {
+          try {
+            const referenced = typeof figma.variables.getVariableByIdAsync === "function"
+              ? await figma.variables.getVariableByIdAsync(raw.id)
+              : figma.variables.getVariableById(raw.id);
+            if (referenced && referenced.valuesByMode) {
+              const refColl = await getColl(referenced.variableCollectionId);
+              const refModeId = refColl && refColl.defaultModeId;
+              raw = refModeId ? referenced.valuesByMode[refModeId] : null;
+            }
+          } catch (e) { raw = null; }
+        }
+        if (typeof raw !== "number") continue;
+        numberVariables.push({
+          id: v.id,
+          name: v.name,
+          value: raw,
+          collectionName: coll ? coll.name : null,
+          isPrimitive: isPrimitiveTokenName(v.name, coll ? coll.name : null)
+        });
+      }
+    }
+  } catch (e) {
+    console.warn("[figma-ai-score] number-variable enumeration failed:", e && e.message);
   }
 
   // ── Paint styles (the older style system) ──
@@ -1293,7 +1613,7 @@ async function getDesignSystem() {
     console.warn("[figma-ai-score] paint-style enumeration failed:", e && e.message);
   }
 
-  return { variables, paintStyles };
+  return { variables, numberVariables, paintStyles };
 }
 
 // Find tokens (variable preferred over style when both match).
@@ -1316,6 +1636,65 @@ function findTokensByColor(ds, hex, opts) {
   // Variable AND style both exactly one each → prefer variable.
   if (varMatches.length === 1 && styleMatches.length === 1) return varMatches[0];
   return null; // 0 matches, or ambiguous
+}
+
+// Heuristic filter: which FLOAT variables are "appropriate" for a given
+// dimensional rule. Searches keywords in variable name + collection name.
+// Imperfect (a team's "layout/inset/m" wouldn't match "padding") — but
+// "no suggestion" is a safe failure mode. AI mode uses the catalog as-is
+// and lets Claude decide; this filter is for Simple-mode determinism only.
+const DIMENSION_RULE_KEYWORDS = {
+  padding: ["padding", "pad"],
+  spacing: ["spacing", "gap", "space"],
+  // "size" excludes "font-size" / "line-height" by inspecting word boundaries
+  // in the post-filter step rather than the keywords themselves.
+  size: ["size", "height", "width", "dim"]
+};
+function filterDimensionTokensForRule(numberVariables, rule) {
+  const keywords = DIMENSION_RULE_KEYWORDS[rule];
+  if (!keywords) return [];
+  const out = [];
+  for (const v of (numberVariables || [])) {
+    const hay = ((v.name || "") + " " + (v.collectionName || "")).toLowerCase();
+    const matches = keywords.some(k => hay.includes(k));
+    if (!matches) continue;
+    // For "size", reject obvious non-size dimension tokens whose names
+    // hint they're typography or radius, etc.
+    if (rule === "size") {
+      if (/font[-_/ ]?size|line[-_/ ]?height|letter[-_/ ]?spacing|font[-_/ ]?weight|radius|border[-_/ ]?radius/i.test(v.name)) continue;
+    }
+    out.push(v);
+  }
+  return out;
+}
+
+// Find a numeric token (FLOAT variable) by value.
+// - exactly one exact match (Simple mode happy path) → returns that match
+// - 0 or 2+ exact matches → returns null (ambiguous)
+// - opts.neighbors → returns { exact, below, above }:
+//     exact: same as above (or null)
+//     below: the token with the highest value strictly less than target
+//     above: the token with the lowest value strictly greater than target
+//   When the target sits between two tokens, both fields are populated;
+//   AI mode renders both as candidate suggestions.
+function findTokensByValue(numberVariables, targetValue, opts) {
+  opts = opts || {};
+  const list = (numberVariables || []);
+  const exact = list.filter(v => v.value === targetValue);
+  if (opts.neighbors) {
+    const below = list
+      .filter(v => v.value < targetValue)
+      .sort((a, b) => b.value - a.value)[0] || null;
+    const above = list
+      .filter(v => v.value > targetValue)
+      .sort((a, b) => a.value - b.value)[0] || null;
+    return {
+      exact: exact.length === 1 ? exact[0] : null,
+      below,
+      above
+    };
+  }
+  return exact.length === 1 ? exact[0] : null;
 }
 function bytesToBase64(bytes) {
   // Pure-JS base64 encoder. Figma's plugin sandbox doesn't provide btoa().
@@ -1359,13 +1738,21 @@ const EXPORT_TEXT_MUTED    = "rgba(0,0,0,0.5)";
 const EXPORT_CARD_WIDTH    = 730;
 const EXPORT_CONTENT_WIDTH = 698; // 730 - 16*2 padding
 const EXPORT_SCORE_CIRCLE_SIZE = 186;
-const EXPORT_RULE_ORDER = ["naming", "components", "colors", "typography", "spacing", "effects"];
+const EXPORT_RULE_ORDER = [
+  "naming", "components", "autolayout",
+  "colors", "typography",
+  "spacing", "padding", "size",
+  "effects"
+];
 const EXPORT_RULE_LABELS = {
   naming: "Naming",
   components: "Components",
+  autolayout: "Auto layout",
   colors: "Colors",
   typography: "Typography",
   spacing: "Spacing",
+  padding: "Padding",
+  size: "Size",
   effects: "Effects"
 };
 

@@ -33,7 +33,9 @@ If the tool call fails with "plugin is not connected", that's a different situat
 
 ### Connection errors
 
-If any tool call fails with "plugin is not connected", "EADDRINUSE", "timed out", or similar:
+**For "plugin is not connected" specifically: retry the same call once after a brief pause (~1s) before doing anything else.** The plugin's WebSocket momentarily disconnects during normal reconnect cycles, and a single retry usually succeeds. Don't tell the user about this; it's normal jitter. Only escalate to the diagnostics below if the retry ALSO fails.
+
+If the retry fails, or if any tool call fails with "EADDRINUSE", "timed out", or similar:
 
 1. Check for stale MCP server processes from previous sessions: `ps aux | grep "figma-ai-score/mcp-server" | grep -v grep`
 2. Verify what's on the WebSocket port: `lsof -i :3055`

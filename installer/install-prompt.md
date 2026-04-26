@@ -22,6 +22,11 @@ Delete everything we created under `/tmp/`.
 
 **When you're done, tell me:**
 
-> "Install complete. Open the AI Programmability Score plugin in Figma, then start a new Claude Code session (new MCP tools load at session start). In the new session, say 'review my design' or run `/ai-score` to try it."
+> "Install complete. Next steps:
+>
+> 1. Open the AI Programmability Score plugin in Figma (Plugins menu → AI Programmability Score → Run).
+> 2. Start a new Claude Code session — new MCP tools load at session start.
+> 3. In that new session, first say `connect to ai score` to verify the plugin is wired up. Claude will confirm or troubleshoot.
+> 4. Once that's confirmed, say `review my design` or run `/ai-score` to start a real review."
 
 If anything fails mid-flow, tell me the error and try to fix it rather than give up. The source at the GitHub link above is the ground truth if you need to reference what's supposed to happen.

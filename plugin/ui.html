@@ -1005,6 +1005,78 @@
         display: none;
         padding: 16px;
       }
+      /* "Connected" success card — shown once per session on the first
+         successful connection, dismissed via the OK button. Same shape as
+         the setup-banner so the area visually transitions in place. */
+      .connect-success-banner {
+        display: none;
+        padding: 16px;
+      }
+      .connect-success-card {
+        border-radius: var(--radius);
+        border: 1px solid #b6e4be;
+        background: var(--green-bg);
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .connect-success-title {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--green);
+      }
+      .connect-success-title svg { flex-shrink: 0; }
+      .connect-success-body {
+        font-size: 11px;
+        line-height: 1.5;
+        color: var(--text);
+        margin: 0;
+      }
+      .connect-success-body code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 10.5px;
+        background: rgba(10, 106, 45, 0.10);
+        color: var(--green);
+        padding: 1px 5px;
+        border-radius: 3px;
+      }
+      .connect-success-body em {
+        font-style: normal;
+        font-weight: 600;
+        color: var(--text);
+      }
+      .connect-success-actions {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .connect-success-checkbox {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        color: var(--text-secondary);
+        cursor: pointer;
+        user-select: none;
+      }
+      .connect-success-checkbox input { cursor: pointer; }
+      button.connect-success-ok {
+        background: var(--green);
+        color: #fff;
+        border: 0;
+        border-radius: var(--radius-sm);
+        padding: 6px 14px;
+        font-size: 11px;
+        font-weight: 600;
+        font-family: inherit;
+        cursor: pointer;
+      }
+      button.connect-success-ok:hover { background: #07572a; }
       .setup-card {
         border-radius: var(--radius);
         border: 1px solid var(--orange-border);
@@ -1322,6 +1394,25 @@
             </div>
             <div id="mode-hint-simple" class="mode-hint">Fast, deterministic checks.</div>
             <div id="mode-hint-ai" class="mode-hint" style="display:none">Deeper review. Slower. Max 3 frames.</div>
+          </div>
+
+          <div id="connect-success-banner" class="connect-success-banner">
+            <div class="connect-success-card">
+              <div class="connect-success-title">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8.5L6 12.5L14 4"/></svg>
+                Connected to Claude Code
+              </div>
+              <p class="connect-success-body">
+                AI reviews start from Claude Code, not here. Just say <em>"review my design"</em> or run <code>/ai-score</code>.
+              </p>
+              <div class="connect-success-actions">
+                <label class="connect-success-checkbox">
+                  <input type="checkbox" id="connect-success-dont-show" />
+                  <span>Don't show again</span>
+                </label>
+                <button id="connect-success-ok" class="connect-success-ok">OK</button>
+              </div>
+            </div>
           </div>
 
           <div id="setup-banner" class="setup-banner">
@@ -1643,6 +1734,9 @@
         if (aiPromptWrap) aiPromptWrap.style.display = mode === "ai" ? "" : "none";
         window.__currentMode = mode;
         refreshConnectionUi();
+        // If switching to AI while already connected, this is the moment
+        // the success card becomes relevant.
+        if (mode === "ai") maybeShowConnectSuccess();
         try { localStorage.setItem("review-mode", mode); } catch (e) {}
         parent.postMessage({ pluginMessage: { type: "set-mode", mode } }, "*");
       }
@@ -1803,6 +1897,57 @@
         connDot.className = "conn-dot" + (ok ? " ok" : "");
         connLabel.textContent = ok ? "connected" : "disconnected";
       }
+
+      // ── Connect-success card ──
+      // Shown once per plugin session on the first successful connection
+      // so users coming off the setup-banner / install flow get a clear
+      // confirmation + reminder of how to actually trigger a review.
+      // Lives in the same DOM slot as the setup-banner so the transition
+      // is visually in-place. User dismisses via the OK button (no auto-hide).
+      const connectSuccessBanner = document.getElementById("connect-success-banner");
+      const connectSuccessOk = document.getElementById("connect-success-ok");
+      const connectSuccessDontShow = document.getElementById("connect-success-dont-show");
+      let connectSuccessShown = false;
+      let connectSuccessDismissed = false;
+      // Persisted-suppression flag. The sandbox seeds this from
+      // figma.clientStorage on ui-ready. Until we hear back, we
+      // assume false — but we also defer showing the card until the
+      // sandbox has had a chance to chime in (it usually beats the
+      // first WS connect handshake).
+      let connectSuccessSuppressedForever = false;
+      function maybeShowConnectSuccess() {
+        // Only relevant in AI mode (Simple mode doesn't use Claude Code).
+        // Fires on either trigger that lands us in (AI + connected):
+        //   - first WS connect while already in AI mode
+        //   - switching to AI mode while already connected
+        if (connectSuccessShown) return;
+        if (connectSuccessDismissed) return;
+        if (connectSuccessSuppressedForever) return;
+        if ((window.__currentMode || "simple") !== "ai") return;
+        if (!window.__isConnected) return;
+        if (!connectSuccessBanner) return;
+        connectSuccessBanner.style.display = "block";
+        connectSuccessShown = true;
+      }
+      function hideConnectSuccess() {
+        if (connectSuccessBanner) connectSuccessBanner.style.display = "none";
+      }
+      if (connectSuccessOk) {
+        connectSuccessOk.addEventListener("click", () => {
+          connectSuccessDismissed = true;
+          hideConnectSuccess();
+          // If the user checked "Don't show again," persist that for
+          // future sessions across all files (sandbox writes to
+          // figma.clientStorage on this user's account).
+          if (connectSuccessDontShow && connectSuccessDontShow.checked) {
+            connectSuccessSuppressedForever = true;
+            parent.postMessage({
+              pluginMessage: { type: "set-connect-success-suppressed", value: true }
+            }, "*");
+          }
+        });
+      }
+
       function setConnected(ok) {
         if (ok) {
           window.__isConnected = true;
@@ -1810,6 +1955,10 @@
           if (disconnectGraceTimer) { clearTimeout(disconnectGraceTimer); disconnectGraceTimer = null; }
           paintConnBadge(true);
           refreshConnectionUi();
+          // Card only shows if we're in AI mode AND connected (first
+          // such moment per session). Triggered here for the
+          // already-in-AI-then-connected path.
+          maybeShowConnectSuccess();
         } else if (wasEverConnected) {
           // Brief drop from a live connection — defer *everything* (state flag,
           // dot/label, main UI) so a quick reconnect doesn't flicker, and so
@@ -1845,6 +1994,9 @@
         const selectionPanel = document.querySelector(".col-left .panel-grow");
         const startPanel = document.getElementById("start-review-panel");
         const connBadge = document.querySelector(".conn-badge");
+        // If we transition back to disconnected while the success card is up,
+        // hide the success card so it doesn't stack with the setup-banner.
+        if (!showMain && connectSuccessShown) hideConnectSuccess();
         if (banner) banner.style.display = showMain ? "none" : "block";
         if (rulesPanel) rulesPanel.style.display = showMain ? "" : "none";
         if (selectionPanel) selectionPanel.style.display = showMain ? "" : "none";
@@ -2456,6 +2608,13 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
           pendingExportResolver = null;
           if (msg.error) resolver.reject(new Error(msg.error));
           else resolver.resolve(msg.bytes);
+        }
+        if (msg.type === "connect-success-suppressed") {
+          // Sandbox replying with the persisted "Don't show again" flag.
+          // If true and we already showed the card optimistically (race
+          // between the WS connect and the clientStorage read), hide it.
+          connectSuccessSuppressedForever = !!msg.value;
+          if (connectSuccessSuppressedForever) hideConnectSuccess();
         }
       });
 

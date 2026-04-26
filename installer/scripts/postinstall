@@ -20,8 +20,15 @@ if [ -z "$INSTALL_USER" ] || [ "$INSTALL_USER" = "root" ]; then
 fi
 USER_HOME="$(eval echo ~"$INSTALL_USER")"
 
-LOG="$USER_HOME/Library/Logs/figma-ai-score-install.log"
-mkdir -p "$(dirname "$LOG")" 2>/dev/null || true
+LOG_DIR="$USER_HOME/Library/Logs"
+mkdir -p "$LOG_DIR" 2>/dev/null || true
+LOG="$LOG_DIR/figma-ai-score-install.log"
+# If the canonical log exists but isn't writable (e.g. left root-owned by
+# an older installer that ran as root), fall back to a unique-named file
+# so we still capture this run's output instead of failing silently.
+if [ -e "$LOG" ] && [ ! -w "$LOG" ]; then
+  LOG="$LOG_DIR/figma-ai-score-install-$(date +%Y%m%d-%H%M%S).log"
+fi
 exec > >(tee -a "$LOG") 2>&1
 echo "=== figma-ai-score install $(date) ==="
 echo "Running as: $(id -un) (uid $(id -u))"
@@ -59,7 +66,8 @@ INSTALL_DIR="$HOME/Library/Application Support/figma-ai-score/mcp-server"
 CLAUDE_DIR="$HOME/.claude"
 CLAUDE_MD="$CLAUDE_DIR/CLAUDE.md"
 COMMANDS_DIR="$CLAUDE_DIR/commands"
-REVIEW_MD="$COMMANDS_DIR/review.md"
+SLASH_CMD_MD="$COMMANDS_DIR/ai-score.md"
+LEGACY_REVIEW_MD="$COMMANDS_DIR/review.md"
 SERVER_JS="$INSTALL_DIR/index.js"
 NODE_BIN="$INSTALL_DIR/node"
 MARKER="<!-- figma-ai-score -->"
@@ -114,7 +122,7 @@ When the user says \"connect to ai score\" — just call get_selection to wake u
 
 ### Running a review
 
-When the user asks to review, score, check, audit, or evaluate their design/designs/frames/selection — in any phrasing — treat it as a review request. **Your very first action must be calling announce_review_start** (it takes no arguments, returns {ok:true} instantly). That flips the Figma plugin UI into a \"Preparing review…\" state so the user sees feedback immediately. Then call get_preferences and follow the instructions it returns. Do not skip announce_review_start — without it the plugin UI looks frozen for ~10 seconds while you're reading instructions. The /review slash command does the same thing.
+When the user asks to review, score, check, audit, or evaluate their design/designs/frames/selection — in any phrasing — treat it as a review request. **Your very first action must be calling announce_review_start** (it takes no arguments, returns {ok:true} instantly). That flips the Figma plugin UI into a \"Preparing review…\" state so the user sees feedback immediately. Then call get_preferences and follow the instructions it returns. Do not skip announce_review_start — without it the plugin UI looks frozen for ~10 seconds while you're reading instructions. The /ai-score slash command does the same thing.
 
 ### If the figma-ai-score tools aren't available in this session
 
@@ -153,12 +161,22 @@ else
   echo "Appended figma-ai-score instructions to CLAUDE.md"
 fi
 
-# ── 5. Install /review slash command ──
-echo "Installing /review slash command ..."
+# ── 5. Install /ai-score slash command ──
+# We deliberately use /ai-score (not /review) to avoid shadowing
+# Claude Code's built-in /review (PR-review) command at the user level.
+# If a previous version of this installer wrote /review, remove it now.
+echo "Installing /ai-score slash command ..."
 mkdir -p "$COMMANDS_DIR"
 
-cat > "$REVIEW_MD" << 'REVIEWEOF'
-You are about to run a Figma AI Programmability review using the figma-ai-score MCP server.
+if [ -f "$LEGACY_REVIEW_MD" ]; then
+  # Only delete if it looks like ours (contains figma-ai-score wording).
+  if grep -q "figma-ai-score" "$LEGACY_REVIEW_MD" 2>/dev/null; then
+    rm -f "$LEGACY_REVIEW_MD" && echo "Removed legacy ~/.claude/commands/review.md (was shadowing built-in /review)."
+  fi
+fi
+
+cat > "$SLASH_CMD_MD" << 'AISCOREEOF'
+You are about to score the user's Figma design for AI programmability via the figma-ai-score MCP server. (This slash command is `/ai-score` — the figma-ai-score-specific review flow.)
 
 ## Steps
 
@@ -179,9 +197,9 @@ If any tool call fails with "plugin is not connected", "EADDRINUSE", "timed out"
 4. Only after the user confirms, kill the stale processes and retry. The current session will automatically respawn its own MCP server.
 
 Do NOT retry in a loop without diagnosing first. Always check for stale processes before asking the user to reopen the plugin.
-REVIEWEOF
+AISCOREEOF
 
-echo "Done installing /review command."
+echo "Done installing /ai-score command."
 
 # ── 6. Clean up staged payload ──
 rm -rf "$STAGE"

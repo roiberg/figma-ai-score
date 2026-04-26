@@ -12,7 +12,7 @@ When the user says "connect to ai score" — just call `get_selection` to wake u
 
 ### Running a review
 
-When the user asks to review, score, check, audit, or evaluate their design/designs/frames/selection — in any phrasing — treat it as a review request. **Your very first action must be calling `announce_review_start`** (it takes no arguments, returns `{ok:true}` instantly). That flips the Figma plugin UI into a "Preparing review…" state so the user sees feedback immediately. *Then* call `get_preferences` and follow the instructions it returns. Do not skip `announce_review_start` — without it the plugin UI looks frozen for ~10 seconds while you're reading instructions. The `/review` slash command does the same thing.
+When the user asks to review, score, check, audit, or evaluate their design/designs/frames/selection — in any phrasing — treat it as a review request. **Your very first action must be calling `announce_review_start`** (it takes no arguments, returns `{ok:true}` instantly). That flips the Figma plugin UI into a "Preparing review…" state so the user sees feedback immediately. *Then* call `get_preferences` and follow the instructions it returns. Do not skip `announce_review_start` — without it the plugin UI looks frozen for ~10 seconds while you're reading instructions. The `/ai-score` slash command does the same thing.
 
 ### If the figma-ai-score tools aren't available in this session
 

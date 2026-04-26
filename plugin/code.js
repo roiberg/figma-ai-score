@@ -374,8 +374,23 @@ figma.ui.onmessage = async (msg) => {
         const m = await figma.clientStorage.getAsync("figma-ai-score.mode");
         if (m === "ai" || m === "simple") reviewMode = m;
       } catch (e) {}
+      // Seed the UI with the persisted "Don't show the connect-success
+      // card" flag — set per-user via figma.clientStorage so it travels
+      // across files and sessions on this Figma account.
+      try {
+        const suppressed = await figma.clientStorage.getAsync("figma-ai-score.suppress-connect-success");
+        figma.ui.postMessage({ type: "connect-success-suppressed", value: !!suppressed });
+      } catch (e) {}
       figma.ui.postMessage({ type: "prefs", data: prefs });
       pushSelection();
+      return;
+    }
+    if (msg.type === "set-connect-success-suppressed") {
+      try {
+        await figma.clientStorage.setAsync("figma-ai-score.suppress-connect-success", !!msg.value);
+      } catch (e) {
+        console.warn("[figma-ai-score] couldn't persist connect-success suppression:", e && e.message);
+      }
       return;
     }
     if (msg.type === "set-prefs") {

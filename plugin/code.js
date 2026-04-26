@@ -34,7 +34,7 @@ let lockedIds = [];
 
 const RULE_DESCRIPTIONS = {
   components: `### components (smart)
-A design scores well when its structure decomposes into reusable components the way a developer would decompose it for code. Run the FOUR mechanical checks below AND ALSO the vision-based check below. A node that fails any check is an offender. Skip device chrome nodes and do not recurse into INSTANCE children (library internals are out of scope). The root frame itself is exempt from all checks.
+A design scores well when its structure decomposes into reusable components the way a developer would decompose it for code. Run the FOUR mechanical checks below AND ALSO the vision-based check below. A node that fails any check is an offender. Do not recurse into INSTANCE children (library internals are out of scope) and do not evaluate nodes the user has explicitly marked ignored (\`node.ignored === true\`). The root frame itself is exempt from THIS rule's component-orphan check (it's the canvas, not a component candidate). Other rules evaluate the root.
 
 **Check 1 — Orphan raw layers.**
 Every descendant must be a COMPONENT, COMPONENT_SET, or INSTANCE, OR have an ancestor (below the root) that is one of those types. A raw FRAME/GROUP/TEXT with no component-or-instance ancestor is an offender.
@@ -61,9 +61,9 @@ Be specific in the detail: reference what you see in the screenshot AND the node
 - For each offender, combine failure reasons in the detail string.`,
 
   colors: `### colors
-Every visible SOLID fill or stroke must have either a boundVariable (non-null) OR a fillStyleId/strokeStyleId (non-null). A raw hex color with no binding is an offender. Only SOLID fills/strokes are checked — IMAGE, VIDEO, and gradient fills are never flagged (they don't carry color tokens). Skip fills/strokes where visible is false. Skip nodes inside INSTANCE children (library internals). Skip device chrome nodes.
+Every visible SOLID fill or stroke must have either a boundVariable (non-null) OR a fillStyleId/strokeStyleId (non-null). A raw hex color with no binding is an offender. Only SOLID fills/strokes are checked — IMAGE, VIDEO, and gradient fills are never flagged (they don't carry color tokens). Skip fills/strokes where \`visible\` is false. Don't recurse into INSTANCE children (library internals — designer can't fix from the instance side). Don't evaluate nodes the user marked ignored (\`node.ignored === true\`).
 
-SKIP all fills and strokes on COMPONENT_SET nodes. Figma automatically renders a dotted purple outline around a component set to visually mark the variant container on the canvas — that's an editor affordance, not a product style, and it has no color token by design. Never flag it.
+Note on COMPONENT_SET nodes: Figma automatically renders a dotted purple outline around a component set as a canvas affordance (the variant container marker). That isn't a real product style. Don't flag the dotted purple outline. But OTHER fills/strokes on a component set, if any, are evaluated normally — the user has the explicit ignore mechanism for case-by-case exclusions.
 
 #### Token suggestions (attach \`suggestedTokens\` array to color offenders)
 
@@ -104,10 +104,7 @@ For every auto-layout node (\`node.autolayout\` is truthy), check \`itemSpacing\
   2. \`autolayout.bound.itemSpacing\` is null (no variable bound).
   3. The node has 2 or more children (with 0 or 1 children, itemSpacing has no visible effect — skip).
 
-SKIP — these are NEVER spacing offenders:
-- The root frame.
-- INSTANCE nodes (library-controlled).
-- COMPONENT_SET nodes (Figma editor affordance, not product code).
+No hardcoded skips by name or type. The root frame, INSTANCE nodes, and COMPONENT_SET nodes ARE evaluated. The walker still doesn't recurse into INSTANCE *children* (library internals — designer can't fix from instance side) and skips nodes the user has explicitly marked ignored (\`node.ignored === true\`). Everything else is fair game; the user has the explicit ignore mechanism for case-by-case exclusions.
 
 #### Token suggestions for spacing offenders
 
@@ -136,11 +133,9 @@ For every auto-layout node, check the four padding properties: \`paddingTop\`, \
 
 Each failing property is its own offender entry (so a node with three unbound paddings produces three offender rows).
 
-SKIP — these are NEVER padding offenders:
-- The root frame.
-- INSTANCE nodes.
-- COMPONENT_SET nodes.
-- **Vertical paddings on fixed-height atoms.** When a node has \`autolayout.sizingVertical === "FIXED"\` AND \`paddingTop === paddingBottom\`, those two paddings are derived from the fixed height (centering content) — not independent design decisions. Skip both \`paddingTop\` and \`paddingBottom\` on these nodes. Horizontal paddings on the same node still need to be bound (they ARE design decisions). Use the screenshot to confirm: button/chip/pill/input shapes visually reading as fixed-height atoms get this exemption.
+No hardcoded skips by name or type. Root frame, INSTANCE nodes, COMPONENT_SET nodes — all evaluated. Walker still doesn't recurse into INSTANCE children, and user-ignored nodes are skipped. The user marks specific nodes ignored when they don't want them flagged.
+
+EXCEPTION — vertical paddings on fixed-height atoms. When a node has \`autolayout.sizingVertical === "FIXED"\` AND \`paddingTop === paddingBottom\`, those two paddings are derived from the fixed height (centering content) — not independent design decisions. Skip both \`paddingTop\` and \`paddingBottom\` on these nodes. Horizontal paddings on the same node still need to be bound (they ARE design decisions). Use the screenshot to confirm: button/chip/pill/input shapes visually reading as fixed-height atoms get this exemption.
 
 #### Token suggestions for padding offenders
 
@@ -154,19 +149,17 @@ Use \`designSystem.numberVariables\`. For each offender:
 \`suggestedTokens[i].slot\` is the property name itself: \`"paddingTop"\` | \`"paddingRight"\` | \`"paddingBottom"\` | \`"paddingLeft"\`.`,
 
   size: `### size
-For every eligible node (FRAME, GROUP, COMPONENT, INSTANCE), check whether its width and height are using a size token:
+For every eligible node (COMPONENT, COMPONENT_SET, INSTANCE), check whether its width and height are using a size token:
 - **If the node has auto-layout**: check \`sizingHorizontal === "FIXED"\` (flag width) and \`sizingVertical === "FIXED"\` (flag height). Each FIXED axis whose corresponding \`sizeBound.width\` / \`sizeBound.height\` is null is an offender.
 - **If the node is non-autolayout**: width and height are intrinsically fixed (no hug/fill). Treat both as FIXED — flag both if not bound.
 
-Each failing axis is its own offender (so a non-autolayout frame with neither width nor height bound produces two offenders).
+Each failing axis is its own offender (so a non-autolayout component with neither width nor height bound produces two offenders).
 
-SKIP — never size offenders:
-- The root frame.
-- INSTANCE nodes themselves (the library author owns instance dimensions; the designer can sometimes resize but the binding is library-controlled).
-- COMPONENT_SET nodes (variant container layout is Figma-canvas affordance).
-- Node types that don't have meaningful width/height for tokenization: TEXT, RECTANGLE, ELLIPSE, VECTOR, BOOLEAN_OPERATION, STAR, LINE, POLYGON, etc. The eligible types are FRAME, GROUP, COMPONENT, INSTANCE.
+ELIGIBILITY by type: ONLY COMPONENT, COMPONENT_SET, INSTANCE are evaluated. Plain FRAME and GROUP are NOT evaluated — they're typically layout scaffolding (root canvases like an iPhone frame, section wrappers, positioning shells) whose dimensions come from device or parent context, not from a token a designer should pick. Components and instances are the atoms (buttons, chips, avatars, icons, inputs) where size tokens earn their keep. Other types (TEXT, RECTANGLE, ELLIPSE, VECTOR, etc.) are shape primitives whose dimensions come from their geometry.
 
 There is **no fixed-height-atom exemption for size**. A button at fixed height 39px is exactly the kind of node that should be tokenized to a "button-height" or "size-md" token. Flag it.
+
+The walker doesn't recurse into INSTANCE children (library internals), and user-ignored nodes (\`node.ignored === true\`) are skipped.
 
 #### Token suggestions for size offenders
 
@@ -201,10 +194,10 @@ Detail format for offenders:
 No token suggestions for autolayout offenders — this rule isn't about token bindings.`,
 
   effects: `### effects
-Every visible effect (in the effects array) must come from an effectStyleId (non-null on the node). If a node has visible effects but no effectStyleId, it is an offender. Skip nodes inside INSTANCE children. Skip COMPONENT_SET nodes — their effects (if any) are canvas affordances for the variant container, not product styles.`,
+Every visible effect (in the effects array) must come from an effectStyleId (non-null on the node). If a node has visible effects but no effectStyleId, it is an offender. Don't recurse into INSTANCE children (library internals); don't evaluate user-ignored nodes. COMPONENT_SET, root, and INSTANCE nodes themselves are all evaluated normally; the user has the explicit ignore mechanism for case-by-case exclusions.`,
 
   naming: `### naming (smart)
-Every designer-owned node should have a semantic, descriptive name that accurately reflects what the layer is. Run the two checks below on every designer-owned node, INCLUDING the root frame (a selected frame named "Frame 1" is itself a naming problem). Skip nodes inside INSTANCE children and skip device chrome.
+Every designer-owned node should have a semantic, descriptive name that accurately reflects what the layer is. Run the two checks below on every designer-owned node, INCLUDING the root frame (a selected frame named "Frame 1" is itself a naming problem). Don't recurse into INSTANCE children (library internals). Don't evaluate user-ignored nodes (\`node.ignored === true\`).
 
 **Check 1 — Mechanical patterns (regex).**
 A node is an offender if its name matches any of:
@@ -814,18 +807,19 @@ async function handleRpc(method, params) {
 
 // ------- linter (deterministic Simple review) -------
 
-const DEVICE_CHROME_RE = /status[- ]bar|\biphone\b|\bandroid\b|\bnotch\b|home[- ]indicator|network signal|\bwifi\b|\bbattery\b|time \/ light|time \/ dark|indicator \/|url bar|browser[- ]chrome/i;
 const IGNORE_PDATA_KEY = "figma-ai-score-ignored";
 
-function isDeviceChrome(node) {
-  return !!(node && node.name && DEVICE_CHROME_RE.test(node.name));
-}
 function isExplicitlyIgnored(node) {
   // Ground truth is the plugin-data flag, read at extractNode time into `node.ignored`.
   return !!(node && node.ignored === true);
 }
+// Single source of truth for "should this node be skipped by the rules?"
+// User-marked ignore is the only escape — we don't auto-skip nodes by name
+// (status bars, iPhone frames, etc.). If a designer doesn't want a node
+// flagged, they ignore it explicitly via the eye toggle in the selection
+// list; that travels with the file via plugin data.
 function isExcluded(node) {
-  return isDeviceChrome(node) || isExplicitlyIgnored(node);
+  return isExplicitlyIgnored(node);
 }
 function isInstance(node) {
   return !!(node && (node.type === "INSTANCE" || node.isInstance === true));
@@ -834,8 +828,11 @@ function isComponentContainer(node) {
   return isInstance(node) || node.type === "COMPONENT" || node.type === "COMPONENT_SET";
 }
 
-// Walk designer-owned descendants. Skips device chrome. Does NOT descend into
-// INSTANCE children (library internals). Calls visit(node, isRoot, ancestors).
+// Walk designer-owned descendants. Skips user-ignored nodes only (no
+// hardcoded name-based skips like device chrome — user marks specific
+// nodes ignored via the eye toggle in the selection list). Does NOT
+// descend into INSTANCE children (library internals — designer can't
+// fix from the instance side). Calls visit(node, isRoot, ancestors).
 function walkDesignerNodes(root, visit) {
   const ancestors = [];
   (function recurse(node, isRoot) {
@@ -948,10 +945,6 @@ function lintColors(root, ds) {
   let totalChecked = 0;
   const hasDs = ds && ((ds.variables || []).length > 0 || (ds.paintStyles || []).length > 0);
   walkDesignerNodes(root, (node) => {
-    // Skip COMPONENT_SET — its fills/strokes are Figma canvas affordances
-    // (the dotted purple outline around a variant container), not design
-    // decisions that need a token.
-    if (node.type === "COMPONENT_SET") return;
     // Only SOLID fills can be tokenized. Image/video/gradient fills are skipped
     // (they don't carry color tokens). A layer with only an image fill and no
     // SOLID fill produces nothing to check.
@@ -1055,11 +1048,8 @@ function buildDimensionalSuggestion(ds, rule, slot, value) {
 function lintSpacing(root, ds) {
   const offenders = [];
   let totalChecked = 0;
-  walkDesignerNodes(root, (node, isRoot) => {
-    if (isRoot) return;
+  walkDesignerNodes(root, (node) => {
     if (!node.autolayout) return;
-    if (isInstance(node)) return;
-    if (node.type === "COMPONENT_SET") return;
     const al = node.autolayout;
     const b = al.bound || {};
     // itemSpacing has no visible effect when there are fewer than 2
@@ -1097,11 +1087,8 @@ function lintSpacing(root, ds) {
 function lintPadding(root, ds) {
   const offenders = [];
   let totalChecked = 0;
-  walkDesignerNodes(root, (node, isRoot) => {
-    if (isRoot) return;
+  walkDesignerNodes(root, (node) => {
     if (!node.autolayout) return;
-    if (isInstance(node)) return;
-    if (node.type === "COMPONENT_SET") return;
     const al = node.autolayout;
     const b = al.bound || {};
     const skipVertical = al.sizingVertical === "FIXED" && al.paddingTop === al.paddingBottom;
@@ -1144,14 +1131,14 @@ function lintPadding(root, ds) {
 function lintSize(root, ds) {
   const offenders = [];
   let totalChecked = 0;
-  walkDesignerNodes(root, (node, isRoot) => {
-    if (isRoot) return;
-    if (isInstance(node)) {
-      // The instance node itself can have its width/height bound; its
-      // children are library territory and we don't recurse into them.
-    }
-    if (node.type === "COMPONENT_SET") return;
-    const eligibleTypes = new Set(["FRAME", "GROUP", "COMPONENT", "INSTANCE"]);
+  walkDesignerNodes(root, (node) => {
+    // Only flag size on atom-like nodes: COMPONENT, COMPONENT_SET, INSTANCE.
+    // Plain FRAME/GROUP at fixed sizes are usually layout scaffolding (root
+    // canvases like an iPhone frame, section wrappers, positioning shells)
+    // whose dimensions come from device/parent context, not from a token a
+    // designer should pick. Components and instances are the atoms (buttons,
+    // chips, avatars, icons) where size tokens earn their keep.
+    const eligibleTypes = new Set(["COMPONENT", "COMPONENT_SET", "INSTANCE"]);
     if (!eligibleTypes.has(node.type)) return;
     const sb = node.sizeBound || {};
     const al = node.autolayout;
@@ -1243,8 +1230,6 @@ function lintEffects(root) {
   const offenders = [];
   let totalChecked = 0;
   walkDesignerNodes(root, (node) => {
-    // COMPONENT_SET effects are Figma-canvas affordances, not product code.
-    if (node.type === "COMPONENT_SET") return;
     const visible = (node.effects || []).filter(e => e.visible !== false);
     if (visible.length === 0) return;
     totalChecked++;

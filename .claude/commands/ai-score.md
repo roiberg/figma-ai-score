@@ -1,4 +1,4 @@
-You are about to run a Figma AI Programmability review using the figma-ai-score MCP server.
+You are about to score the user's Figma design for AI programmability via the figma-ai-score MCP server. (This slash command is `/ai-score` — the figma-ai-score-specific review flow.)
 
 ## Steps
 

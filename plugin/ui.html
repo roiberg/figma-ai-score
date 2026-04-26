@@ -2229,6 +2229,20 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
           reportEl.innerHTML = '<div class="empty-state">Empty report</div>';
           return;
         }
+        // Snapshot scroll position + which accordions are currently open so
+        // applying a suggestion (rename, token bind, etc.) — or re-running a
+        // review — doesn't flash the accordion animation or jump scroll back
+        // to the top.
+        const scrollArea = reportEl.closest(".scroll-area");
+        const savedScrollTop = scrollArea ? scrollArea.scrollTop : 0;
+        const openKeys = new Set();
+        reportEl.querySelectorAll(".breakdown-item.is-open").forEach(item => {
+          const frameEl = item.closest(".frame-report");
+          const frameId = frameEl ? frameEl.getAttribute("data-frame-node") : "";
+          const rule = item.getAttribute("data-rule") || "";
+          if (rule) openKeys.add(frameId + "\u0000" + rule);
+        });
+
         reportEl.innerHTML = report.frames.map(f => {
           const cls = scoreClass(f.score, f.perfect);
           const breakdown = Object.entries(f.breakdown || {})
@@ -2268,7 +2282,8 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
                     </div>`;
                   }).join("") + '</div>'
                 : '';
-              return `<div class="breakdown-item${hasOffenders ? '' : ''}">
+              const isOpen = hasOffenders && openKeys.has(f.nodeId + "\u0000" + rule);
+              return `<div class="breakdown-item${isOpen ? ' is-open' : ''}" data-rule="${esc(rule)}">
                 <div class="breakdown-row ${hasOffenders ? 'clickable' : ''}">
                   <span class="rule-name">${chevron}${esc(rule)}</span>
                   <span class="result ${r.passed ? 'pass' : 'fail'}">${r.passed ? 'Pass' : count + ' issue' + (count === 1 ? '' : 's')}</span>
@@ -2281,7 +2296,7 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
           const pct = Math.max(0, Math.min(100, f.score)) / 100;
           const dashOffset = RING_CIRCUMFERENCE * (1 - pct);
           return `
-            <div class="frame-report">
+            <div class="frame-report" data-frame-node="${esc(f.nodeId)}">
               <div class="score-row">
                 <div class="score-circle ${cls}">
                   <svg class="score-ring" width="92" height="92" viewBox="0 0 92 92">
@@ -2301,6 +2316,9 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
               <div class="breakdown-grid">${breakdown}</div>
             </div>`;
         }).join("");
+
+        // Restore scroll position so re-renders don't jump back to the top.
+        if (scrollArea) scrollArea.scrollTop = savedScrollTop;
       }
 
       reportEl.addEventListener("click", (ev) => {

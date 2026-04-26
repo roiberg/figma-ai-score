@@ -11,9 +11,11 @@ That's it. Everything you need is inside `get_preferences`. Go.
 
 ## Troubleshooting
 
-### If the very first call returns "Figma plugin is not connected"
+### If a tool call returns "Figma plugin is not connected"
 
-The most common cause is that the plugin isn't open in Figma yet. Don't diagnose further. Tell the user exactly this and stop:
+**First, retry the same call once after a brief pause (~1s).** The plugin's WebSocket can momentarily disconnect during normal reconnect cycles (e.g., right after the MCP server starts, or after a Figma tab refresh). A single retry usually succeeds — the race is real and almost always brief. Don't message the user about this; it's normal jitter, not a problem they need to know about.
+
+**If the retry also fails**, then the most common cause is that the plugin isn't open in Figma yet. Don't escalate to deeper diagnostics yet. Tell the user exactly this and stop:
 
 > The AI Programmability Score plugin isn't open in Figma yet. Open it (in Figma: Plugins menu → AI Programmability Score → Run), then run `/ai-score` again. If it's already open and this still happens, let me know and I'll dig deeper.
 

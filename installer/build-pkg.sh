@@ -19,7 +19,7 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 MCP_DIR="$PROJECT_DIR/mcp-server"
 PKG_OUT="$PROJECT_DIR/figma-ai-score.pkg"
 PKG_ID="com.figma-ai-score.mcp"
-PKG_VERSION="0.5.0"
+PKG_VERSION="0.5.1"
 
 # Node.js version to bundle. Pinned for reproducibility; bump when
 # shipping security updates.

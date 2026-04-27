@@ -72,15 +72,23 @@ For every color offender, attempt to suggest a specific token from the DS catalo
 1. **Skip the suggestion entirely if the node has \`hasMultipleFills: true\` (for fill offenders) or \`hasMultipleStrokes: true\` (for stroke offenders).** Multi-paint nodes have ambiguous intent; don't guess.
 2. **Only suggest tokens whose \`color\` exactly matches the offender's hex value (including alpha).** No "close enough" matching for colors — colors are unlike dimensional tokens; non-exact color matches are almost never what the designer wants.
 3. **If zero tokens match**: no suggestion. Leave the offender without \`suggestedTokens\`.
-4. **If exactly one token matches**: suggest it as a 1-element array. The \`reason\` is simply "Found a token with exact match."
+4. **If exactly one token matches**: suggest it as a 1-element array. The \`reason\` is "Exact color match."
 5. **If multiple tokens match**: pick the MOST appropriate one based on the screenshot and the context of this specific use. Consider the layer's role (button background, surface, text color, etc.) and match it to the token's semantic name.
 6. **Prefer semantic tokens over primitives when values are equal.** Primitives (e.g. \`colors/blue-500\`, \`primitives/neutral/100\`) are scale-style raw values; semantic tokens (e.g. \`colors/surface/primary\`, \`colors/brand/accent\`) encode intent. Variables marked \`isPrimitive: true\` in the catalog are primitives. When the semantic choice differs in value from what the designer drew, still prefer the closest-semantic-match if the value is equal; NEVER override an exact-value match to pick a semantic one with a different value.
 7. **Prefer variables over paint styles** when both match — variables are the modern system.
 
-When you pick a token for cases #5 or #6, the \`reason\` field must explain WHY. Short, one-sentence justification. Examples:
+**\`reason\` MUST be a single short sentence — 8 to 15 words.** State two things: (1) the color matches, (2) the token's role fits the layer's purpose. NEVER mention rejected tokens, NEVER quote competing token names, NEVER explain methodology ("chosen over…", "because semantic tokens are preferred…", "encodes intent"). Good:
+- "Exact color match; surface role fits the canvas background."
+- "Same color, and the button-background role fits this CTA."
+- "Same color; semantic token preferred over the primitive scale value."
+- "Exact match for the page surface."
+
+Bad — these are too long or mention rejected tokens, do NOT write reasons in this style:
+- "Canvas background role — chosen over other exact-value #ffffff tokens (on-primary, on-secondary, surface-container-*) because 'Surface' encodes the page/canvas intent."
 - "Chosen over colors/neutral/100 (same value) because semantic tokens are preferred over primitives."
-- "Matches the button-background role in the screenshot — other exact matches (colors/surface/raised) don't fit the interactive context."
-- "Exact match; only token in the DS with this value."
+
+Also bad — too terse:
+- "Same color; surface role." (under 6 words → fragmented; write a full short sentence instead)
 
 Color offenders always get an array of length 0 or 1 in \`suggestedTokens\`. Multiple-candidate suggestions (above + below) are reserved for dimensional rules.
 
@@ -110,8 +118,8 @@ No hardcoded skips by name or type. The root frame, INSTANCE nodes, and COMPONEN
 
 Use the FLOAT-typed entries in \`designSystem.numberVariables\`. For each offender:
 - **Filter to spacing-appropriate tokens.** Look at variable name + collection name; prefer ones with "spacing", "gap", "space" in either. Reject tokens whose names hint at unrelated dimensions (font-size, line-height, border-radius, opacity).
-- **Exact value match → 1 candidate.** If exactly one filtered token has \`value === itemSpacing\`, suggest that one with reason "Found a token with exact match."
-- **No exact match → 2 candidates (above + below).** Find the highest token \`value < offender\` and the lowest \`value > offender\`. Push both. Reason for each: explain where the value sits, e.g. "13px sits between spacing-medium (12px) and spacing-large (16px) — pick whichever fits the design intent."
+- **Exact value match → 1 candidate.** Reason: "Exact value match."
+- **No exact match → 2 candidates (above + below).** Find the highest token \`value < offender\` and the lowest \`value > offender\`. Push both. Reason: short — name the relation, e.g. "12px (one step down)" or "16px (one step up)". Under 8 words.
 - **Tie-breakers when multiple exact matches**: prefer semantic over primitive. Same heuristic as colors.
 - **No appropriate tokens at all** → empty \`suggestedTokens\` array.
 
@@ -331,7 +339,7 @@ Name exact layers and node IDs. Don't say "some layers have bad names" — say "
 
 ## NOTES
 - Limit offenders to 30 per rule to keep payloads manageable.
-- The detail string should explain the violation, e.g. "SOLID fill #FF0000 has no bound variable or style".
+- **Detail strings must be short and plain (under ~10 words).** State the issue, don't explain the technical mechanism. Don't include hex values, node-property names like \`fillStyleId\`, or jargon like "bound variable". Don't give fix advice. Examples — good: "Fill does not use a token or style.", "Spacing not tokenized.", "Auto-layout missing on this frame.". Bad: "SOLID fill #FF0000 has no bound variable or style.", "boundVariable is null on the first paint."
 - After submitting the report, briefly summarize the results to the user in chat — mention the score, which rules passed/failed, and top issues.
 - If the scan data is too large for your context, use a sub-agent to process it in chunks. Instruct it to read the entire file and return only the rule results.
 - Component set root layout is NEVER an issue. When the root is a COMPONENT_SET, its layoutMode is for variant arrangement on the canvas, not code output.
@@ -972,7 +980,7 @@ function lintColors(root, ds) {
         const o = {
           nodeId: node.id,
           name: node.name,
-          detail: `Fill ${f.color || ""} is not using a color token or style.`
+          detail: `Fill does not use a token or style.`
         };
         // Suggest a token only when unambiguous: single fill on the node
         // AND exactly one matching token in the DS.
@@ -981,7 +989,7 @@ function lintColors(root, ds) {
           if (match) {
             o.suggestedTokens = [Object.assign({}, match, {
               slot: "fill",
-              reason: "Found a token with exact match."
+              reason: "Exact match."
             })];
           }
         }
@@ -995,14 +1003,14 @@ function lintColors(root, ds) {
         const o = {
           nodeId: node.id,
           name: node.name,
-          detail: `Stroke ${s.color || ""} is not using a color token or style.`
+          detail: `Stroke does not use a token or style.`
         };
         if (hasDs && !node.hasMultipleStrokes) {
           const match = findTokensByColor(ds, s.color);
           if (match) {
             o.suggestedTokens = [Object.assign({}, match, {
               slot: "stroke",
-              reason: "Found a token with exact match."
+              reason: "Exact match."
             })];
           }
         }
@@ -1057,7 +1065,7 @@ function buildDimensionalSuggestion(ds, rule, slot, value) {
     id: match.id,
     name: match.name,
     slot,                         // e.g. "paddingTop", "itemSpacing", "width"
-    reason: "Found a token with exact match."
+    reason: "Exact match."
   };
 }
 

@@ -289,6 +289,32 @@
         padding-bottom: 10px;
         color: var(--text-tertiary);
       }
+      /* Summary chip in the rules header — visible only when the rules
+         list is collapsed, so the user can see at a glance whether all
+         rules are enabled or only a subset. */
+      .section-toggle-row .section-title-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .rules-summary-chip {
+        display: none;
+        font-size: 10px;
+        font-weight: 600;
+        padding: 2px 7px;
+        border-radius: 999px;
+        background: var(--bg-secondary);
+        color: var(--text);
+        border: 1px solid var(--border);
+        line-height: 1.4;
+        white-space: nowrap;
+      }
+      .rules-summary-chip.is-visible { display: inline-flex; }
+      .rules-summary-chip.is-partial {
+        background: var(--accent-light);
+        color: var(--accent-text);
+        border-color: var(--accent-light);
+      }
       button.chevron-btn {
         display: flex;
         align-items: center;
@@ -1625,7 +1651,10 @@
 
           <div class="panel" id="rules-panel">
             <div class="section-toggle-row">
-              <span class="section-title" style="margin:0">Rules</span>
+              <div class="section-title-group">
+                <span class="section-title" style="margin:0">Rules</span>
+                <span id="rules-summary-chip" class="rules-summary-chip" title="">All</span>
+              </div>
               <button class="chevron-btn" id="rules-toggle" aria-expanded="true" aria-label="Toggle rules">
                 <svg class="chevron" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4l3 3 3-3"/></svg>
               </button>
@@ -1916,6 +1945,50 @@ If anything fails mid-flow, tell me the error and try to fix it rather than give
       // ── Rules collapse toggle ──
       const rulesToggle = document.getElementById("rules-toggle");
       const rulesList = document.getElementById("rules-list");
+      const rulesSummaryChip = document.getElementById("rules-summary-chip");
+
+      // Pretty labels for every rule, used in the chip tooltip when
+      // some rules are off ("Off: Spacing, Padding"). The mode-dependent
+      // prefixes (Naive/Smart) for naming/components/autolayout aren't
+      // included — the chip is always mode-agnostic.
+      const RULE_DISPLAY_NAMES = {
+        naming: "Layer naming",
+        components: "Component usage",
+        autolayout: "Auto layout",
+        colors: "Colors",
+        typography: "Typography",
+        spacing: "Spacing",
+        padding: "Padding",
+        size: "Size",
+        effects: "Effects"
+      };
+
+      function updateRulesSummaryChip() {
+        if (!rulesSummaryChip) return;
+        const inputs = document.querySelectorAll('input[type=checkbox][data-rule]');
+        const total = inputs.length;
+        let on = 0;
+        const off = [];
+        inputs.forEach(i => {
+          if (i.checked) on++;
+          else off.push(RULE_DISPLAY_NAMES[i.dataset.rule] || i.dataset.rule);
+        });
+        if (on === total) {
+          rulesSummaryChip.textContent = "All";
+          rulesSummaryChip.title = "All rules enabled";
+          rulesSummaryChip.classList.remove("is-partial");
+        } else {
+          rulesSummaryChip.textContent = `${on} of ${total}`;
+          rulesSummaryChip.title = off.length ? `Off: ${off.join(", ")}` : "";
+          rulesSummaryChip.classList.add("is-partial");
+        }
+      }
+
+      function setRulesChipVisible(visible) {
+        if (!rulesSummaryChip) return;
+        rulesSummaryChip.classList.toggle("is-visible", !!visible);
+      }
+
       if (rulesToggle && rulesList) {
         rulesList.style.maxHeight = rulesList.scrollHeight + "px";
         rulesToggle.addEventListener("click", () => {
@@ -1924,10 +1997,12 @@ If anything fails mid-flow, tell me the error and try to fix it rather than give
             rulesList.style.maxHeight = rulesList.scrollHeight + "px";
             requestAnimationFrame(() => rulesList.classList.add("is-collapsed"));
             rulesToggle.setAttribute("aria-expanded", "false");
+            setRulesChipVisible(true);
           } else {
             rulesList.classList.remove("is-collapsed");
             rulesList.style.maxHeight = rulesList.scrollHeight + "px";
             rulesToggle.setAttribute("aria-expanded", "true");
+            setRulesChipVisible(false);
           }
         });
       }
@@ -2408,6 +2483,7 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
           const data = {};
           document.querySelectorAll('input[type=checkbox][data-rule]').forEach(i => { data[i.dataset.rule] = i.checked; });
           parent.postMessage({ pluginMessage: { type: "set-prefs", data } }, "*");
+          updateRulesSummaryChip();
         });
       });
 
@@ -2415,6 +2491,7 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         document.querySelectorAll('input[type=checkbox][data-rule]').forEach(i => {
           i.checked = !!(prefs && prefs[i.dataset.rule]);
         });
+        updateRulesSummaryChip();
       }
 
       const selectionCapEl = document.getElementById("selection-cap");

@@ -175,7 +175,8 @@ Use \`designSystem.numberVariables\`. For each offender:
   autolayout: `### auto layout
 Every eligible container node should be using auto-layout. Eligible types: FRAME, GROUP, COMPONENT, COMPONENT_SET, INSTANCE. A container without auto-layout is an offender — the layout becomes brittle in code-generation contexts because positions are absolute, and changes to one element don't ripple through siblings.
 
-This rule does NOT skip device chrome, the root frame, COMPONENT_SET, or the INSTANCE node itself. The user has an explicit "ignore" mechanism in the plugin UI for case-by-case exclusions; rules don't bake in those exclusions. Only skip:
+This rule does NOT skip device chrome, COMPONENT_SET, or the INSTANCE node itself. The user has an explicit "ignore" mechanism in the plugin UI for case-by-case exclusions; rules don't bake in those exclusions. Skips:
+- **Root frame** is exempt. Device canvases (iPhone, desktop, tablet artboards) are device-shaped containers, not layout decisions — their children carry the layout. Recurse into the root's children normally.
 - Nodes the user has explicitly marked ignored (\`node.ignored === true\`).
 - INSTANCE *children* (library internals — designer can't change them on the instance side). The instance node itself IS evaluated.
 - Ineligible types (TEXT, RECTANGLE, ELLIPSE, VECTOR, etc.) — they can't be auto-layout by Figma's data model.
@@ -251,10 +252,6 @@ When AI tools translate Figma designs into code, the output quality depends heav
 
 ## CRITICAL SCOPING RULES — READ BEFORE ANALYZING
 
-### Exclude device/system chrome entirely
-Mobile status bars, browser chrome, device frames, home indicators, notch elements, and similar system UI elements are NOT part of the designer's actual UI. Skip any node whose name matches: status-bar, status bar, iPhone, Android, Notch, home-indicator, home indicator, Network Signal, WiFi, Battery, Time / Light, Time / Dark, Indicator /, URL bar, browser-chrome.
-HARD RULE: These elements must NEVER appear in the report under any category, for any reason. Do not mention them, do not flag issues on them, do not count them in scores.
-
 ### Explicit ignore — nodes marked as "ignored"
 If the scan tree contains a node with \`"ignored": true\`, treat that node AND its entire subtree as excluded from the review. The designer explicitly marked this layer to be skipped (e.g., scaffolding, mockups, simulated browser chrome). Skip those nodes entirely — do not walk into them, do not include any of their descendants in totalChecked or offenders, and do not mention them in the report.
 
@@ -329,10 +326,8 @@ Do not speculate about what "might" be inside a library component instance. You 
 Name exact layers and node IDs. Don't say "some layers have bad names" — say "'Frame 18231' should be renamed to something semantic."
 
 ### Forbidden words and phrases — must NOT appear in any detail string:
-- iPhone, Notch, Status Icons, Status Bar, status-bar, Network Signal, WiFi, Battery, Time / Light, Time / Dark, Indicator, home-indicator
 - No action required, No action needed, Minimal impact, Low impact, be aware that, verify that, note that, confirm that
 - extends beyond, overflow, layout mismatch, outside container bounds (when about scrollable content)
-- sizing variables, sizing tokens, tokenize width, tokenize height, bind width, bind height, size token, dimensional tokens
 
 ## NOTES
 - Limit offenders to 30 per rule to keep payloads manageable.
@@ -482,6 +477,28 @@ figma.ui.onmessage = async (msg) => {
     if (msg.type === "set-prefs") {
       await savePrefs(msg.data);
       figma.ui.postMessage({ type: "prefs", data: prefs });
+      return;
+    }
+    if (msg.type === "get-libraries") {
+      // Enumerate libraries enabled in this file (via Assets > Libraries)
+      // and report which ones the user has picked as their tokens source.
+      try {
+        const libs = await listAvailableLibraries();
+        const selected = await getSelectedTokenLibraries();
+        figma.ui.postMessage({ type: "libraries-result", libraries: libs, selected });
+      } catch (e) {
+        console.warn("[figma-ai-score] get-libraries failed:", e && e.message);
+        figma.ui.postMessage({ type: "libraries-result", libraries: [], selected: [] });
+      }
+      return;
+    }
+    if (msg.type === "set-token-libraries") {
+      try {
+        const libraries = Array.isArray(msg.libraries) ? msg.libraries.filter(s => typeof s === "string") : [];
+        await figma.clientStorage.setAsync("figma-ai-score.token-libraries", libraries);
+      } catch (e) {
+        console.warn("[figma-ai-score] couldn't persist token libraries:", e && e.message);
+      }
       return;
     }
     if (msg.type === "set-mode") {
@@ -1200,6 +1217,15 @@ function lintAutolayoutSimple(root) {
   (function recurse(node, isRoot) {
     if (!node) return;
     if (isExplicitlyIgnored(node)) return;
+    // Skip the root frame: device canvases (iPhone, desktop, tablet artboards)
+    // are device-shaped containers, not layout decisions. Their children are
+    // the layout. Forcing auto-layout on the canvas itself would just make
+    // designers wrap everything in a useless single-child auto-layout to
+    // silence the rule. Nested FRAME/GROUP scaffolding still gets evaluated.
+    if (isRoot) {
+      if (node.children) for (const c of node.children) recurse(c, false);
+      return;
+    }
     if (eligibleTypes.has(node.type)) {
       totalChecked++;
       // Auto-layout means `node.autolayout` is truthy in our extracted shape.
@@ -1483,6 +1509,155 @@ function isPrimitiveTokenName(variableName, collectionName) {
   return false;
 }
 
+// ─── Team-library variable support ────────────────────────────────
+// Designers usually keep their tokens in a separate library file. We
+// can't read other files' local variables, but Figma's teamLibrary API
+// lets us enumerate variable collections from libraries that have been
+// enabled in this file (Assets > Libraries) and import individual
+// variables by key. The user picks which library/libraries hold their
+// tokens via Settings; we cache the choice in clientStorage and only
+// import variables from those libraries on review.
+// ──────────────────────────────────────────────────────────────────
+
+async function listAvailableLibraries() {
+  // Returns [{ name: <libraryName>, collectionCount: <number> }] —
+  // grouped by libraryName so the user picks a library, not a collection.
+  if (!figma.teamLibrary || typeof figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync !== "function") {
+    console.warn("[figma-ai-score] figma.teamLibrary API not available in this Figma version.");
+    return [];
+  }
+  let collections = [];
+  try {
+    collections = await figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync();
+  } catch (e) {
+    console.warn("[figma-ai-score] getAvailableLibraryVariableCollectionsAsync failed:", e && e.message);
+    return [];
+  }
+  console.log("[figma-ai-score] team-library variable collections found:", collections.length, collections.map(c => ({ libraryName: c.libraryName, name: c.name })));
+  const byLib = new Map();
+  for (const c of collections) {
+    const n = c.libraryName || "Unknown library";
+    byLib.set(n, (byLib.get(n) || 0) + 1);
+  }
+  const result = [];
+  for (const [name, collectionCount] of byLib) result.push({ name, collectionCount });
+  result.sort((a, b) => a.name.localeCompare(b.name));
+  return result;
+}
+
+async function getSelectedTokenLibraries() {
+  try {
+    const v = await figma.clientStorage.getAsync("figma-ai-score.token-libraries");
+    if (Array.isArray(v)) return v.filter(s => typeof s === "string");
+  } catch (e) {}
+  return [];
+}
+
+// Pull library variables (COLOR + FLOAT) from the user's selected
+// libraries. Returns { variables: [...], numberVariables: [...] } in
+// the same shape as the local enumeration. Each variable is imported
+// into this file via importVariableByKeyAsync so its `.id` is a stable
+// reference we can later bind via setBoundVariable.
+async function getLibraryDesignSystem(getColl) {
+  const variables = [];
+  const numberVariables = [];
+  const selected = await getSelectedTokenLibraries();
+  if (!selected.length) return { variables, numberVariables };
+  if (!figma.teamLibrary || typeof figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync !== "function") {
+    return { variables, numberVariables };
+  }
+
+  let collections = [];
+  try {
+    collections = await figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync();
+  } catch (e) {
+    console.warn("[figma-ai-score] team-library collections fetch failed:", e && e.message);
+    return { variables, numberVariables };
+  }
+  const selectedSet = new Set(selected);
+  const matchingCollections = collections.filter(c => selectedSet.has(c.libraryName));
+  if (!matchingCollections.length) return { variables, numberVariables };
+
+  // Step 1: list variable metadata across all matching collections.
+  const allMeta = []; // [{ key, name, resolvedType, libraryName, collectionName }]
+  await Promise.all(matchingCollections.map(async (coll) => {
+    try {
+      const items = await figma.teamLibrary.getVariablesInLibraryCollectionAsync(coll.key);
+      for (const it of items) {
+        if (it.resolvedType !== "COLOR" && it.resolvedType !== "FLOAT") continue;
+        allMeta.push({
+          key: it.key,
+          name: it.name,
+          resolvedType: it.resolvedType,
+          libraryName: coll.libraryName,
+          collectionName: coll.name
+        });
+      }
+    } catch (e) {
+      console.warn("[figma-ai-score] getVariablesInLibraryCollectionAsync failed for", coll.name, e && e.message);
+    }
+  }));
+
+  // Soft cap to avoid runaway imports on huge DS files.
+  const CAP = 1000;
+  const meta = allMeta.slice(0, CAP);
+
+  // Step 2: import each variable so we can read its value and later bind.
+  // Run in parallel — Figma's import API handles this fine.
+  const imported = await Promise.all(meta.map(async (m) => {
+    try {
+      const v = await figma.variables.importVariableByKeyAsync(m.key);
+      return { meta: m, variable: v };
+    } catch (e) {
+      return null;
+    }
+  }));
+
+  for (const entry of imported) {
+    if (!entry) continue;
+    const { meta: m, variable: v } = entry;
+    const coll = await getColl(v.variableCollectionId);
+    const modeId = coll && coll.defaultModeId;
+    let raw = v.valuesByMode && modeId ? v.valuesByMode[modeId] : null;
+    if (raw && typeof raw === "object" && raw.type === "VARIABLE_ALIAS") {
+      try {
+        const referenced = typeof figma.variables.getVariableByIdAsync === "function"
+          ? await figma.variables.getVariableByIdAsync(raw.id)
+          : figma.variables.getVariableById(raw.id);
+        if (referenced && referenced.valuesByMode) {
+          const refColl = await getColl(referenced.variableCollectionId);
+          const refModeId = refColl && refColl.defaultModeId;
+          raw = refModeId ? referenced.valuesByMode[refModeId] : null;
+        }
+      } catch (e) { raw = null; }
+    }
+    if (m.resolvedType === "COLOR") {
+      if (!raw || typeof raw !== "object" || !("r" in raw)) continue;
+      const hex = rgbToHex(raw, typeof raw.a === "number" ? raw.a : undefined);
+      variables.push({
+        id: v.id,
+        name: v.name,
+        color: hex,
+        collectionName: m.collectionName,
+        libraryName: m.libraryName,
+        isPrimitive: isPrimitiveTokenName(v.name, m.collectionName)
+      });
+    } else if (m.resolvedType === "FLOAT") {
+      if (typeof raw !== "number") continue;
+      numberVariables.push({
+        id: v.id,
+        name: v.name,
+        value: raw,
+        collectionName: m.collectionName,
+        libraryName: m.libraryName,
+        isPrimitive: isPrimitiveTokenName(v.name, m.collectionName)
+      });
+    }
+  }
+
+  return { variables, numberVariables };
+}
+
 async function getDesignSystem() {
   const variables = [];
   const numberVariables = [];
@@ -1596,6 +1771,15 @@ async function getDesignSystem() {
     }
   } catch (e) {
     console.warn("[figma-ai-score] paint-style enumeration failed:", e && e.message);
+  }
+
+  // ── Library variables (user-selected DS libraries) ──
+  try {
+    const lib = await getLibraryDesignSystem(getColl);
+    for (const v of lib.variables) variables.push(v);
+    for (const v of lib.numberVariables) numberVariables.push(v);
+  } catch (e) {
+    console.warn("[figma-ai-score] library DS enumeration failed:", e && e.message);
   }
 
   return { variables, numberVariables, paintStyles };

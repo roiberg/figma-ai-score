@@ -1077,6 +1077,129 @@
         cursor: pointer;
       }
       button.connect-success-ok:hover { background: #07572a; }
+
+      /* ── Settings screen ── */
+      .settings-screen {
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: var(--bg);
+        z-index: 200;
+        display: flex;
+        flex-direction: column;
+      }
+      .settings-screen-header {
+        padding: 12px 14px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        border-bottom: 1px solid var(--border);
+      }
+      .settings-screen-header h2 {
+        margin: 0;
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--text);
+      }
+      .settings-back-btn {
+        width: 24px;
+        height: 24px;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: transparent;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        color: var(--text-secondary);
+        cursor: pointer;
+      }
+      .settings-back-btn:hover { background: var(--bg-secondary); color: var(--text); }
+      .settings-body {
+        flex: 1;
+        padding: 16px;
+        overflow-y: auto;
+      }
+      .settings-field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .settings-field-label {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text);
+      }
+      .settings-field-hint {
+        margin: 0;
+        font-size: 11px;
+        color: var(--text-secondary);
+        line-height: 1.4;
+      }
+      .settings-picker {
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        background: var(--bg);
+        overflow: hidden;
+      }
+      .settings-picker-trigger {
+        width: 100%;
+        padding: 9px 11px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        background: transparent;
+        border: 0;
+        font: inherit;
+        font-size: 11px;
+        color: var(--text);
+        cursor: pointer;
+        text-align: left;
+      }
+      .settings-picker-trigger:hover { background: var(--bg-secondary); }
+      .settings-picker-trigger-text {
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .settings-picker-trigger-text.placeholder { color: var(--text-secondary); }
+      .settings-picker-chev {
+        flex-shrink: 0;
+        color: var(--text-secondary);
+        transition: transform 0.15s ease;
+      }
+      .settings-picker.open .settings-picker-chev { transform: rotate(180deg); }
+      .settings-picker-list {
+        display: none;
+        border-top: 1px solid var(--border);
+        max-height: 220px;
+        overflow-y: auto;
+      }
+      .settings-picker.open .settings-picker-list { display: block; }
+      .settings-picker-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 11px;
+        font-size: 11px;
+        color: var(--text);
+        cursor: pointer;
+        border-bottom: 1px solid var(--border);
+      }
+      .settings-picker-item:last-child { border-bottom: 0; }
+      .settings-picker-item:hover { background: var(--bg-secondary); }
+      .settings-picker-item input[type="checkbox"] {
+        margin: 0;
+        cursor: pointer;
+      }
+      .settings-picker-empty {
+        padding: 10px 11px;
+        font-size: 11px;
+        color: var(--text-secondary);
+        font-style: italic;
+      }
+
       .setup-card {
         border-radius: var(--radius);
         border: 1px solid var(--orange-border);
@@ -1279,12 +1402,37 @@
     <div class="header">
       <h1>AI Programmability Score</h1>
       <div class="header-right">
+        <button id="libraries-btn" class="header-icon-btn" aria-label="Libraries" title="Libraries">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3.5c2 0 4.5.4 6 1.5 1.5-1.1 4-1.5 6-1.5v9c-2 0-4.5.4-6 1.5-1.5-1.1-4-1.5-6-1.5v-9z"/><path d="M8 5v9"/></svg>
+        </button>
         <button id="suggestion-btn" class="header-icon-btn" aria-label="Send suggestion" title="Send a suggestion">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h10a1 1 0 011 1v7a1 1 0 01-1 1H6l-3 2.5V4a1 1 0 011-1z"/></svg>
         </button>
         <div class="conn-badge">
           <div id="conn-dot" class="conn-dot"></div>
           <span id="conn-label">disconnected</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="libraries-screen" class="settings-screen" style="display:none">
+      <div class="settings-screen-header">
+        <button id="libraries-back" class="settings-back-btn" aria-label="Back">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 2.5L4 6l3.5 3.5"/></svg>
+        </button>
+        <h2>Libraries</h2>
+      </div>
+      <div class="settings-body">
+        <div class="settings-field">
+          <label class="settings-field-label" for="tokens-library-trigger">Tokens library</label>
+          <p class="settings-field-hint">Pick the library (or libraries) that hold your design tokens. The plugin will read variables from these libraries when suggesting tokens.</p>
+          <div id="tokens-library-picker" class="settings-picker">
+            <button type="button" id="tokens-library-trigger" class="settings-picker-trigger" aria-expanded="false">
+              <span id="tokens-library-trigger-text" class="settings-picker-trigger-text placeholder">None selected</span>
+              <svg class="settings-picker-chev" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4l3 3 3-3"/></svg>
+            </button>
+            <div id="tokens-library-list" class="settings-picker-list"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -1815,6 +1963,83 @@ If anything fails mid-flow, tell me the error and try to fix it rather than give
           }, 400);
         });
       }
+
+      // ── Libraries screen ──
+      const librariesBtn = document.getElementById("libraries-btn");
+      const librariesScreen = document.getElementById("libraries-screen");
+      const librariesBack = document.getElementById("libraries-back");
+      const tokensLibPicker = document.getElementById("tokens-library-picker");
+      const tokensLibTrigger = document.getElementById("tokens-library-trigger");
+      const tokensLibTriggerText = document.getElementById("tokens-library-trigger-text");
+      const tokensLibList = document.getElementById("tokens-library-list");
+
+      let availableLibraries = []; // [{ name, collectionCount }]
+      let selectedLibraries = []; // [name, ...]
+      let librariesFetched = false;
+
+      function openLibraries() {
+        librariesScreen.style.display = "flex";
+        if (!librariesFetched) {
+          parent.postMessage({ pluginMessage: { type: "get-libraries" } }, "*");
+        }
+      }
+      function closeLibraries() {
+        librariesScreen.style.display = "none";
+        // Always collapse the picker on close so it starts collapsed next time.
+        tokensLibPicker.classList.remove("open");
+        tokensLibTrigger.setAttribute("aria-expanded", "false");
+      }
+      librariesBtn.addEventListener("click", openLibraries);
+      librariesBack.addEventListener("click", closeLibraries);
+
+      function renderTokensLibTrigger() {
+        if (!selectedLibraries.length) {
+          tokensLibTriggerText.textContent = "None selected";
+          tokensLibTriggerText.classList.add("placeholder");
+        } else {
+          tokensLibTriggerText.textContent = selectedLibraries.join(", ");
+          tokensLibTriggerText.classList.remove("placeholder");
+        }
+      }
+
+      function renderTokensLibList() {
+        tokensLibList.innerHTML = "";
+        if (!availableLibraries.length) {
+          const empty = document.createElement("div");
+          empty.className = "settings-picker-empty";
+          empty.textContent = "No token libraries found. Make sure the library is enabled in Assets > Libraries AND publishes variables (not just paint styles — Figma's API can only list libraries that publish variables).";
+          tokensLibList.appendChild(empty);
+          return;
+        }
+        for (const lib of availableLibraries) {
+          const item = document.createElement("label");
+          item.className = "settings-picker-item";
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.checked = selectedLibraries.indexOf(lib.name) !== -1;
+          cb.addEventListener("change", () => {
+            if (cb.checked) {
+              if (selectedLibraries.indexOf(lib.name) === -1) selectedLibraries.push(lib.name);
+            } else {
+              selectedLibraries = selectedLibraries.filter(n => n !== lib.name);
+            }
+            renderTokensLibTrigger();
+            parent.postMessage({
+              pluginMessage: { type: "set-token-libraries", libraries: selectedLibraries }
+            }, "*");
+          });
+          const name = document.createElement("span");
+          name.textContent = lib.name;
+          item.appendChild(cb);
+          item.appendChild(name);
+          tokensLibList.appendChild(item);
+        }
+      }
+
+      tokensLibTrigger.addEventListener("click", () => {
+        const open = tokensLibPicker.classList.toggle("open");
+        tokensLibTrigger.setAttribute("aria-expanded", open ? "true" : "false");
+      });
 
       // ── Suggestion overlay ──
       const suggestionBtn = document.getElementById("suggestion-btn");
@@ -2685,6 +2910,13 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
           pendingExportResolver = null;
           if (msg.error) resolver.reject(new Error(msg.error));
           else resolver.resolve(msg.bytes);
+        }
+        if (msg.type === "libraries-result") {
+          availableLibraries = Array.isArray(msg.libraries) ? msg.libraries : [];
+          selectedLibraries = Array.isArray(msg.selected) ? msg.selected.slice() : [];
+          librariesFetched = true;
+          renderTokensLibList();
+          renderTokensLibTrigger();
         }
         if (msg.type === "connect-success-suppressed") {
           // Sandbox replying with the persisted "Don't show again" flag.

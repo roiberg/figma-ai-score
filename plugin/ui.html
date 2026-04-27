@@ -1058,13 +1058,50 @@
       .connect-success-checkbox {
         display: flex;
         align-items: center;
-        gap: 6px;
+        gap: 7px;
         font-size: 11px;
-        color: var(--text-secondary);
+        color: var(--green);
         cursor: pointer;
         user-select: none;
       }
-      .connect-success-checkbox input { cursor: pointer; }
+      /* Fully custom checkbox so we control both unchecked AND checked
+         states (the native UA renders unchecked as a dark filled square
+         on macOS dark mode, which clashes with the green card). */
+      .connect-success-checkbox input {
+        position: absolute;
+        opacity: 0;
+        width: 14px;
+        height: 14px;
+        margin: 0;
+        cursor: pointer;
+      }
+      .connect-success-checkbox-box {
+        flex-shrink: 0;
+        width: 14px;
+        height: 14px;
+        border-radius: 3px;
+        border: 1.5px solid var(--green);
+        background: var(--bg);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background 0.12s, border-color 0.12s;
+      }
+      .connect-success-checkbox-box svg {
+        opacity: 0;
+        transition: opacity 0.12s;
+      }
+      .connect-success-checkbox input:checked + .connect-success-checkbox-box {
+        background: var(--green);
+        border-color: var(--green);
+      }
+      .connect-success-checkbox input:checked + .connect-success-checkbox-box svg {
+        opacity: 1;
+      }
+      .connect-success-checkbox input:focus-visible + .connect-success-checkbox-box {
+        outline: 2px solid var(--green);
+        outline-offset: 1px;
+      }
       button.connect-success-ok {
         background: var(--green);
         color: #fff;
@@ -1547,6 +1584,9 @@
               <div class="connect-success-actions">
                 <label class="connect-success-checkbox">
                   <input type="checkbox" id="connect-success-dont-show" />
+                  <span class="connect-success-checkbox-box">
+                    <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5l2 2 4-4"/></svg>
+                  </span>
                   <span>Don't show again</span>
                 </label>
                 <button id="connect-success-ok" class="connect-success-ok">OK</button>

@@ -25,6 +25,19 @@ const PREFS_KEY = "figma-ai-score.prefs.v1";
 let prefs = Object.assign({}, DEFAULT_RULES);
 let locked = false;
 let lockedIds = [];
+// `cancelled` lives in the plugin sandbox now (was in the MCP server pre-v0.6.0).
+// CLI invocations are short-lived; only the plugin can carry the flag across the
+// multi-call review flow. Cleared by announce_review_start / begin_review;
+// short-circuits subsequent RPCs with { cancelled: true } until cleared.
+let cancelled = false;
+const CANCEL_EXEMPT_METHODS = new Set([
+  // Read-only methods that should still respond truthfully even after cancel.
+  "get_selection", "get_preferences", "is_cancelled"
+]);
+const CANCEL_CLEARING_METHODS = new Set([
+  // A new review cycle clears any stale cancel flag.
+  "announce_review_start", "begin_review"
+]);
 
 // ── Full review protocol. Returned by get_preferences so any Claude ──
 // ── session can run a review with zero external configuration.        ──
@@ -457,6 +470,13 @@ figma.ui.onmessage = async (msg) => {
   if (!msg) return;
 
   if (!msg.__rpc) {
+    if (msg.type === "set-cancelled") {
+      // The UI's Stop button (and any future cancel UX) sets this flag.
+      // Subsequent CLI RPCs short-circuit with { cancelled: true } until
+      // the next announce_review_start / begin_review clears it.
+      cancelled = !!msg.value;
+      return;
+    }
     if (msg.type === "ui-ready") {
       await loadPrefs();
       try {
@@ -695,7 +715,16 @@ figma.ui.onmessage = async (msg) => {
 
   const { id, method, params } = msg;
   try {
-    const result = await handleRpc(method, params || {});
+    if (CANCEL_CLEARING_METHODS.has(method)) cancelled = false;
+    let result;
+    if (cancelled && !CANCEL_EXEMPT_METHODS.has(method)) {
+      // Short-circuit — match the pre-v0.6.0 MCP server's behaviour so
+      // existing instructions ("If any tool returns { cancelled: true }, stop
+      // immediately") keep working unchanged.
+      result = { cancelled: true, reason: "user stopped review" };
+    } else {
+      result = await handleRpc(method, params || {});
+    }
     figma.ui.postMessage({ __rpc: true, id, result });
   } catch (err) {
     figma.ui.postMessage({
@@ -724,6 +753,9 @@ async function handleRpc(method, params) {
         scoringMethod: "proportional",
         instructions: buildInstructions(prefs)
       };
+    }
+    case "is_cancelled": {
+      return { cancelled };
     }
     case "announce_review_start": {
       // Early signal — Claude is about to work on a review but hasn't

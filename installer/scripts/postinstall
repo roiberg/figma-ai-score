@@ -1,11 +1,21 @@
 #!/bin/bash
-# Post-install script for figma-ai-score MCP server.
+# Post-install script for figma-ai-score CLI (v0.6.0+).
 #
-# macOS .pkg postinstall scripts run as root with a minimal PATH
-# (/usr/bin:/bin:/usr/sbin:/sbin — no Homebrew, no NVM). That was breaking
-# the `command -v npm` check and also leaving root-owned files in the
-# user's home. We fix both by re-exec'ing as the installing user with
-# a login shell, which picks up their real PATH and ownership.
+# Replaces the v0.5.x MCP server architecture with a CLI on PATH. Major
+# differences:
+#   - Drops `claude mcp add` (best-effort `claude mcp remove` instead, to
+#     clean up v0.5.x leftovers).
+#   - Symlinks the CLI launcher to ~/.local/bin/figma-ai-score (always),
+#     and additionally to /usr/local/bin/figma-ai-score (best-effort).
+#   - Regenerates ~/.claude/CLAUDE.md figma-ai-score block AND
+#     ~/.claude/commands/ai-score.md from `figma-ai-score integrate`
+#     output, so cli/integrate.js is the single source of truth.
+#   - Replaces (not skips) the CLAUDE.md block on upgrade so users
+#     pick up updated content.
+#
+# macOS .pkg postinstall scripts run as root with a minimal PATH. We
+# re-exec as the installing user with a login shell to pick up their
+# real PATH and avoid root-owned files in their home.
 
 set -e
 
@@ -23,9 +33,6 @@ USER_HOME="$(eval echo ~"$INSTALL_USER")"
 LOG_DIR="$USER_HOME/Library/Logs"
 mkdir -p "$LOG_DIR" 2>/dev/null || true
 LOG="$LOG_DIR/figma-ai-score-install.log"
-# If the canonical log exists but isn't writable (e.g. left root-owned by
-# an older installer that ran as root), fall back to a unique-named file
-# so we still capture this run's output instead of failing silently.
 if [ -e "$LOG" ] && [ ! -w "$LOG" ]; then
   LOG="$LOG_DIR/figma-ai-score-install-$(date +%Y%m%d-%H%M%S).log"
 fi
@@ -36,20 +43,16 @@ echo "Installing for: $INSTALL_USER ($USER_HOME)"
 
 # ── Phase 1: if we're root, re-exec as the installing user ──
 if [ "$(id -u)" = "0" ]; then
-  # Clean up any root-owned leftovers from a previous failed install,
-  # otherwise the user-phase `mkdir -p` will hit permission denied.
   if [ -d "$USER_HOME/Library/Application Support/figma-ai-score" ]; then
     echo "Removing root-owned leftovers from previous install attempt ..."
     rm -rf "$USER_HOME/Library/Application Support/figma-ai-score"
   fi
 
-  # Move the payload to a user-readable/deletable location (/tmp is root-owned).
   STAGE="$USER_HOME/Library/Caches/figma-ai-score-pkg"
   rm -rf "$STAGE"
   mkdir -p "$(dirname "$STAGE")"
   cp -R /tmp/figma-ai-score-pkg "$STAGE"
   chown -R "$INSTALL_USER" "$STAGE"
-  # chown the Caches dir only if WE just created it; ignore failures if it existed.
   chown "$INSTALL_USER" "$USER_HOME/Library/Caches" 2>/dev/null || true
   rm -rf /tmp/figma-ai-score-pkg
 
@@ -58,36 +61,49 @@ if [ "$(id -u)" = "0" ]; then
 fi
 
 # ── Phase 2: running as the installing user with a login shell ──
-# (PATH now includes Homebrew / NVM / whatever the user has.)
 echo "Phase 2 PATH: $PATH"
 
 STAGE="${FIGMA_AI_SCORE_STAGE:-/tmp/figma-ai-score-pkg}"
-INSTALL_DIR="$HOME/Library/Application Support/figma-ai-score/mcp-server"
+APP_SUPPORT="$HOME/Library/Application Support/figma-ai-score"
+INSTALL_DIR="$APP_SUPPORT/cli"
+LEGACY_MCP_DIR="$APP_SUPPORT/mcp-server"
+NODE_BIN="$INSTALL_DIR/node"
+LAUNCHER_SH="$INSTALL_DIR/launcher.sh"
+CLI_JS="$INSTALL_DIR/cli.js"
+
 CLAUDE_DIR="$HOME/.claude"
 CLAUDE_MD="$CLAUDE_DIR/CLAUDE.md"
 COMMANDS_DIR="$CLAUDE_DIR/commands"
 SLASH_CMD_MD="$COMMANDS_DIR/ai-score.md"
 LEGACY_REVIEW_MD="$COMMANDS_DIR/review.md"
-SERVER_JS="$INSTALL_DIR/index.js"
-NODE_BIN="$INSTALL_DIR/node"
 MARKER="<!-- figma-ai-score -->"
 
-# ── 1. Copy MCP server files + bundled Node + node_modules ──
-# The pkg payload is self-contained — the staged directory already includes:
-#   - index.js, package.json, package-lock.json  (MCP server source)
-#   - node_modules/                              (baked at build time)
-#   - node                                       (bundled Node.js binary)
-# So all we do here is copy and set the exec bit. No npm install, no
-# prerequisites on the user's machine.
-echo "Copying MCP server + bundled Node.js to $INSTALL_DIR ..."
-mkdir -p "$INSTALL_DIR"
-cp -R "$STAGE/mcp-server/." "$INSTALL_DIR/"
-chmod +x "$NODE_BIN"
+USER_LOCAL_BIN="$HOME/.local/bin"
+USER_LOCAL_LINK="$USER_LOCAL_BIN/figma-ai-score"
+SYS_LOCAL_LINK="/usr/local/bin/figma-ai-score"
 
-# ── 2. Register MCP server with Claude Code ──
-# Use the bundled node explicitly so the MCP server doesn't depend on
-# the user's system Node (if any).
-echo "Registering MCP server with Claude Code ..."
+# ── 1. Wipe legacy MCP install dir (v0.5.x) and any old root-owned cli/ leftovers ──
+if [ -d "$LEGACY_MCP_DIR" ]; then
+  echo "Removing legacy MCP server install at $LEGACY_MCP_DIR ..."
+  rm -rf "$LEGACY_MCP_DIR" || true
+fi
+# We always want a clean slate for cli/ so old node_modules can't shadow new ones.
+rm -rf "$INSTALL_DIR"
+
+# ── 2. Copy CLI files + bundled Node + node_modules ──
+# The pkg payload is self-contained — staged dir already includes:
+#   - cli.js, bridge.js, integrate.js, package.json (CLI source)
+#   - node_modules/ (only `ws`)
+#   - node (bundled Node.js binary)
+#   - launcher.sh (POSIX shim that execs node + cli.js)
+echo "Copying CLI + bundled Node.js to $INSTALL_DIR ..."
+mkdir -p "$INSTALL_DIR"
+cp -R "$STAGE/cli/." "$INSTALL_DIR/"
+chmod +x "$NODE_BIN" "$LAUNCHER_SH" "$CLI_JS"
+
+# ── 3. Best-effort: remove the v0.5.x MCP registration from Claude Code ──
+# Some users will still have it from a prior install. Without removal,
+# Claude Code logs a warning at session start about a missing MCP server.
 CLAUDE_BIN=""
 if command -v claude >/dev/null 2>&1; then
   CLAUDE_BIN="$(command -v claude)"
@@ -95,130 +111,119 @@ elif [ -x "$HOME/.claude/local/claude" ]; then
   CLAUDE_BIN="$HOME/.claude/local/claude"
 fi
 if [ -n "$CLAUDE_BIN" ]; then
-  echo "Using claude at: $CLAUDE_BIN"
-  # -s user → applies in every session regardless of cwd.
-  "$CLAUDE_BIN" mcp add -s user figma-ai-score "$NODE_BIN" "$SERVER_JS" 2>&1 || true
-else
-  echo "WARNING: claude CLI not found. After installing Claude Code, run:"
-  echo "  claude mcp add -s user figma-ai-score \"$NODE_BIN\" \"$SERVER_JS\""
+  echo "Cleaning up legacy MCP registration (if any) ..."
+  "$CLAUDE_BIN" mcp remove -s user figma-ai-score 2>/dev/null || true
 fi
 
-# ── 4. Append to ~/.claude/CLAUDE.md (idempotent) ──
-echo "Setting up CLAUDE.md ..."
+# ── 4. Symlink the launcher onto PATH ──
+# ~/.local/bin is the always-attempted target (no sudo needed). Many shells
+# auto-include it on macOS; if not, postinstall surfaces a clear message.
+mkdir -p "$USER_LOCAL_BIN"
+ln -sf "$LAUNCHER_SH" "$USER_LOCAL_LINK"
+echo "Linked: $USER_LOCAL_LINK -> $LAUNCHER_SH"
+
+# /usr/local/bin is best-effort (Homebrew-using machines usually have it
+# writable; corp-managed Macs sometimes don't). Don't fail the install if
+# this doesn't work — ~/.local/bin already covers us.
+if ln -sf "$LAUNCHER_SH" "$SYS_LOCAL_LINK" 2>/dev/null; then
+  echo "Linked: $SYS_LOCAL_LINK -> $LAUNCHER_SH"
+else
+  echo "Note: /usr/local/bin not writable for $INSTALL_USER; skipped (~/.local/bin link is sufficient)."
+fi
+
+# Sanity check: can we actually run figma-ai-score? Use the real launcher
+# directly so we're not hostage to the user's PATH.
+echo "Smoke check: $LAUNCHER_SH --version"
+if "$LAUNCHER_SH" --version; then
+  echo "CLI launches correctly."
+else
+  echo "ERROR: figma-ai-score CLI didn't launch. The install is broken." >&2
+  exit 1
+fi
+
+# Warn if neither symlink ended up on PATH, so the user knows to fix it.
+if ! command -v figma-ai-score >/dev/null 2>&1; then
+  echo ""
+  echo "============================================================"
+  echo "WARNING: figma-ai-score is not on your PATH."
+  echo "Either /usr/local/bin or ~/.local/bin needs to be on \$PATH."
+  echo "Add this to your shell profile (~/.zshrc, ~/.bashrc, etc.):"
+  echo "    export PATH=\"\$HOME/.local/bin:\$PATH\""
+  echo "Then open a new shell."
+  echo "============================================================"
+  echo ""
+fi
+
+# ── 5. Regenerate ~/.claude/CLAUDE.md figma-ai-score block ──
+# Source of truth: cli/integrate.js (--tool claude-md). Replaces between
+# markers, not skip — so upgrades pick up updated content.
+echo "Updating CLAUDE.md figma-ai-score block ..."
 mkdir -p "$CLAUDE_DIR"
 
-CLAUDE_BLOCK="$MARKER
-## figma-ai-score
-
-This is a Figma plugin + MCP server that reviews designs for AI programmability.
-
-- The MCP server exposes 7 tools: get_preferences, get_selection, begin_review, request_scan, highlight_nodes, submit_report, is_cancelled.
-- The Figma plugin connects to the MCP server over localhost WebSocket.
-- All review logic and rules are returned by get_preferences in the instructions field — always call it first and follow what it says.
-
-### Connecting to the plugin
-
-When the user says \"connect to ai score\" — just call get_selection to wake up the MCP server and confirm the plugin is connected. Report the connection status and stop. Do NOT start a review.
-
-### Running a review
-
-When the user asks to review, score, check, audit, or evaluate their design/designs/frames/selection — in any phrasing — treat it as a review request. **Your very first action must be calling announce_review_start** (it takes no arguments, returns {ok:true} instantly). That flips the Figma plugin UI into a \"Preparing review…\" state so the user sees feedback immediately. Then call get_preferences and follow the instructions it returns. Do not skip announce_review_start — without it the plugin UI looks frozen for ~10 seconds while you're reading instructions. The /ai-score slash command does the same thing.
-
-### If the figma-ai-score tools aren't available in this session
-
-**Default assumption: the tools ARE available.** Always attempt get_selection or get_preferences first when the user asks. Do not preemptively tell the user anything about sessions or installation.
-
-Only use the canned message below if ALL of these are true:
-1. You actually tried invoking a figma-ai-score tool (e.g. get_selection)
-2. The attempt failed because the tool does not exist in your toolbelt — not because the plugin is disconnected, not because of a timeout, not because of any runtime error
-3. You can confirm via claude mcp list (Bash) that figma-ai-score is registered on disk
-
-Only then, say exactly:
-
-> \"All is ready. Please start a new Claude Code session and try again — the tools will be available there.\"
-
-Do not attempt workarounds (restarting the server, re-running claude mcp add, etc.) — those won't change the running session's tool registry.
-
-If the tool call fails with \"plugin is not connected\", that's a different situation — see \"Connection errors\" below.
-
-### Connection errors
-
-If any tool call fails with \"plugin is not connected\", \"EADDRINUSE\", \"timed out\", or similar:
-
-1. Check for stale MCP server processes from previous sessions: ps aux | grep \"figma-ai-score/mcp-server\" | grep -v grep
-2. Verify what's on the WebSocket port: lsof -i :3055
-3. If stale processes exist, ask the user: \"There are stale MCP server processes from a previous session blocking the connection. Can I kill them so this session can connect?\"
-4. Only after the user confirms, kill the stale processes and retry. The current session will automatically respawn its own MCP server.
-
-Do not retry in a loop without diagnosing first. Always check for stale processes before asking the user to reopen the plugin.
-$MARKER"
-
-if [ -f "$CLAUDE_MD" ] && grep -q "$MARKER" "$CLAUDE_MD"; then
-  echo "CLAUDE.md already contains figma-ai-score block, skipping."
-else
-  echo "" >> "$CLAUDE_MD"
-  echo "$CLAUDE_BLOCK" >> "$CLAUDE_MD"
-  echo "Appended figma-ai-score instructions to CLAUDE.md"
+CLAUDE_BLOCK="$("$LAUNCHER_SH" integrate --tool claude-md)"
+if [ -z "$CLAUDE_BLOCK" ]; then
+  echo "ERROR: \`figma-ai-score integrate --tool claude-md\` returned empty output." >&2
+  exit 1
 fi
 
-# ── 5. Install /ai-score slash command ──
-# We deliberately use /ai-score (not /review) to avoid shadowing
-# Claude Code's built-in /review (PR-review) command at the user level.
-# If a previous version of this installer wrote /review, remove it now.
+if [ -f "$CLAUDE_MD" ] && grep -q "$MARKER" "$CLAUDE_MD"; then
+  # Drop everything between the first and last marker pair, then append fresh.
+  python3 - "$CLAUDE_MD" "$MARKER" <<'STRIPMARKERS'
+import sys, re
+path, marker = sys.argv[1], sys.argv[2]
+with open(path, 'r') as f:
+    src = f.read()
+# Remove the entire <!-- figma-ai-score -->...<!-- figma-ai-score --> block
+# (and any trailing whitespace/newlines around it so we don't accumulate
+# blank lines on repeated upgrades).
+pat = re.compile(r'\n*' + re.escape(marker) + r'.*?' + re.escape(marker) + r'\n*', re.DOTALL)
+out = pat.sub('\n', src)
+with open(path, 'w') as f:
+    f.write(out)
+STRIPMARKERS
+  echo "Removed existing figma-ai-score block from CLAUDE.md."
+fi
+
+# Append the fresh block, prefixed by a single blank line.
+{
+  if [ -s "$CLAUDE_MD" ] && [ "$(tail -c1 "$CLAUDE_MD" 2>/dev/null)" != "" ]; then
+    echo ""
+  fi
+  echo ""
+  printf '%s\n' "$CLAUDE_BLOCK"
+} >> "$CLAUDE_MD"
+echo "Appended fresh figma-ai-score block to CLAUDE.md."
+
+# ── 6. Regenerate /ai-score slash command ──
+# Same single-source-of-truth approach — `figma-ai-score integrate --tool claude`
+# emits the slash-command body.
 echo "Installing /ai-score slash command ..."
 mkdir -p "$COMMANDS_DIR"
 
-if [ -f "$LEGACY_REVIEW_MD" ]; then
-  # Only delete if it looks like ours (contains figma-ai-score wording).
-  if grep -q "figma-ai-score" "$LEGACY_REVIEW_MD" 2>/dev/null; then
-    rm -f "$LEGACY_REVIEW_MD" && echo "Removed legacy ~/.claude/commands/review.md (was shadowing built-in /review)."
-  fi
+# Legacy /review cleanup: pre-rename installs left this file. Remove only
+# if it looks like ours (contains figma-ai-score wording).
+if [ -f "$LEGACY_REVIEW_MD" ] && grep -q "figma-ai-score" "$LEGACY_REVIEW_MD" 2>/dev/null; then
+  rm -f "$LEGACY_REVIEW_MD" && echo "Removed legacy ~/.claude/commands/review.md."
 fi
 
-cat > "$SLASH_CMD_MD" << 'AISCOREEOF'
-You are about to score the user's Figma design for AI programmability via the figma-ai-score MCP server. (This slash command is `/ai-score` — the figma-ai-score-specific review flow.)
+"$LAUNCHER_SH" integrate --tool claude > "$SLASH_CMD_MD"
+if [ ! -s "$SLASH_CMD_MD" ]; then
+  echo "ERROR: failed to write $SLASH_CMD_MD." >&2
+  exit 1
+fi
+echo "Wrote /ai-score slash command."
 
-## Steps
-
-1. Call `announce_review_start` FIRST — as your very first action. It takes no arguments and returns instantly. This flips the Figma plugin UI into a "Preparing review…" state so the user sees feedback immediately (without it, the UI looks frozen for ~10 seconds while you read the instructions).
-2. Call `get_preferences` — it returns `enabledRules` and an `instructions` field containing the complete review protocol. Read the instructions carefully and follow them exactly.
-3. The instructions will tell you the rest of the flow: get selection, begin review, scan frames, apply rules, compute scores, and submit the report.
-4. Follow the protocol from the instructions. Do not skip steps or invent rules beyond what the instructions specify.
-
-That's it. Everything you need is inside `get_preferences`. Go.
-
-## Troubleshooting
-
-### If a tool call returns "Figma plugin is not connected"
-
-**First, retry the same call once after a brief pause (~1s).** The plugin's WebSocket can momentarily disconnect during normal reconnect cycles (e.g., right after the MCP server starts, or after a Figma tab refresh). A single retry usually succeeds — the race is real and almost always brief. Don't message the user about this; it's normal jitter, not a problem they need to know about.
-
-**If the retry also fails**, then the most common cause is that the plugin isn't open in Figma yet. Don't escalate to deeper diagnostics yet. Tell the user exactly this and stop:
-
-> The AI Programmability Score plugin isn't open in Figma yet. Open it (in Figma: Plugins menu → AI Programmability Score → Run), then run `/ai-score` again. If it's already open and this still happens, let me know and I'll dig deeper.
-
-Only escalate to stale-process diagnostics below if the user comes back saying the plugin IS open in Figma and the problem persists.
-
-### Deeper diagnostics (only after the user confirms the plugin is open)
-
-If a tool call still fails with "plugin is not connected", "EADDRINUSE", "timed out", or similar connection errors after the plugin is confirmed open:
-
-1. Check for stale MCP server processes from previous sessions: `ps aux | grep "figma-ai-score/mcp-server" | grep -v grep`
-2. Verify what's on the WebSocket port: `lsof -i :3055`
-3. If stale processes exist, ask the user: "There are stale MCP server processes from a previous session blocking the connection. Can I kill them so this session can connect?"
-4. Only after the user confirms, kill the stale processes and retry. The current session will automatically respawn its own MCP server.
-
-Do NOT retry in a loop without diagnosing first.
-AISCOREEOF
-
-echo "Done installing /ai-score command."
-
-# ── 6. Clean up staged payload ──
+# ── 7. Clean up staged payload ──
 rm -rf "$STAGE"
 
+echo ""
 echo "=== figma-ai-score install complete ==="
 echo ""
 echo "Next steps:"
-echo "  1. If Claude Code is already open, start a new session (new tools load at session start)."
-echo "  2. Open the AI Programmability Score plugin in Figma."
-echo "  3. In Claude Code, say \"connect to ai score\" or \"review my design\"."
+echo "  1. Open the AI Programmability Score plugin in Figma."
+echo "  2. In Claude Code (no session restart needed!), say \"connect to ai score\""
+echo "     to verify, or \"review my design\" / \`/ai-score\` to start."
+echo ""
+echo "Other AI tools (Cursor, OpenAI Codex CLI, Gemini CLI, etc.):"
+echo "  Run \`figma-ai-score integrate\` and follow the printed instructions"
+echo "  to set up integration for your tool."

@@ -2,12 +2,14 @@
 # Builds the figma-ai-score.pkg installer for macOS (arm64, self-contained).
 #
 # The pkg bundles:
-#   - The MCP server source (index.js, package.json, package-lock.json)
-#   - Its production node_modules (installed at build time)
+#   - The CLI source (cli.js, bridge.js, integrate.js, package.json,
+#     package-lock.json, launcher.sh)
+#   - Its production node_modules (only `ws`, installed at build time)
 #   - The official Node.js binary for darwin-arm64 (downloaded + cached)
 #
 # This means the installed user needs nothing pre-installed — no Homebrew,
-# no Node.js, no npm. Just double-click the pkg.
+# no Node.js, no npm. Just double-click the pkg (or paste the install
+# instructions into Claude Code, which is the canonical flow).
 #
 # Usage: ./build-pkg.sh
 # Output: ../figma-ai-score.pkg
@@ -16,10 +18,10 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-MCP_DIR="$PROJECT_DIR/mcp-server"
+CLI_DIR="$PROJECT_DIR/cli"
 PKG_OUT="$PROJECT_DIR/figma-ai-score.pkg"
-PKG_ID="com.figma-ai-score.mcp"
-PKG_VERSION="0.5.3"
+PKG_ID="com.figma-ai-score.cli"
+PKG_VERSION="0.6.0"
 
 # Node.js version to bundle. Pinned for reproducibility; bump when
 # shipping security updates.
@@ -57,20 +59,25 @@ fi
 # ── 3. Prepare payload ──
 echo "Preparing payload ..."
 rm -rf "$PAYLOAD"
-mkdir -p "$PAYLOAD/mcp-server"
+mkdir -p "$PAYLOAD/cli"
 
-cp "$MCP_DIR/index.js" "$PAYLOAD/mcp-server/"
-cp "$MCP_DIR/package.json" "$PAYLOAD/mcp-server/"
-cp "$MCP_DIR/package-lock.json" "$PAYLOAD/mcp-server/"
+cp "$CLI_DIR/cli.js"        "$PAYLOAD/cli/"
+cp "$CLI_DIR/bridge.js"     "$PAYLOAD/cli/"
+cp "$CLI_DIR/integrate.js"  "$PAYLOAD/cli/"
+cp "$CLI_DIR/launcher.sh"   "$PAYLOAD/cli/"
+cp "$CLI_DIR/package.json"  "$PAYLOAD/cli/"
+# package-lock may not exist on a fresh clone; copy if present.
+[ -f "$CLI_DIR/package-lock.json" ] && cp "$CLI_DIR/package-lock.json" "$PAYLOAD/cli/"
 
 # Bake node_modules into the payload so the installer doesn't need to
-# touch the network or the user's npm.
-echo "Installing MCP server dependencies (baked into pkg) ..."
-(cd "$PAYLOAD/mcp-server" && npm install --omit=dev --silent 2>&1 | tail -5)
+# touch the network or the user's npm. The CLI has only one runtime dep
+# (`ws`), so this is fast.
+echo "Installing CLI dependencies (baked into pkg) ..."
+(cd "$PAYLOAD/cli" && npm install --omit=dev --silent 2>&1 | tail -5)
 
-# Bundle the Node.js binary next to the server.
-cp "$NODE_BIN" "$PAYLOAD/mcp-server/node"
-chmod +x "$PAYLOAD/mcp-server/node"
+# Bundle the Node.js binary next to the CLI.
+cp "$NODE_BIN" "$PAYLOAD/cli/node"
+chmod +x "$PAYLOAD/cli/node" "$PAYLOAD/cli/launcher.sh" "$PAYLOAD/cli/cli.js"
 
 # ── 4. Make scripts executable ──
 chmod +x "$SCRIPT_DIR/scripts/preinstall"

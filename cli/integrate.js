@@ -11,24 +11,55 @@ const SUPPORTED_TOOLS = new Set([
   // Compact reference block (between <!-- figma-ai-score --> markers)
   // for ~/.claude/CLAUDE.md
   "claude-md",
+  // JSON array of permission rules merged into ~/.claude/settings.json by
+  // postinstall (see CLAUDE_PERMISSION_ENTRIES below for the rationale).
+  "claude-permissions",
   "cursor",
   "codex",
   "gemini"
 ]);
 
 /**
+ * Permission rules merged into ~/.claude/settings.json by postinstall so
+ * /ai-score reviews don't trigger a permission prompt for every CLI call
+ * or temp-file access. The four entries cover, in order:
+ *   - any `figma-ai-score <subcmd>` Bash invocation
+ *   - JPEG thumbnails the CLI writes under macOS $TMPDIR
+ *     (/var/folders/.../T/figma-ai-score-<pid>/<nodeId>.jpg)
+ *   - report JSON files the review protocol stages under /tmp
+ *   - writes to those same /tmp paths
+ *
+ * Exported so postinstall + docs share the canonical list. If you add or
+ * change an entry, update the install-prompt disclosure in
+ * installer/install-prompt.md (and the inlined copy in plugin/ui.html)
+ * so the host AI can tell the user what permissions it's granting.
+ */
+export const CLAUDE_PERMISSION_ENTRIES = [
+  "Bash(figma-ai-score:*)",
+  "Read(/var/folders/**/figma-ai-score-*/**)",
+  "Read(/tmp/figma-ai-score-*)",
+  "Write(/tmp/figma-ai-score-*)",
+];
+
+/**
  * Return the integration markdown for a host AI tool.
  * @param {{ tool?: string|null, version?: string }} opts
- * @returns {string} markdown
+ * @returns {string} markdown (or JSON, for `--tool claude-permissions`)
  */
 export function buildIntegrationDoc({ tool = null, version = "" } = {}) {
   const t = tool && SUPPORTED_TOOLS.has(tool) ? tool : null;
-  if (t === "claude")    return claudeSlashCommand(version);
-  if (t === "claude-md") return claudeMdBlock(version);
-  if (t === "cursor")    return cursorRules(version);
-  if (t === "codex")     return codexAgentsBlock(version);
-  if (t === "gemini")    return geminiBlock(version);
+  if (t === "claude")             return claudeSlashCommand(version);
+  if (t === "claude-md")          return claudeMdBlock(version);
+  if (t === "claude-permissions") return claudePermissionsJson();
+  if (t === "cursor")             return cursorRules(version);
+  if (t === "codex")              return codexAgentsBlock(version);
+  if (t === "gemini")             return geminiBlock(version);
   return universalDoc(version);
+}
+
+function claudePermissionsJson() {
+  // Stable JSON output — postinstall pipes this into a Python merger.
+  return JSON.stringify(CLAUDE_PERMISSION_ENTRIES, null, 2) + "\n";
 }
 
 // ────────────────────────────────────────────────────────────

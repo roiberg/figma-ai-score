@@ -1869,6 +1869,7 @@ Inside the extracted \`.pkg\` there's a \`postinstall\` script — the same one 
  - Symlink the launcher to \`~/.local/bin/figma-ai-score\` (always) and \`/usr/local/bin/figma-ai-score\` (best-effort) so it's on PATH
  - Update the \`<!-- figma-ai-score -->\` block in \`~/.claude/CLAUDE.md\` (replaces existing content, idempotent on upgrade) describing the CLI's subcommands and how Claude should respond to review-related prompts
  - Write the \`/ai-score\` slash command to \`~/.claude/commands/ai-score.md\` (deliberately named to avoid shadowing Claude Code's built-in \`/review\` PR-review command)
+ - Merge a small permission allowlist into \`~/.claude/settings.json\` so Claude Code doesn't prompt on every review for \`Bash(figma-ai-score:*)\` calls or for reading the JPEG thumbnails the CLI writes to \`$TMPDIR\` and the report JSON it stages under \`/tmp\` (idempotent — never clobbers, never duplicates)
 
 If your sandbox blocks writes to \`~/Library/Logs\` or \`~/Library/Application Support\` (Codex CLI's default sandbox does this even when the user clicks Approve), don't loop on permission requests. Stop, tell the user the exact command to run themselves in Terminal — \`bash <path-to-extracted-pkg>/Scripts/postinstall\` with the same \`FIGMA_AI_SCORE_STAGE=...\` env var you were going to use — and wait for them to confirm. Then continue from step 3.
 

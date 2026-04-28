@@ -104,6 +104,8 @@ Subcommands (all return JSON on stdout):
   is-cancelled                            Returns { cancelled: bool }.
   integrate [--tool <name>]               Print the integration doc for a host AI.
                                           tool: claude | cursor | codex | gemini
+                                          (claude-md, claude-permissions are
+                                          internal — used by postinstall.)
   doctor                                  Run runtime checks (PATH, bind, plugin reachable).
                                           Exits non-zero if any check fails.
 

@@ -190,11 +190,72 @@ if [ ! -s "$SLASH_CMD_MD" ]; then
 fi
 echo "Wrote /ai-score slash command."
 
-# ── 5. Clean up staged payload ──
+# ── 5. Merge Claude Code permission allowlist for figma-ai-score ──
+# The CLI writes JPEG thumbnails to $TMPDIR (macOS: /var/folders/.../T/...)
+# and the review protocol stages reports under /tmp. Both live outside any
+# project working directory, so without an allowlist Claude Code prompts on
+# every review. Source of truth for the entries is cli/integrate.js
+# (`integrate --tool claude-permissions` emits the canonical JSON array).
+#
+# Merge is idempotent: never clobber, never duplicate, never fail the
+# install on a malformed user settings.json. CLAUDE.md and the slash command
+# already succeeded by this point — bailing out at allowlist would be too
+# aggressive. The trailing `||` swallows any non-zero exit from the merger.
+echo "Merging figma-ai-score allowlist into ~/.claude/settings.json ..."
+SETTINGS_JSON="$CLAUDE_DIR/settings.json"
+[ -f "$SETTINGS_JSON" ] || echo '{}' > "$SETTINGS_JSON"
+
+PERMISSIONS_JSON="$("$LAUNCHER_SH" integrate --tool claude-permissions)"
+if [ -z "$PERMISSIONS_JSON" ]; then
+  echo "Note: claude-permissions returned empty — skipping allowlist merge."
+else
+  python3 - "$SETTINGS_JSON" "$PERMISSIONS_JSON" <<'MERGE_ALLOWLIST' || \
+    echo "Note: allowlist merge skipped. Reviews will still work; you'll just get permission prompts on first use."
+import json, os, sys, tempfile
+
+settings_path = sys.argv[1]
+entries = json.loads(sys.argv[2])
+
+try:
+    with open(settings_path) as f:
+        data = json.load(f)
+except json.JSONDecodeError as e:
+    print(f"WARN: {settings_path} is not valid JSON ({e}); refusing to overwrite.", file=sys.stderr)
+    sys.exit(1)
+
+if not isinstance(data, dict):
+    print(f"WARN: {settings_path} top-level isn't a JSON object; refusing to overwrite.", file=sys.stderr)
+    sys.exit(1)
+
+allow = data.setdefault("permissions", {}).setdefault("allow", [])
+if not isinstance(allow, list):
+    print(f"WARN: permissions.allow in {settings_path} isn't an array; refusing to overwrite.", file=sys.stderr)
+    sys.exit(1)
+
+added = [e for e in entries if e not in allow]
+allow.extend(added)
+
+if added:
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(settings_path) or ".")
+    with os.fdopen(fd, "w") as f:
+        json.dump(data, f, indent=2)
+        f.write("\n")
+    os.replace(tmp, settings_path)
+    print(f"Added {len(added)} allowlist entr{'y' if len(added) == 1 else 'ies'}: {', '.join(added)}")
+else:
+    print("Allowlist already up to date.")
+MERGE_ALLOWLIST
+fi
+
+# ── 6. Clean up staged payload ──
 rm -rf "$STAGE"
 
 echo ""
 echo "=== figma-ai-score install complete ==="
+echo ""
+echo "Granted Claude Code permission to call figma-ai-score and read its temp"
+echo "files (merged into ~/.claude/settings.json) so reviews don't trigger"
+echo "permission prompts on every CLI call."
 echo ""
 echo "Next steps:"
 echo "  1. Open the AI Programmability Score plugin in Figma."

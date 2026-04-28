@@ -25,9 +25,8 @@ Delete everything we created under `/tmp/`.
 > "Install complete. Next steps:
 >
 > 1. Open the AI Programmability Score plugin in Figma (Plugins menu → AI Programmability Score → Run).
-> 2. (No need to restart your AI tool — the CLI is on PATH right now.)
-> 3. Say `connect to ai score` to verify the plugin is wired up. Claude will confirm or troubleshoot.
-> 4. Once that's confirmed, say `review my design` or run `/ai-score` to start a real review."
+> 2. Say `connect to ai score` to verify the plugin is wired up. I'll confirm or troubleshoot.
+> 3. Once that's confirmed, say `review my design` or run `/ai-score` to start a real review."
 
 **If you are NOT Claude Code** (e.g., you're Cursor, Codex CLI, Gemini CLI, Windsurf, or another AI coding tool):
 The postinstall above only auto-configures Claude Code (writes `~/.claude/CLAUDE.md` and `~/.claude/commands/ai-score.md`). For your tool, also do this once after install:

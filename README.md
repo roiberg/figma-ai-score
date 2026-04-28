@@ -43,9 +43,7 @@ docs/        # User-facing docs (manual-integration.md, etc.)
 
 The canonical flow: open the plugin in Figma, click **"Copy install instructions"**, paste into your AI coding tool. The AI runs the install via `curl + pkgutil + bash postinstall`; no double-click, no Gatekeeper prompt.
 
-After install, no session restart is needed — the CLI is on PATH right away.
-
-For other AI tools (anything besides Claude Code), the install prompt has a self-integrate trailer that tells your AI to write the appropriate rules file. See [`docs/manual-integration.md`](./docs/manual-integration.md) for per-tool recipes if anything fumbles.
+For AI tools other than Claude Code, the install prompt has a self-integrate trailer that tells your AI to write the appropriate rules file. See [`docs/manual-integration.md`](./docs/manual-integration.md) for per-tool recipes if anything fumbles.
 
 ## Development
 
@@ -77,6 +75,6 @@ The plugin id is `figma-ai-score-dev-local` (in `plugin/manifest.json`); import 
 
 All return JSON on stdout. Errors print JSON to stderr with non-zero exit codes (2 = plugin not connected, 3 = timeout, etc.).
 
-## Status
+## Releases
 
-v0.6.0 — universal CLI architecture, no session restart needed after install. See [release notes](https://github.com/roiberg/figma-ai-score/releases).
+See the [releases page](https://github.com/roiberg/figma-ai-score/releases) for the latest `.pkg` and changelog.

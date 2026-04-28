@@ -4,10 +4,9 @@
 // it can't listen). So the CLI plays the role of WS *server*: it binds 3055,
 // waits for the plugin to (re)connect, does ONE RPC, and exits.
 //
-// Pattern B (per the v0.6.0 plan): no long-lived broker. Each CLI invocation
-// owns the port for its lifetime, then releases it on exit. The plugin's
-// auto-reconnect loop (verified at plugin/ui.html:2444 — every 2s on close)
-// re-establishes the link on the next call.
+// No long-lived broker. Each CLI invocation owns the port for its lifetime,
+// then releases it on exit. The plugin's auto-reconnect loop (every 2s on
+// close — see plugin/ui.html:2444) re-establishes the link on the next call.
 
 import { WebSocketServer } from "ws";
 import { createServer } from "node:http";

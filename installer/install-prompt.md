@@ -25,7 +25,7 @@ Delete everything we created under `/tmp/`.
 > "Install complete. Next steps:
 >
 > 1. Open the AI Programmability Score plugin in Figma (Plugins menu → AI Programmability Score → Run).
-> 2. (No Claude Code session restart needed — the CLI is on PATH right now.)
+> 2. (No need to restart your AI tool — the CLI is on PATH right now.)
 > 3. Say `connect to ai score` to verify the plugin is wired up. Claude will confirm or troubleshoot.
 > 4. Once that's confirmed, say `review my design` or run `/ai-score` to start a real review."
 

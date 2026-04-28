@@ -1615,10 +1615,10 @@
             <div class="connect-success-card">
               <div class="connect-success-title">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8.5L6 12.5L14 4"/></svg>
-                Connected to Claude Code
+                Connected
               </div>
               <p class="connect-success-body">
-                AI reviews start from Claude Code, not here. Just say <em>"review my design"</em> or run <code>/ai-score</code>.
+                AI reviews start from your AI coding tool, not here. Just say <em>"review my design"</em> or run <code>/ai-score</code>.
               </p>
               <div class="connect-success-actions">
                 <label class="connect-success-checkbox">
@@ -1637,10 +1637,10 @@
             <div class="setup-card">
               <div class="setup-title">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" stroke="#b8860b" stroke-width="1.5"/><path d="M8 4.5v4" stroke="#b8860b" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="11" r="0.75" fill="#b8860b"/></svg>
-                Not connected to Claude Code
+                Not connected
               </div>
 
-              <p class="setup-hint">Type this in Claude Code to connect:</p>
+              <p class="setup-hint">Type this in your AI coding tool to connect:</p>
               <div class="copy-row">
                 <span class="copy-text">connect to ai score</span>
                 <button id="copy-cmd" class="copy-btn">
@@ -1657,7 +1657,7 @@
                   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M5 11H3.5A1.5 1.5 0 012 9.5v-7A1.5 1.5 0 013.5 1h7A1.5 1.5 0 0112 2.5V5"/></svg>
                   Copy install instructions
                 </button>
-                <p class="setup-primary-hint">Paste in Claude Code and approve. ~30 seconds.</p>
+                <p class="setup-primary-hint">Paste into your AI coding tool and approve. ~30 seconds.</p>
               </div>
             </div>
           </div>
@@ -1928,7 +1928,7 @@ Delete everything we created under \`/tmp/\`.
 > "Install complete. Next steps:
 >
 > 1. Open the AI Programmability Score plugin in Figma (Plugins menu → AI Programmability Score → Run).
-> 2. (No Claude Code session restart needed — the CLI is on PATH right now.)
+> 2. (No need to restart your AI tool — the CLI is on PATH right now.)
 > 3. Say \`connect to ai score\` to verify the plugin is wired up. Claude will confirm or troubleshoot.
 > 4. Once that's confirmed, say \`review my design\` or run \`/ai-score\` to start a real review."
 
@@ -1956,7 +1956,7 @@ If anything fails mid-flow, tell me the error and try to fix it rather than give
             try { navigator.clipboard.writeText(INSTALL_PROMPT_TEXT); } catch (e2) {}
           }
           const original = copyInstallBtn.innerHTML;
-          copyInstallBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3 3 7-7"/></svg> Copied — paste into Claude Code';
+          copyInstallBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3 3 7-7"/></svg> Copied — paste into your AI tool';
           setTimeout(() => { copyInstallBtn.innerHTML = original; }, 3000);
         });
       }
@@ -2326,7 +2326,8 @@ If anything fails mid-flow, tell me the error and try to fix it rather than give
       // first WS connect handshake).
       let connectSuccessSuppressedForever = false;
       function maybeShowConnectSuccess() {
-        // Only relevant in AI mode (Simple mode doesn't use Claude Code).
+        // Only relevant in AI mode (Simple mode runs deterministic checks
+        // without an AI tool, so the "connected" card is irrelevant there).
         // Fires on either trigger that lands us in (AI + connected):
         //   - first WS connect while already in AI mode
         //   - switching to AI mode while already connected
@@ -2776,14 +2777,15 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         stopBtn.textContent = "Stop signal sent";
         // Honest UX: the AI can only see the cancel flag when it makes its
         // NEXT tool call. If it's mid-thinking on a long turn, that can be
-        // 30–60s away. Update the banner to say so, and recommend Esc as
-        // the immediate option (it interrupts Claude Code's current turn).
+        // 30–60s away. Update the banner to say so, and recommend the host
+        // AI's interrupt key (Esc in most CLI agents — Claude Code, Codex,
+        // Gemini; Cmd+. in Cursor) as the immediate option.
         // Fallback auto-hide is 60s — long enough that almost any in-flight
         // turn will resolve, short enough that the banner doesn't get stuck.
         lockedBanner.innerHTML =
           '<strong><span class="reviewing-dot"></span>Stop signal sent</strong>' +
-          'Claude will halt at its next tool call (usually within 5–30 seconds). ' +
-          'For an immediate stop, press <kbd class="kbd">Esc</kbd> in Claude Code.';
+          'Your AI tool will halt at its next tool call (usually within 5–30 seconds). ' +
+          'For an immediate stop, use your AI tool\'s interrupt key (<kbd class="kbd">Esc</kbd> in most CLIs).';
         setTimeout(hideLocked, 60000);
       });
 

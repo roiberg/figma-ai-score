@@ -2,8 +2,6 @@
 # Post-install script for figma-ai-score CLI.
 #
 # What this script does, in order:
-#   - Cleans up any v0.5.x leftovers (legacy MCP server install dir + the
-#     old `claude mcp add` registration). No-op on fresh installs.
 #   - Copies the CLI files + bundled Node + node_modules to
 #     ~/Library/Application Support/figma-ai-score/cli/.
 #   - Symlinks the launcher to ~/.local/bin/figma-ai-score (always) and,
@@ -66,7 +64,6 @@ echo "Phase 2 PATH: $PATH"
 STAGE="${FIGMA_AI_SCORE_STAGE:-/tmp/figma-ai-score-pkg}"
 APP_SUPPORT="$HOME/Library/Application Support/figma-ai-score"
 INSTALL_DIR="$APP_SUPPORT/cli"
-LEGACY_MCP_DIR="$APP_SUPPORT/mcp-server"
 NODE_BIN="$INSTALL_DIR/node"
 LAUNCHER_SH="$INSTALL_DIR/launcher.sh"
 CLI_JS="$INSTALL_DIR/cli.js"
@@ -82,40 +79,20 @@ USER_LOCAL_BIN="$HOME/.local/bin"
 USER_LOCAL_LINK="$USER_LOCAL_BIN/figma-ai-score"
 SYS_LOCAL_LINK="/usr/local/bin/figma-ai-score"
 
-# ── 1. Wipe legacy MCP install dir (v0.5.x) and any old root-owned cli/ leftovers ──
-if [ -d "$LEGACY_MCP_DIR" ]; then
-  echo "Removing legacy MCP server install at $LEGACY_MCP_DIR ..."
-  rm -rf "$LEGACY_MCP_DIR" || true
-fi
-# We always want a clean slate for cli/ so old node_modules can't shadow new ones.
-rm -rf "$INSTALL_DIR"
-
-# ── 2. Copy CLI files + bundled Node + node_modules ──
+# ── 1. Copy CLI files + bundled Node + node_modules ──
+# Wipe any prior cli/ first so stale node_modules can't shadow new ones.
 # The pkg payload is self-contained — staged dir already includes:
 #   - cli.js, bridge.js, integrate.js, package.json (CLI source)
 #   - node_modules/ (only `ws`)
 #   - node (bundled Node.js binary)
 #   - launcher.sh (POSIX shim that execs node + cli.js)
+rm -rf "$INSTALL_DIR"
 echo "Copying CLI + bundled Node.js to $INSTALL_DIR ..."
 mkdir -p "$INSTALL_DIR"
 cp -R "$STAGE/cli/." "$INSTALL_DIR/"
 chmod +x "$NODE_BIN" "$LAUNCHER_SH" "$CLI_JS"
 
-# ── 3. Best-effort: remove the v0.5.x MCP registration from Claude Code ──
-# Some users will still have it from a prior install. Without removal,
-# Claude Code logs a warning at session start about a missing MCP server.
-CLAUDE_BIN=""
-if command -v claude >/dev/null 2>&1; then
-  CLAUDE_BIN="$(command -v claude)"
-elif [ -x "$HOME/.claude/local/claude" ]; then
-  CLAUDE_BIN="$HOME/.claude/local/claude"
-fi
-if [ -n "$CLAUDE_BIN" ]; then
-  echo "Cleaning up legacy MCP registration (if any) ..."
-  "$CLAUDE_BIN" mcp remove -s user figma-ai-score 2>/dev/null || true
-fi
-
-# ── 4. Symlink the launcher onto PATH ──
+# ── 2. Symlink the launcher onto PATH ──
 # ~/.local/bin is the always-attempted target (no sudo needed). Many shells
 # auto-include it on macOS; if not, postinstall surfaces a clear message.
 mkdir -p "$USER_LOCAL_BIN"
@@ -154,7 +131,7 @@ if ! command -v figma-ai-score >/dev/null 2>&1; then
   echo ""
 fi
 
-# ── 5. Regenerate ~/.claude/CLAUDE.md figma-ai-score block ──
+# ── 3. Regenerate ~/.claude/CLAUDE.md figma-ai-score block ──
 # Source of truth: cli/integrate.js (--tool claude-md). Replaces between
 # markers, not skip — so upgrades pick up updated content.
 echo "Updating CLAUDE.md figma-ai-score block ..."
@@ -194,7 +171,7 @@ fi
 } >> "$CLAUDE_MD"
 echo "Appended fresh figma-ai-score block to CLAUDE.md."
 
-# ── 6. Regenerate /ai-score slash command ──
+# ── 4. Regenerate /ai-score slash command ──
 # Same single-source-of-truth approach — `figma-ai-score integrate --tool claude`
 # emits the slash-command body.
 echo "Installing /ai-score slash command ..."
@@ -213,7 +190,7 @@ if [ ! -s "$SLASH_CMD_MD" ]; then
 fi
 echo "Wrote /ai-score slash command."
 
-# ── 7. Clean up staged payload ──
+# ── 5. Clean up staged payload ──
 rm -rf "$STAGE"
 
 echo ""
@@ -221,9 +198,10 @@ echo "=== figma-ai-score install complete ==="
 echo ""
 echo "Next steps:"
 echo "  1. Open the AI Programmability Score plugin in Figma."
-echo "  2. In Claude Code (no session restart needed!), say \"connect to ai score\""
-echo "     to verify, or \"review my design\" / \`/ai-score\` to start."
+echo "  2. In your AI coding tool (no need to restart it), say"
+echo "     \"connect to ai score\" to verify, or \"review my design\""
+echo "     / \`/ai-score\` to start."
 echo ""
-echo "Other AI tools (Cursor, OpenAI Codex CLI, Gemini CLI, etc.):"
-echo "  Run \`figma-ai-score integrate\` and follow the printed instructions"
-echo "  to set up integration for your tool."
+echo "If your AI tool isn't Claude Code (e.g., Cursor, OpenAI Codex CLI,"
+echo "Gemini CLI): run \`figma-ai-score integrate\` and follow the printed"
+echo "instructions to set up integration for your tool."

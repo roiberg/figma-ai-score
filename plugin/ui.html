@@ -726,6 +726,19 @@
         display: block;
         margin-bottom: 2px;
       }
+      .locked-banner .kbd {
+        display: inline-block;
+        padding: 0 5px;
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        font-size: 10px;
+        font-weight: 600;
+        line-height: 16px;
+        color: var(--text);
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        box-shadow: 0 1px 0 rgba(0,0,0,0.06);
+      }
       @keyframes slideDown {
         from { opacity: 0; transform: translateY(-6px); }
         to { opacity: 1; transform: translateY(0); }
@@ -2760,8 +2773,18 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
           ws.send(JSON.stringify({ type: "event", name: "cancel" }));
         }
         stopBtn.disabled = true;
-        stopBtn.textContent = "Stopping...";
-        setTimeout(hideLocked, 2500);
+        stopBtn.textContent = "Stop signal sent";
+        // Honest UX: the AI can only see the cancel flag when it makes its
+        // NEXT tool call. If it's mid-thinking on a long turn, that can be
+        // 30–60s away. Update the banner to say so, and recommend Esc as
+        // the immediate option (it interrupts Claude Code's current turn).
+        // Fallback auto-hide is 60s — long enough that almost any in-flight
+        // turn will resolve, short enough that the banner doesn't get stuck.
+        lockedBanner.innerHTML =
+          '<strong><span class="reviewing-dot"></span>Stop signal sent</strong>' +
+          'Claude will halt at its next tool call (usually within 5–30 seconds). ' +
+          'For an immediate stop, press <kbd class="kbd">Esc</kbd> in Claude Code.';
+        setTimeout(hideLocked, 60000);
       });
 
       function scoreClass(score, perfect) {

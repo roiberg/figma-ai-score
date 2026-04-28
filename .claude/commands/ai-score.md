@@ -1,33 +1,52 @@
-You are about to score the user's Figma design for AI programmability via the figma-ai-score MCP server. (This slash command is `/ai-score` — the figma-ai-score-specific review flow.)
+You are about to score the user's Figma design for AI programmability via the figma-ai-score CLI. (This slash command is `/ai-score`.)
 
-## Steps
+The CLI is `figma-ai-score` on PATH. All steps below are Bash invocations.
 
-1. Call `announce_review_start` FIRST — as your very first action. It takes no arguments and returns instantly. This flips the Figma plugin UI into a "Preparing review…" state so the user sees feedback immediately (without it, the UI looks frozen for ~10 seconds while you read the instructions).
-2. Call `get_preferences` — it returns `enabledRules` and an `instructions` field containing the complete review protocol. Read the instructions carefully and follow them exactly.
-3. The instructions will tell you the rest of the flow: get selection, begin review, scan frames, apply rules, compute scores, and submit the report.
-4. Follow the protocol from the instructions. Do not skip steps or invent rules beyond what the instructions specify.
+## When to invoke
 
-That's it. Everything you need is inside `get_preferences`. Go.
+- The user says "review", "score", "check", "audit", or "evaluate" their design / frame / selection in any phrasing → start a review (steps below).
+- The user says "connect to ai score" → just run `figma-ai-score get-selection` to confirm the plugin is reachable. Report the connection status and stop. Do NOT start a review.
+
+## Review steps
+
+1. **First action: `figma-ai-score announce-review-start`** (no args; returns instantly). This flips the plugin UI into "Preparing review…" so the user sees feedback. Without it the plugin looks frozen for ~10s while you read the instructions.
+2. Run `figma-ai-score get-preferences`. The JSON response contains `enabledRules` and an `instructions` field with the complete review protocol. Read those instructions fully and follow them exactly. They tell you which rules to apply and how to score.
+3. Run `figma-ai-score get-selection` to learn what frames the user wants reviewed. If `capped` is true, warn the user only the first `maxSelection` are scored.
+4. Run `figma-ai-score begin-review --node-ids id1,id2,…`.
+5. For each frame, run `figma-ai-score request-scan --node-id <id>`. The response includes a `thumbnailPath` — see "Vision-based rules" below.
+6. Walk the tree, apply ONLY the enabled rules, compute scores per the instructions.
+7. Write the final report to a temp file (use the `Write` tool), then run `figma-ai-score submit-report --report-file <path>`. Inline JSON via flags is not supported — the report is too large for shell-quoting.
+
+If any subcommand returns `{ "cancelled": true }` in its JSON output, stop the review immediately and tell the user "Review cancelled."
+
+## Vision-based rules
+
+`request-scan` writes a JPEG thumbnail of the frame to a system temp dir (path varies; macOS is `/var/folders/.../figma-ai-score-<pid>/<nodeId>.jpg`) and returns its absolute path as `thumbnailPath`. When AI-mode rules call for visual judgment (the `naming` semantic-accuracy check, the `components` vision check, `autolayout` quality, etc.), use your tool's image-reading capability on that path. Do NOT try to interpret the path string itself — open the file.
+
+## Output format
+
+Every subcommand prints JSON on stdout. On error, JSON is written to stderr in the form `{"error": "...", "code": "..."}` and the process exits non-zero:
+
+| Exit | Meaning |
+|---:|---|
+| 0 | success |
+| 1 | generic failure |
+| 2 | plugin not connected (open the plugin in Figma) |
+| 3 | call timed out |
+| 4 | unknown subcommand |
 
 ## Troubleshooting
 
-### If a tool call returns "Figma plugin is not connected"
+### Exit code 2 / "PLUGIN_NOT_CONNECTED"
 
-**First, retry the same call once after a brief pause (~1s).** The plugin's WebSocket can momentarily disconnect during normal reconnect cycles (e.g., right after the MCP server starts, or after a Figma tab refresh). A single retry usually succeeds — the race is real and almost always brief. Don't message the user about this; it's normal jitter, not a problem they need to know about.
+The plugin must be open in Figma. **Retry the same call once after a brief pause (~1s) before alarming the user** — momentary disconnects during reconnect cycles are normal jitter; they almost always succeed on retry. If the retry also fails, tell the user exactly:
 
-**If the retry also fails**, then the most common cause is that the plugin isn't open in Figma yet. Don't escalate to deeper diagnostics yet. Tell the user exactly this and stop:
+> The AI Programmability Score plugin isn't open in Figma yet. Open it (Plugins menu → AI Programmability Score → Run), then try again.
 
-> The AI Programmability Score plugin isn't open in Figma yet. Open it (in Figma: Plugins menu → AI Programmability Score → Run), then run `/ai-score` again. If it's already open and this still happens, let me know and I'll dig deeper.
+### Other errors
 
-Only escalate to stale-process diagnostics below if the user comes back saying the plugin IS open in Figma and the problem persists.
+- **EADDRINUSE on 3055**: a previous CLI invocation may still hold the port. Wait ~2s and retry. If persistent, check `lsof -i :3055` and ask the user before killing.
+- **Timeouts (exit 3)**: same retry-once policy as above.
 
-### Deeper diagnostics (only after the user confirms the plugin is open)
+Don't loop on retries. One retry per call, then surface the message to the user.
 
-If a tool call still fails with "plugin is not connected", "EADDRINUSE", "timed out", or similar connection errors after the plugin is confirmed open:
-
-1. Check for stale MCP server processes from previous sessions: `ps aux | grep "figma-ai-score/mcp-server" | grep -v grep`
-2. Verify what's on the WebSocket port: `lsof -i :3055`
-3. If stale processes exist, ask the user: "There are stale MCP server processes from a previous session blocking the connection. Can I kill them so this session can connect?"
-4. Only after the user confirms, kill the stale processes and retry. The current session will automatically respawn its own MCP server.
-
-Do NOT retry in a loop without diagnosing first.

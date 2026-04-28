@@ -79,10 +79,18 @@ The plugin must be open in Figma. **Retry the same call once after a brief pause
 
 > The AI Programmability Score plugin isn't open in Figma yet. Open it (Plugins menu → AI Programmability Score → Run), then try again.
 
+### BIND_FAILED
+
+If a call fails with \`{"code":"BIND_FAILED"}\`, **read the message** — the CLI distinguishes the two real causes:
+
+- **"Operation not permitted"** → your sandbox is blocking \`bind()\` on localhost. Most common in Codex CLI before network access has been granted for the session. Ask the user to grant network access; don't loop on retries.
+- **"Port 3055 is already in use"** → another process holds the port. The CLI message includes the \`lsof\` invocation to identify the holder.
+
 ### Other errors
 
-- **EADDRINUSE on 3055**: a previous CLI invocation may still hold the port. Wait ~2s and retry. If persistent, check \`lsof -i :3055\` and ask the user before killing.
-- **Timeouts (exit 3)**: same retry-once policy as above.
+- **Timeouts (exit 3)**: same retry-once policy as PLUGIN_NOT_CONNECTED.
+
+When in doubt, run \`figma-ai-score doctor\`. It runs each runtime check independently (CLI on PATH, can bind 127.0.0.1, can bind ::1, plugin reachable) and labels each result with a specific actionable hint. Treat its output as authoritative — don't second-guess it.
 
 Don't loop on retries. One retry per call, then surface the message to the user.
 `;
@@ -121,6 +129,7 @@ Subcommands:
 - \`figma-ai-score highlight-nodes --node-ids id1,id2,…\` — flashes nodes in Figma.
 - \`figma-ai-score submit-report --report-file <path>\` — delivers the final report. Write the JSON to a temp file with \`Write\`, then call this.
 - \`figma-ai-score is-cancelled\` — returns \`{ cancelled: bool }\`. Other subcommands also short-circuit with \`{ cancelled: true }\` once cancel is set.
+- \`figma-ai-score doctor\` — runtime self-check. Returns \`{ ok, checks: [...] }\` with one entry per check (CLI on PATH, can bind 127.0.0.1:3055, can bind ::1:3055, plugin reachable). Each failed check carries a \`hint\`. Run this when reviews fail in confusing ways — it tells you exactly which layer is broken.
 
 ### Connecting
 

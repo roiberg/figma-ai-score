@@ -15,8 +15,12 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawn } from "node:child_process";
+import { createServer } from "node:http";
 import { Bridge } from "./bridge.js";
 import { buildIntegrationDoc } from "./integrate.js";
+
+const WS_PORT = 3055;
 
 const VERSION = "0.6.0";
 
@@ -100,6 +104,8 @@ Subcommands (all return JSON on stdout):
   is-cancelled                            Returns { cancelled: bool }.
   integrate [--tool <name>]               Print the integration doc for a host AI.
                                           tool: claude | cursor | codex | gemini
+  doctor                                  Run runtime checks (PATH, bind, plugin reachable).
+                                          Exits non-zero if any check fails.
 
 Flags:
   --version, -v                           Print version.
@@ -198,6 +204,146 @@ function unpackThumbnail(result, params) {
 }
 
 // ────────────────────────────────────────────────────────────
+// `doctor` — runtime diagnostic.
+//
+// This subcommand exists because the failure modes for review-time problems
+// look identical from a user's seat ("the review didn't run") but resolve to
+// very different fixes. Codex CLI sandbox blocking bind() looks the same as
+// a stale node holding the port, which looks the same as the plugin not
+// being open. Doctor runs each check independently and labels each result
+// with a specific actionable hint.
+//
+// Output is JSON like every other subcommand, so the host AI can parse and
+// summarize it. Exit code is 0 if all checks pass, 1 otherwise.
+// ────────────────────────────────────────────────────────────
+
+function checkOnPath() {
+  return new Promise(resolve => {
+    let stdout = "";
+    let proc;
+    try {
+      proc = spawn("which", ["figma-ai-score"]);
+    } catch (e) {
+      resolve({ name: "cli-on-path", ok: false, detail: "couldn't run `which`", hint: e.message });
+      return;
+    }
+    proc.stdout.on("data", d => { stdout += d.toString(); });
+    proc.on("error", e => {
+      resolve({ name: "cli-on-path", ok: false, detail: "couldn't run `which`", hint: e.message });
+    });
+    proc.on("close", code => {
+      const path = stdout.trim();
+      if (code === 0 && path) {
+        resolve({ name: "cli-on-path", ok: true, detail: path });
+      } else {
+        resolve({
+          name: "cli-on-path",
+          ok: false,
+          detail: "figma-ai-score is not on PATH",
+          hint: `Add ~/.local/bin to PATH: \`export PATH="$HOME/.local/bin:$PATH"\` in your shell rc.`,
+        });
+      }
+    });
+  });
+}
+
+function checkBind(host) {
+  // Try to listen on host:WS_PORT, immediately close on success. Surfaces
+  // the libc errno (EPERM, EADDRINUSE, EAFNOSUPPORT) so we can map it to a
+  // hint instead of dumping a generic node error.
+  return new Promise(resolve => {
+    const srv = createServer();
+    srv.on("error", err => {
+      try { srv.close(); } catch {}
+      if (err.code === "EAFNOSUPPORT" || err.code === "EADDRNOTAVAIL") {
+        // Family unavailable on this host (e.g. ::1 disabled) — not a failure.
+        resolve({
+          name: `bind-${host}`,
+          ok: true,
+          detail: `${host} family unavailable on this host (skipped)`,
+        });
+        return;
+      }
+      let hint;
+      if (err.code === "EPERM" || err.code === "EACCES") {
+        hint = "Your AI tool's sandbox is blocking bind() on localhost. In Codex CLI, grant network permission for this session and retry.";
+      } else if (err.code === "EADDRINUSE") {
+        hint = `Another process holds the port. Find it with \`lsof -nP -iTCP:${WS_PORT} -sTCP:LISTEN\` and stop it.`;
+      }
+      resolve({
+        name: `bind-${host}`,
+        ok: false,
+        detail: `${err.code || "ERROR"}: ${err.message}`,
+        ...(hint ? { hint } : {}),
+      });
+    });
+    srv.listen(WS_PORT, host, () => {
+      srv.close(() => {
+        resolve({ name: `bind-${host}`, ok: true, detail: `bound ${host}:${WS_PORT}` });
+      });
+    });
+  });
+}
+
+async function checkPluginReachable() {
+  const bridge = new Bridge();
+  const start = Date.now();
+  try {
+    await bridge.start();
+    bridge.close();
+    return {
+      name: "plugin-reachable",
+      ok: true,
+      detail: `handshake in ${Date.now() - start}ms`,
+    };
+  } catch (e) {
+    bridge.close();
+    let hint;
+    if (e.code === "PLUGIN_NOT_CONNECTED") {
+      hint = "Open the AI Programmability Score plugin in Figma (Plugins menu → AI Programmability Score → Run).";
+    } else if (e.code === "BIND_FAILED") {
+      hint = "Couldn't stand up the bridge — see the bind checks above for the specific cause.";
+    }
+    return {
+      name: "plugin-reachable",
+      ok: false,
+      detail: e.message,
+      ...(hint ? { hint } : {}),
+    };
+  }
+}
+
+async function runDoctor() {
+  const checks = [];
+  checks.push(await checkOnPath());
+
+  // Bind tests run sequentially (not parallel) so we don't race ourselves
+  // for the same port.
+  const bindV4 = await checkBind("127.0.0.1");
+  checks.push(bindV4);
+  const bindV6 = await checkBind("::1");
+  checks.push(bindV6);
+
+  // Plugin-reachable is only meaningful if at least one bind worked. If both
+  // binds failed, the bridge can't even stand up, so handshake will fail
+  // with the same root cause — skip it to keep the report uncluttered.
+  if (bindV4.ok || bindV6.ok) {
+    checks.push(await checkPluginReachable());
+  } else {
+    checks.push({
+      name: "plugin-reachable",
+      ok: false,
+      detail: "skipped — neither loopback family could bind",
+      hint: "Resolve the bind failure(s) above first.",
+    });
+  }
+
+  const ok = checks.every(c => c.ok);
+  emitJson({ ok, checks });
+  return ok ? 0 : 1;
+}
+
+// ────────────────────────────────────────────────────────────
 // Main
 // ────────────────────────────────────────────────────────────
 
@@ -218,6 +364,9 @@ async function main() {
     const tool = typeof flags.tool === "string" ? flags.tool : null;
     process.stdout.write(buildIntegrationDoc({ tool, version: VERSION }));
     return 0;
+  }
+  if (subcommand === "doctor") {
+    return await runDoctor();
   }
 
   const method = SUBCOMMAND_TO_METHOD[subcommand];

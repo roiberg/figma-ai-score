@@ -72,6 +72,7 @@ The plugin id is `figma-ai-score-dev-local` (in `plugin/manifest.json`); import 
 | `figma-ai-score submit-report --report-file <path>` | Deliver the final report. |
 | `figma-ai-score is-cancelled` | `{ cancelled: bool }`. |
 | `figma-ai-score integrate [--tool ...]` | Print integration markdown for a host AI. |
+| `figma-ai-score doctor` | Runtime self-check (PATH, bind, plugin reachable). |
 
 All return JSON on stdout. Errors print JSON to stderr with non-zero exit codes (2 = plugin not connected, 3 = timeout, etc.).
 

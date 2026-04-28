@@ -17,7 +17,7 @@ Inside the extracted `.pkg` there's a `postinstall` script — the same one the 
 If your sandbox blocks writes to `~/Library/Logs` or `~/Library/Application Support` (Codex CLI's default sandbox does this even when the user clicks Approve), don't loop on permission requests. Stop, tell the user the exact command to run themselves in Terminal — `bash <path-to-extracted-pkg>/Scripts/postinstall` with the same `FIGMA_AI_SCORE_STAGE=...` env var you were going to use — and wait for them to confirm. Then continue from step 3.
 
 **3. Verify the install.**
-Run `figma-ai-score --version` and confirm it prints a version (e.g. `0.6.0`). Also run `which figma-ai-score`. If either fails, ~/.local/bin or /usr/local/bin isn't on PATH yet — tell me which, and instruct the user to add `export PATH="$HOME/.local/bin:$PATH"` to their shell rc.
+Run `figma-ai-score --version` and confirm it prints a version (e.g. `0.6.1`). Also run `which figma-ai-score`. If either fails, ~/.local/bin or /usr/local/bin isn't on PATH yet — tell me which, and instruct the user to add `export PATH="$HOME/.local/bin:$PATH"` to their shell rc.
 
 **4. Clean up temp files.**
 Delete everything we created under `/tmp/`.

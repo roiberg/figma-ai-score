@@ -1914,7 +1914,6 @@ Fetch the latest \`.pkg\` file from the project's GitHub Releases page (\`https:
 Inside the extracted \`.pkg\` there's a \`postinstall\` script — the same one the installer would run if the user had double-clicked. Run it directly. It will:
  - Copy the CLI files to \`~/Library/Application Support/figma-ai-score/cli/\`
  - Symlink the launcher to \`~/.local/bin/figma-ai-score\` (always) and \`/usr/local/bin/figma-ai-score\` (best-effort) so it's on PATH
- - Best-effort remove any stale legacy MCP registration from Claude Code (\`claude mcp remove\`) — only relevant if upgrading from v0.5.x
  - Update the \`<!-- figma-ai-score -->\` block in \`~/.claude/CLAUDE.md\` (replaces existing content, idempotent on upgrade) describing the CLI's subcommands and how Claude should respond to review-related prompts
  - Write the \`/ai-score\` slash command to \`~/.claude/commands/ai-score.md\` (deliberately named to avoid shadowing Claude Code's built-in \`/review\` PR-review command)
 

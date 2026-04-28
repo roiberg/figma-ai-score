@@ -1,17 +1,17 @@
 #!/bin/bash
-# Post-install script for figma-ai-score CLI (v0.6.0+).
+# Post-install script for figma-ai-score CLI.
 #
-# Replaces the v0.5.x MCP server architecture with a CLI on PATH. Major
-# differences:
-#   - Drops `claude mcp add` (best-effort `claude mcp remove` instead, to
-#     clean up v0.5.x leftovers).
-#   - Symlinks the CLI launcher to ~/.local/bin/figma-ai-score (always),
-#     and additionally to /usr/local/bin/figma-ai-score (best-effort).
-#   - Regenerates ~/.claude/CLAUDE.md figma-ai-score block AND
-#     ~/.claude/commands/ai-score.md from `figma-ai-score integrate`
-#     output, so cli/integrate.js is the single source of truth.
-#   - Replaces (not skips) the CLAUDE.md block on upgrade so users
-#     pick up updated content.
+# What this script does, in order:
+#   - Cleans up any v0.5.x leftovers (legacy MCP server install dir + the
+#     old `claude mcp add` registration). No-op on fresh installs.
+#   - Copies the CLI files + bundled Node + node_modules to
+#     ~/Library/Application Support/figma-ai-score/cli/.
+#   - Symlinks the launcher to ~/.local/bin/figma-ai-score (always) and,
+#     best-effort, /usr/local/bin/figma-ai-score.
+#   - Regenerates the `<!-- figma-ai-score -->` block in
+#     ~/.claude/CLAUDE.md AND the /ai-score slash command, both from
+#     `figma-ai-score integrate` output (cli/integrate.js is the single
+#     source of truth).
 #
 # macOS .pkg postinstall scripts run as root with a minimal PATH. We
 # re-exec as the installing user with a login shell to pick up their

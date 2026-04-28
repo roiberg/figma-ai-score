@@ -25,10 +25,10 @@ const PREFS_KEY = "figma-ai-score.prefs.v1";
 let prefs = Object.assign({}, DEFAULT_RULES);
 let locked = false;
 let lockedIds = [];
-// `cancelled` lives in the plugin sandbox now (was in the MCP server pre-v0.6.0).
-// CLI invocations are short-lived; only the plugin can carry the flag across the
-// multi-call review flow. Cleared by announce_review_start / begin_review;
-// short-circuits subsequent RPCs with { cancelled: true } until cleared.
+// `cancelled` lives here in the plugin sandbox because CLI invocations are
+// short-lived; only the plugin can carry the flag across the multi-call
+// review flow. Cleared by announce_review_start / begin_review; short-
+// circuits subsequent RPCs with { cancelled: true } until cleared.
 let cancelled = false;
 const CANCEL_EXEMPT_METHODS = new Set([
   // Read-only methods that should still respond truthfully even after cancel.
@@ -718,9 +718,10 @@ figma.ui.onmessage = async (msg) => {
     if (CANCEL_CLEARING_METHODS.has(method)) cancelled = false;
     let result;
     if (cancelled && !CANCEL_EXEMPT_METHODS.has(method)) {
-      // Short-circuit — match the pre-v0.6.0 MCP server's behaviour so
-      // existing instructions ("If any tool returns { cancelled: true }, stop
-      // immediately") keep working unchanged.
+      // Short-circuit — every RPC after a cancel returns
+      // { cancelled: true } so the host AI's instructions
+      // ("If any tool returns { cancelled: true }, stop immediately")
+      // keep working without needing a separate poll.
       result = { cancelled: true, reason: "user stopped review" };
     } else {
       result = await handleRpc(method, params || {});

@@ -1,6 +1,6 @@
 ## figma-ai-score
 
-This is a Figma plugin + a CLI binary (`figma-ai-score`) that reviews designs for AI programmability. As of v0.6.0 there is no MCP server — the host AI orchestrates the review by calling CLI subcommands via Bash.
+This is a Figma plugin + a CLI binary (`figma-ai-score`) that reviews designs for AI programmability. The host AI orchestrates the review by calling CLI subcommands via Bash.
 
 - The CLI source lives in `cli/` (`cli.js` + `bridge.js` + `integrate.js`). It's bundled with Node.js into a self-contained .pkg via `installer/build-pkg.sh`.
 - The Figma plugin (`plugin/`) auto-reconnects every 2s to a local WebSocket server on port 3055. Each CLI invocation binds the port, does one RPC, and exits.

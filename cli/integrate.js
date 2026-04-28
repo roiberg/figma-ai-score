@@ -110,7 +110,7 @@ function claudeMdBlock(version) {
   return `<!-- figma-ai-score -->
 ## figma-ai-score
 
-A Figma plugin + CLI that reviews designs for AI programmability. The CLI is \`figma-ai-score\` on PATH (no MCP, no session restart needed). Subcommands all return JSON on stdout; on error, JSON is written to stderr with a non-zero exit code.
+A Figma plugin + CLI that reviews designs for AI programmability. The CLI is \`figma-ai-score\` on PATH; all subcommands return JSON on stdout, and on error JSON is written to stderr with a non-zero exit code.
 
 Subcommands:
 - \`figma-ai-score announce-review-start\` — call FIRST whenever the user asks for a review (UI feedback).

@@ -8,9 +8,6 @@
 // owns the port for its lifetime, then releases it on exit. The plugin's
 // auto-reconnect loop (verified at plugin/ui.html:2444 — every 2s on close)
 // re-establishes the link on the next call.
-//
-// Lifted from mcp-server/index.js with one-shot semantics + a fail-fast
-// "plugin not connected" timeout so the host AI can react quickly.
 
 import { WebSocketServer } from "ws";
 import { createServer } from "node:http";
@@ -22,7 +19,7 @@ const WS_PORT = Number(process.env.BRIDGE_PORT || 3055);
 const WS_HOSTS = ["127.0.0.1", "::1"];
 
 const CONNECT_TIMEOUT_MS = 3_000;   // grace for plugin to reconnect
-const CALL_TIMEOUT_MS    = 55_000;  // matches MCP server's per-call ceiling
+const CALL_TIMEOUT_MS    = 55_000;  // upper bound for any reasonable plugin response
 const BIND_RETRY_MAX     = 5;       // EADDRINUSE backoff
 const BIND_RETRY_BASE_MS = 200;
 

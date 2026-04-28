@@ -1893,10 +1893,10 @@
       setupCopyButton(copyBtn, "connect to ai score");
 
       // ── Copy install instructions button ──
-      // Pastes a self-contained prompt that walks Claude Code through
-      // installing the MCP server. No .pkg double-click, no Gatekeeper,
-      // no System Settings dance — Claude does it via curl + pkgutil
-      // extraction + the bundled postinstall script.
+      // Pastes a self-contained prompt that walks the user's AI coding tool
+      // through installing the figma-ai-score CLI. No .pkg double-click, no
+      // Gatekeeper, no System Settings dance — the AI does it via curl +
+      // pkgutil extraction + the bundled postinstall script.
       //
       // CANONICAL SOURCE: installer/install-prompt.md. Update both
       // together when changing.
@@ -2767,8 +2767,9 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         // the flag in v0.6.0 (CLI is short-lived; only the plugin can
         // persist state across RPC calls).
         parent.postMessage({ pluginMessage: { type: "set-cancelled", value: true } }, "*");
-        // Also send the WS event for back-compat — older bridge codebases
-        // listen for it, and it's a cheap signal even if no one's home.
+        // Also send the WS cancel event in case anyone on the bridge
+        // side is listening — currently nothing does, but it's a cheap
+        // belt-and-suspenders signal.
         if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: "event", name: "cancel" }));
         }

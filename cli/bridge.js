@@ -41,12 +41,17 @@ export class Bridge {
     const connected = new Promise(resolve => { this._connectResolve = resolve; });
     this._wireConnection();
 
-    // Bind the listener(s). Failures on one family don't abort the other.
-    await Promise.all(WS_HOSTS.map(h => this._bindHost(h).catch(() => {})));
+    // Bind the listener(s). Capture per-host failures so we can craft a
+    // specific error if every family fails. Different libc errnos point to
+    // very different user actions (sandbox vs. stale process), and the
+    // generic "couldn't bind" message we used to throw was confusing
+    // enough to send testers down the wrong rabbit hole.
+    const bindErrors = [];
+    await Promise.all(WS_HOSTS.map(h =>
+      this._bindHost(h).catch(err => { bindErrors.push(err); })
+    ));
     if (this.servers.length === 0) {
-      const err = new Error(`Couldn't bind any loopback listener on port ${WS_PORT}.`);
-      err.code = "BIND_FAILED";
-      throw err;
+      throw this._buildBindError(bindErrors);
     }
 
     const winner = await Promise.race([
@@ -93,6 +98,37 @@ export class Bridge {
       };
       tryBind();
     });
+  }
+
+  _buildBindError(errors) {
+    // EPERM/EACCES on bind() means a sandbox is blocking listening sockets,
+    // not that the port is taken. Codex CLI's `network_access: false` mode
+    // is the most common offender — but any sandbox that disables `bind()`
+    // (App Sandbox profiles, container seccomp policies) lands here.
+    const codes = errors.map(e => e && e.code).filter(Boolean);
+    const sandboxBlocked = codes.includes("EPERM") || codes.includes("EACCES");
+    const portInUse = codes.includes("EADDRINUSE");
+
+    let message;
+    if (sandboxBlocked) {
+      message =
+        `Couldn't bind localhost:${WS_PORT} — Operation not permitted.\n` +
+        `This usually means your AI tool's sandbox is blocking network access.\n` +
+        `In Codex CLI: grant network permission for this session and retry.\n` +
+        `In other sandboxed tools: allow the CLI to listen on localhost.`;
+    } else if (portInUse) {
+      message =
+        `Port ${WS_PORT} is already in use by another process.\n` +
+        `Find and stop the holder: \`lsof -nP -iTCP:${WS_PORT} -sTCP:LISTEN\`.\n` +
+        `If it's a stale figma-ai-score from an earlier run, kill that PID and retry.`;
+    } else {
+      const detail = codes.length ? ` (${codes.join(", ")})` : "";
+      message = `Couldn't bind any loopback listener on port ${WS_PORT}${detail}.`;
+    }
+    const err = new Error(message);
+    err.code = "BIND_FAILED";
+    err.causes = codes;
+    return err;
   }
 
   _wireConnection() {

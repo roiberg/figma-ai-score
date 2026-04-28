@@ -14,6 +14,8 @@ Inside the extracted `.pkg` there's a `postinstall` script — the same one the 
  - Update the `<!-- figma-ai-score -->` block in `~/.claude/CLAUDE.md` (replaces existing content, idempotent on upgrade) describing the CLI's subcommands and how Claude should respond to review-related prompts
  - Write the `/ai-score` slash command to `~/.claude/commands/ai-score.md` (deliberately named to avoid shadowing Claude Code's built-in `/review` PR-review command)
 
+If your sandbox blocks writes to `~/Library/Logs` or `~/Library/Application Support` (Codex CLI's default sandbox does this even when the user clicks Approve), don't loop on permission requests. Stop, tell the user the exact command to run themselves in Terminal — `bash <path-to-extracted-pkg>/Scripts/postinstall` with the same `FIGMA_AI_SCORE_STAGE=...` env var you were going to use — and wait for them to confirm. Then continue from step 3.
+
 **3. Verify the install.**
 Run `figma-ai-score --version` and confirm it prints a version (e.g. `0.6.0`). Also run `which figma-ai-score`. If either fails, ~/.local/bin or /usr/local/bin isn't on PATH yet — tell me which, and instruct the user to add `export PATH="$HOME/.local/bin:$PATH"` to their shell rc.
 
@@ -33,5 +35,7 @@ The postinstall above only auto-configures Claude Code (writes `~/.claude/CLAUDE
 1. Run `figma-ai-score integrate` (or `figma-ai-score integrate --tool cursor` / `--tool codex` / `--tool gemini` for a tool-tailored version).
 2. Read the markdown it prints. It tells you which rules / instructions file to write the canonical block into for your tool (`.cursor/rules/figma-ai-score.md`, `AGENTS.md`, `GEMINI.md`, etc.).
 3. Write it. From now on, when the user says "review my design" you'll know to invoke `figma-ai-score` via Bash.
+
+**One runtime gotcha for sandboxed AI tools:** if a `figma-ai-score` call later fails with `BIND_FAILED` and a message about "Operation not permitted," your sandbox is blocking `bind()` on localhost. In Codex CLI specifically, the user needs to grant network access for the session — `lsof -i :3055` showing nothing on the port confirms it's a sandbox issue, not a stale process. Once granted, retry.
 
 If anything fails mid-flow, tell me the error and try to fix it rather than give up. The source at the GitHub link above is the ground truth if you need to reference what's supposed to happen.

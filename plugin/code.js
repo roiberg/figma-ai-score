@@ -490,6 +490,16 @@ figma.ui.onmessage = async (msg) => {
         const suppressed = await figma.clientStorage.getAsync("figma-ai-score.suppress-connect-success");
         figma.ui.postMessage({ type: "connect-success-suppressed", value: !!suppressed });
       } catch (e) {}
+      // Seed the "has ever installed" flag — flips to true the first time
+      // we see a successful WS handshake on this Figma account, and stays
+      // true forever. The UI uses this to decide whether to show the
+      // install banner: if the user has ever installed, we trust the install
+      // and always show the full UI in AI mode (current connection state is
+      // ignored — the AI surfaces real CLI errors directly).
+      try {
+        const hasEver = await figma.clientStorage.getAsync("figma-ai-score.has-ever-installed");
+        figma.ui.postMessage({ type: "has-ever-installed", value: !!hasEver });
+      } catch (e) {}
       figma.ui.postMessage({ type: "prefs", data: prefs });
       pushSelection();
       return;
@@ -499,6 +509,14 @@ figma.ui.onmessage = async (msg) => {
         await figma.clientStorage.setAsync("figma-ai-score.suppress-connect-success", !!msg.value);
       } catch (e) {
         console.warn("[figma-ai-score] couldn't persist connect-success suppression:", e && e.message);
+      }
+      return;
+    }
+    if (msg.type === "set-has-ever-installed") {
+      try {
+        await figma.clientStorage.setAsync("figma-ai-score.has-ever-installed", !!msg.value);
+      } catch (e) {
+        console.warn("[figma-ai-score] couldn't persist has-ever-installed:", e && e.message);
       }
       return;
     }

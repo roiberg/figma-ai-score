@@ -124,14 +124,6 @@
       }
       button.header-icon-btn:focus,
       button.header-icon-btn:active { outline: none; }
-      .conn-badge {
-        display: flex;
-        align-items: center;
-        gap: 5px;
-        font-size: 11px;
-        color: var(--text-secondary);
-      }
-
       /* ── Suggestion overlay ── */
       .suggestion-overlay {
         position: absolute;
@@ -253,18 +245,6 @@
         font-size: 11px;
         color: var(--text-secondary);
       }
-      .conn-dot {
-        width: 7px;
-        height: 7px;
-        border-radius: 50%;
-        background: var(--toggle-off);
-        transition: background 0.3s, box-shadow 0.3s;
-      }
-      .conn-dot.ok {
-        background: #2ecc40;
-        box-shadow: 0 0 6px rgba(46,204,64,0.45);
-      }
-
       /* ── Sections ── */
       .panel {
         padding: 12px 16px;
@@ -1286,37 +1266,24 @@
         display: flex;
         align-items: center;
         gap: 7px;
-        font-size: 12px;
-        font-weight: 600;
+        font-size: 15px;
+        font-weight: 700;
         color: var(--text);
-        margin-bottom: 12px;
+        margin-bottom: 10px;
       }
       .setup-title svg { flex-shrink: 0; }
-      .setup-divider {
-        height: 1px;
-        background: var(--orange-border);
-        margin: 12px 0;
-      }
-      .setup-section-label {
-        font-size: 10px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        color: #8a6d00;
-        margin-bottom: 8px;
-      }
       .setup-download-btn {
         display: flex;
         align-items: center;
         justify-content: center;
         gap: 6px;
-        width: 100%;
-        padding: 8px 12px;
+        flex: 1;
+        padding: 9px 12px;
         border: none;
         border-radius: var(--radius-sm);
         background: var(--accent);
         color: #fff;
-        font-size: 12px;
+        font-size: 13px;
         font-weight: 600;
         cursor: pointer;
         transition: background 0.15s;
@@ -1324,18 +1291,12 @@
       button.setup-download-btn:hover,
       button.setup-download-btn:active,
       button.setup-download-btn:focus { background: #5b21b6; color: #fff; outline: none; }
-      .setup-primary-hint {
-        font-size: 10.5px;
-        line-height: 1.45;
-        color: var(--text-secondary);
-        margin: 0;
-      }
       .setup-download-btn svg { flex-shrink: 0; }
       .setup-hint {
-        font-size: 11px;
+        font-size: 13px;
         line-height: 1.5;
         color: var(--text);
-        margin: 0;
+        margin: 0 0 14px 0;
       }
       .setup-hint strong {
         color: var(--text);
@@ -1345,28 +1306,33 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 16px;
-        height: 16px;
+        width: 20px;
+        height: 20px;
         border-radius: 50%;
         background: #8a6d00;
         color: #fff;
-        font-size: 10px;
+        font-size: 12px;
         font-weight: 700;
         flex-shrink: 0;
-        margin-right: 6px;
+        margin-right: 10px;
       }
       .setup-steps-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
         display: flex;
         flex-direction: column;
-        gap: 8px;
-        margin-bottom: 0;
+        gap: 12px;
       }
       .setup-step {
         display: flex;
-        align-items: flex-start;
-        font-size: 11px;
+        align-items: center;
+        font-size: 13px;
         line-height: 1.4;
         color: var(--text);
+      }
+      .setup-step-text {
+        flex: 1;
       }
       .copy-row {
         display: flex;
@@ -1484,10 +1450,6 @@
         <button id="suggestion-btn" class="header-icon-btn" aria-label="Send suggestion" title="Send a suggestion">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h10a1 1 0 011 1v7a1 1 0 01-1 1H6l-3 2.5V4a1 1 0 011-1z"/></svg>
         </button>
-        <div class="conn-badge">
-          <div id="conn-dot" class="conn-dot"></div>
-          <span id="conn-label">disconnected</span>
-        </div>
       </div>
     </div>
 
@@ -1636,29 +1598,24 @@
           <div id="setup-banner" class="setup-banner">
             <div class="setup-card">
               <div class="setup-title">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" stroke="#b8860b" stroke-width="1.5"/><path d="M8 4.5v4" stroke="#b8860b" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="11" r="0.75" fill="#b8860b"/></svg>
-                Not connected
+                Install AI Programmability Score
               </div>
 
-              <p class="setup-hint">Type this in your AI coding tool to connect:</p>
-              <div class="copy-row">
-                <span class="copy-text">connect to ai score</span>
-                <button id="copy-cmd" class="copy-btn">
-                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M5 11H3.5A1.5 1.5 0 012 9.5v-7A1.5 1.5 0 013.5 1h7A1.5 1.5 0 0112 2.5V5"/></svg>
-                  Copy
-                </button>
-              </div>
+              <p class="setup-hint">AI mode runs your reviews through your AI coding tool (Claude Code, Cursor, Codex, Gemini, …). To start using do the below:</p>
 
-              <div class="setup-divider"></div>
-
-              <div class="setup-section-label">First time?</div>
-              <div class="setup-steps-list">
-                <button id="copy-install-prompt" class="setup-download-btn">
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M5 11H3.5A1.5 1.5 0 012 9.5v-7A1.5 1.5 0 013.5 1h7A1.5 1.5 0 0112 2.5V5"/></svg>
-                  Copy install instructions
-                </button>
-                <p class="setup-primary-hint">Paste into your AI coding tool and approve. ~30 seconds.</p>
-              </div>
+              <ol class="setup-steps-list">
+                <li class="setup-step">
+                  <span class="setup-step-num">1</span>
+                  <button id="copy-install-prompt" class="setup-download-btn">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M5 11H3.5A1.5 1.5 0 012 9.5v-7A1.5 1.5 0 013.5 1h7A1.5 1.5 0 0112 2.5V5"/></svg>
+                    Copy install instructions
+                  </button>
+                </li>
+                <li class="setup-step">
+                  <span class="setup-step-num">2</span>
+                  <span class="setup-step-text">Paste into your AI coding tool and approve. ~30 seconds.</span>
+                </li>
+              </ol>
             </div>
           </div>
 
@@ -1779,8 +1736,6 @@
     <script>
       const BRIDGE_URL = "ws://localhost:3055";
 
-      const connDot = document.getElementById("conn-dot");
-      const connLabel = document.getElementById("conn-label");
       const selectionEl = document.getElementById("selection");
 
       // Floating tooltip for frame chips
@@ -1869,8 +1824,8 @@
       const clearBtn = document.getElementById("clear");
 
       const setupBanner = document.getElementById("setup-banner");
-      const copyBtn = document.getElementById("copy-cmd");
       function setupCopyButton(btn, text) {
+        if (!btn) return;
         btn.addEventListener("click", () => {
           try {
             const ta = document.createElement("textarea");
@@ -1890,8 +1845,6 @@
           }, 2000);
         });
       }
-      setupCopyButton(copyBtn, "connect to ai score");
-
       // ── Copy install instructions button ──
       // Pastes a self-contained prompt that walks the user's AI coding tool
       // through installing the figma-ai-score CLI. No .pkg double-click, no
@@ -1917,6 +1870,8 @@ Inside the extracted \`.pkg\` there's a \`postinstall\` script — the same one 
  - Update the \`<!-- figma-ai-score -->\` block in \`~/.claude/CLAUDE.md\` (replaces existing content, idempotent on upgrade) describing the CLI's subcommands and how Claude should respond to review-related prompts
  - Write the \`/ai-score\` slash command to \`~/.claude/commands/ai-score.md\` (deliberately named to avoid shadowing Claude Code's built-in \`/review\` PR-review command)
 
+If your sandbox blocks writes to \`~/Library/Logs\` or \`~/Library/Application Support\` (Codex CLI's default sandbox does this even when the user clicks Approve), don't loop on permission requests. Stop, tell the user the exact command to run themselves in Terminal — \`bash <path-to-extracted-pkg>/Scripts/postinstall\` with the same \`FIGMA_AI_SCORE_STAGE=...\` env var you were going to use — and wait for them to confirm. Then continue from step 3.
+
 **3. Verify the install.**
 Run \`figma-ai-score --version\` and confirm it prints a version (e.g. \`0.6.0\`). Also run \`which figma-ai-score\`. If either fails, ~/.local/bin or /usr/local/bin isn't on PATH yet — tell me which, and instruct the user to add \`export PATH="$HOME/.local/bin:$PATH"\` to their shell rc.
 
@@ -1936,6 +1891,8 @@ The postinstall above only auto-configures Claude Code (writes \`~/.claude/CLAUD
 1. Run \`figma-ai-score integrate\` (or \`figma-ai-score integrate --tool cursor\` / \`--tool codex\` / \`--tool gemini\` for a tool-tailored version).
 2. Read the markdown it prints. It tells you which rules / instructions file to write the canonical block into for your tool (\`.cursor/rules/figma-ai-score.md\`, \`AGENTS.md\`, \`GEMINI.md\`, etc.).
 3. Write it. From now on, when the user says "review my design" you'll know to invoke \`figma-ai-score\` via Bash.
+
+**One runtime gotcha for sandboxed AI tools:** if a \`figma-ai-score\` call later fails with \`BIND_FAILED\` and a message about "Operation not permitted," your sandbox is blocking \`bind()\` on localhost. In Codex CLI specifically, the user needs to grant network access for the session — \`lsof -i :3055\` showing nothing on the port confirms it's a sandbox issue, not a stale process. Once granted, retry.
 
 If anything fails mid-flow, tell me the error and try to fix it rather than give up. The source at the GitHub link above is the ground truth if you need to reference what's supposed to happen.`;
 
@@ -2302,11 +2259,6 @@ If anything fails mid-flow, tell me the error and try to fix it rather than give
       let disconnectGraceTimer = null;
       let wasEverConnected = false;
       const DISCONNECT_GRACE_MS = 3500;
-      function paintConnBadge(ok) {
-        connDot.className = "conn-dot" + (ok ? " ok" : "");
-        connLabel.textContent = ok ? "connected" : "disconnected";
-      }
-
       // ── Connect-success card ──
       // Shown once per plugin session on the first successful connection
       // so users coming off the setup-banner / install flow get a clear
@@ -2324,6 +2276,13 @@ If anything fails mid-flow, tell me the error and try to fix it rather than give
       // sandbox has had a chance to chime in (it usually beats the
       // first WS connect handshake).
       let connectSuccessSuppressedForever = false;
+      // Persisted-install flag. The sandbox seeds this from
+      // figma.clientStorage on ui-ready. Once true, we always show the full
+      // AI-mode UI (rules + selection + start panel) regardless of current
+      // WS connection state — the AI tool surfaces any real CLI errors
+      // directly. Flipped to true the first time we see a successful WS
+      // handshake on this Figma account.
+      let hasEverInstalled = false;
       function maybeShowConnectSuccess() {
         // Only relevant in AI mode (Simple mode runs deterministic checks
         // without an AI tool, so the "connected" card is irrelevant there).
@@ -2363,56 +2322,60 @@ If anything fails mid-flow, tell me the error and try to fix it rather than give
           window.__isConnected = true;
           wasEverConnected = true;
           if (disconnectGraceTimer) { clearTimeout(disconnectGraceTimer); disconnectGraceTimer = null; }
-          paintConnBadge(true);
+          // First successful handshake on this Figma account flips the
+          // persisted install flag so future sessions skip the setup banner.
+          if (!hasEverInstalled) {
+            hasEverInstalled = true;
+            parent.postMessage({
+              pluginMessage: { type: "set-has-ever-installed", value: true }
+            }, "*");
+          }
           refreshConnectionUi();
           // Card only shows if we're in AI mode AND connected (first
           // such moment per session). Triggered here for the
           // already-in-AI-then-connected path.
           maybeShowConnectSuccess();
         } else if (wasEverConnected) {
-          // Brief drop from a live connection — defer *everything* (state flag,
-          // dot/label, main UI) so a quick reconnect doesn't flicker, and so
-          // mid-blip mode switches see the optimistic "still connected" state.
+          // Brief drop from a live connection — defer state + main UI so a
+          // quick reconnect doesn't flicker the setup banner unnecessarily.
           // IMPORTANT: do NOT reset the timer on repeated disconnects. The
           // 2s auto-reconnect loop fires onclose every 2s on a failed retry;
-          // resetting the 3.5s grace on each one would leave the badge stuck
-          // on "connected" forever during an outage.
+          // resetting the grace on each one would leave the UI stuck on
+          // "connected" state forever during an outage.
           if (!disconnectGraceTimer) {
             disconnectGraceTimer = setTimeout(() => {
               disconnectGraceTimer = null;
               window.__isConnected = false;
-              paintConnBadge(false);
               refreshConnectionUi();
             }, DISCONNECT_GRACE_MS);
           }
         } else {
           // Cold disconnected — never connected, show immediately.
           window.__isConnected = false;
-          paintConnBadge(false);
           refreshConnectionUi();
         }
       }
       function refreshConnectionUi() {
-        // Simple mode works without Claude — always show the full UI, hide the conn dot entirely.
-        // AI mode needs Claude — when disconnected, keep the mode toggle visible but hide
-        // rules/selection/start-review, and show the setup banner beneath the toggle.
+        // Simple mode works without an external tool — always show the full UI.
+        // AI mode: setup banner only shows for users who have NEVER installed
+        // (no successful handshake on this Figma account, ever). Once installed,
+        // the full UI shows regardless of current connection state — the AI
+        // surfaces real errors via CLI exit codes when the user actually invokes
+        // a review, so a live "disconnected" indicator would just be noise.
         const isSimple = (window.__currentMode || "simple") === "simple";
         const isConnected = !!window.__isConnected;
-        const showMain = isConnected || isSimple;
+        const showMain = isSimple || hasEverInstalled || isConnected;
         const banner = document.getElementById("setup-banner");
         const rulesPanel = document.getElementById("rules-panel");
         const selectionPanel = document.querySelector(".col-left .panel-grow");
         const startPanel = document.getElementById("start-review-panel");
-        const connBadge = document.querySelector(".conn-badge");
-        // If we transition back to disconnected while the success card is up,
-        // hide the success card so it doesn't stack with the setup-banner.
+        // If we transition back to "no install banner needed" state while the
+        // success card is up, hide the success card so it doesn't stack.
         if (!showMain && connectSuccessShown) hideConnectSuccess();
         if (banner) banner.style.display = showMain ? "none" : "block";
         if (rulesPanel) rulesPanel.style.display = showMain ? "" : "none";
         if (selectionPanel) selectionPanel.style.display = showMain ? "" : "none";
         if (startPanel) startPanel.style.display = showMain ? "" : "none";
-        // Hide the connection dot/label entirely in Simple mode — it's irrelevant there.
-        if (connBadge) connBadge.style.display = isSimple ? "none" : "";
       }
       let heartbeatTimer = null;
       // "Replaced" overlay: server closes this socket with reason "replaced"
@@ -3077,6 +3040,13 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
           // between the WS connect and the clientStorage read), hide it.
           connectSuccessSuppressedForever = !!msg.value;
           if (connectSuccessSuppressedForever) hideConnectSuccess();
+        }
+        if (msg.type === "has-ever-installed") {
+          // Sandbox replying with the persisted install flag. If true,
+          // refresh the UI so the setup banner is hidden even before any
+          // WS handshake this session.
+          hasEverInstalled = !!msg.value;
+          if (hasEverInstalled) refreshConnectionUi();
         }
       });
 

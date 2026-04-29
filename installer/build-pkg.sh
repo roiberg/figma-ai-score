@@ -21,7 +21,7 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 CLI_DIR="$PROJECT_DIR/cli"
 PKG_OUT="$PROJECT_DIR/figma-ai-score.pkg"
 PKG_ID="com.figma-ai-score.cli"
-PKG_VERSION="0.6.3"
+PKG_VERSION="0.6.4"
 
 # Node.js version to bundle. Pinned for reproducibility; bump when
 # shipping security updates.

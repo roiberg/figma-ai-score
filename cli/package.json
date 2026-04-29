@@ -1,6 +1,6 @@
 {
   "name": "figma-ai-score-cli",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "description": "CLI for figma-ai-score — talks to the Figma plugin over localhost WebSocket.",
   "type": "module",
   "main": "cli.js",

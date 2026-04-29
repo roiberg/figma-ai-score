@@ -379,8 +379,7 @@ const MAX_SELECTION_SIMPLE = 10;
 const MAX_SELECTION_AI = 1;
 let reviewMode = "simple";
 function currentMaxSelection() {
-  // AI and Ultra both cap at 1 frame; Simple allows up to 10.
-  return (reviewMode === "ai" || reviewMode === "ultra") ? MAX_SELECTION_AI : MAX_SELECTION_SIMPLE;
+  return reviewMode === "ai" ? MAX_SELECTION_AI : MAX_SELECTION_SIMPLE;
 }
 
 function selectionSummary() {
@@ -499,7 +498,7 @@ figma.ui.onmessage = async (msg) => {
       await loadPrefs();
       try {
         const m = await figma.clientStorage.getAsync("figma-ai-score.mode");
-        if (m === "ai" || m === "ultra" || m === "simple") reviewMode = m;
+        if (m === "ai" || m === "simple") reviewMode = m;
       } catch (e) {}
       // Seed the UI with the persisted "Don't show the connect-success
       // card" flag — set per-user via figma.clientStorage so it travels
@@ -566,7 +565,7 @@ figma.ui.onmessage = async (msg) => {
       return;
     }
     if (msg.type === "set-mode") {
-      reviewMode = (msg.mode === "ai" || msg.mode === "ultra") ? msg.mode : "simple";
+      reviewMode = msg.mode === "ai" ? "ai" : "simple";
       try { await figma.clientStorage.setAsync("figma-ai-score.mode", reviewMode); } catch (e) {}
       pushSelection(); // Re-cap selection with new limit
       return;
@@ -798,7 +797,11 @@ async function handleRpc(method, params) {
       // Early signal — Claude is about to work on a review but hasn't
       // processed the big instructions string yet. Show a generic
       // "Preparing review…" state so the UI doesn't feel frozen.
-      figma.ui.postMessage({ type: "review-starting" });
+      // Also switch to Smart tab so the user sees the review in the right place
+      // regardless of which tab was active when Claude started.
+      reviewMode = "ai";
+      try { await figma.clientStorage.setAsync("figma-ai-score.mode", "ai"); } catch (e) {}
+      figma.ui.postMessage({ type: "review-starting", switchMode: "ai" });
       return { ok: true };
     }
     case "begin_review": {
@@ -1119,11 +1122,9 @@ function lintTypography(root) {
 
 // ── Helpers shared by padding/spacing/size suggestion logic ──
 // Build the suggestedTokens array for a numeric offender. Returns either:
-//   - [single match] when there's exactly one DS token at the same value
+//   - a single match object when there's exactly one DS token at the same value
 //     (filtered to the rule-appropriate keyword set)
-//   - []           when 0 or 2+ matches (Simple-mode safe failure)
-// AI mode is responsible for the "above + below" path; that requires
-// vision context Claude has and we don't.
+//   - null when 0 or 2+ matches
 function buildDimensionalSuggestion(ds, rule, slot, value) {
   if (!ds || !Array.isArray(ds.numberVariables) || !ds.numberVariables.length) return null;
   const filtered = filterDimensionTokensForRule(ds.numberVariables, rule);
@@ -1133,7 +1134,7 @@ function buildDimensionalSuggestion(ds, rule, slot, value) {
     kind: "variable",
     id: match.id,
     name: match.name,
-    slot,                         // e.g. "paddingTop", "itemSpacing", "width"
+    slot,
     reason: "Exact match."
   };
 }

@@ -341,7 +341,7 @@
         position: absolute;
         top: 2px;
         left: 2px;
-        width: calc(33.3333% - 2px);
+        width: calc(50% - 2px);
         bottom: 2px;
         background: var(--accent);
         border-radius: 4px;
@@ -352,9 +352,6 @@
       }
       .mode-toggle[data-mode="ai"]::before {
         transform: translateX(100%);
-      }
-      .mode-toggle[data-mode="ultra"]::before {
-        transform: translateX(200%);
       }
       button.mode-option {
         position: relative;
@@ -1387,6 +1384,16 @@
       }
       .copy-btn:hover { background: var(--orange-bg); color: var(--text); }
 
+      /* ── Reviewing lock — disable mode toggle, rules, and run buttons while a review is active ── */
+      body.reviewing #mode-panel,
+      body.reviewing #rules-panel,
+      body.reviewing #simple-run-wrap,
+      body.reviewing #ai-prompt-wrap {
+        opacity: 0.4;
+        pointer-events: none;
+        user-select: none;
+      }
+
       /* ── Simple-run button ── */
       .simple-run-wrap { display: block; }
       button.run-simple-btn {
@@ -1588,14 +1595,9 @@
                 <svg width="11" height="11" viewBox="0 0 12 12" fill="currentColor"><path d="M6 0 C6 4 8 6 12 6 C8 6 6 8 6 12 C6 8 4 6 0 6 C4 6 6 4 6 0 Z"/></svg>
                 Smart
               </button>
-              <button class="mode-option" data-mode="ultra" role="tab" aria-selected="false">
-                <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 1.5l1.2 2.8 2.8.3-2.1 1.9.7 2.8L6 7.9 3.4 9.3l.7-2.8-2.1-1.9 2.8-.3z"/></svg>
-                Ultra
-              </button>
             </div>
             <div id="mode-hint-simple" class="mode-hint">Fast, deterministic checks.</div>
             <div id="mode-hint-ai" class="mode-hint" style="display:none">Deeper review. Slower. Max 1 frame.</div>
-            <div id="mode-hint-ultra" class="mode-hint" style="display:none">Conversational review via your AI coding tool.</div>
           </div>
 
           <div id="connect-success-banner" class="connect-success-banner">
@@ -2086,18 +2088,16 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
       const modeOptions = document.querySelectorAll(".mode-option");
       const modeHintSimple = document.getElementById("mode-hint-simple");
       const modeHintAi = document.getElementById("mode-hint-ai");
-      const modeHintUltra = document.getElementById("mode-hint-ultra");
 
       const RULE_LABELS = {
-        components: { simple: "component usage", ai: "component usage", ultra: "component usage" },
-        autolayout: { simple: "auto layout",     ai: "auto layout",     ultra: "auto layout"     },
-        naming:     { simple: "layer naming",    ai: "layer naming",    ultra: "layer naming"    }
+        components: { simple: "component usage", ai: "component usage" },
+        autolayout: { simple: "auto layout",     ai: "auto layout"     },
+        naming:     { simple: "layer naming",    ai: "layer naming"    }
       };
 
       function applyMode(mode) {
         document.body.classList.toggle("mode-simple", mode === "simple");
         document.body.classList.toggle("mode-ai", mode === "ai");
-        document.body.classList.toggle("mode-ultra", mode === "ultra");
         if (modeToggle) modeToggle.setAttribute("data-mode", mode);
         modeOptions.forEach(b => {
           const active = b.dataset.mode === mode;
@@ -2106,10 +2106,9 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
         });
         modeHintSimple.style.display = mode === "simple" ? "" : "none";
         modeHintAi.style.display = mode === "ai" ? "" : "none";
-        modeHintUltra.style.display = mode === "ultra" ? "" : "none";
 
         // Update mode-dependent rule labels ("Naive" / "Smart" shown in bold).
-        // In AI/Ultra modes, only the word "Smart" is tinted purple (accent) — "Naive" stays default.
+        // In AI mode, only the word "Smart" is tinted purple (accent) — "Naive" stays default.
         const prefixHtml = mode === "simple"
           ? `<strong class="rule-prefix-naive">Naive</strong>`
           : `<strong class="rule-prefix-smart">Smart</strong>`;
@@ -2118,17 +2117,13 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
           if (el) el.innerHTML = `${prefixHtml} ${labels[mode]}`;
         }
 
-        // Swap sticky-bottom contents. Ultra mode currently shares the AI surface
-        // (the "tell Claude" prompt) until plugin-native AI mode is built.
         const simpleRunWrap = document.getElementById("simple-run-wrap");
         const aiPromptWrap = document.getElementById("ai-prompt-wrap");
         if (simpleRunWrap) simpleRunWrap.style.display = mode === "simple" ? "" : "none";
-        if (aiPromptWrap) aiPromptWrap.style.display = (mode === "ai" || mode === "ultra") ? "" : "none";
+        if (aiPromptWrap) aiPromptWrap.style.display = mode === "ai" ? "" : "none";
         window.__currentMode = mode;
         refreshConnectionUi();
-        // If switching to AI/Ultra while already connected, this is the moment
-        // the success card becomes relevant.
-        if (mode === "ai" || mode === "ultra") maybeShowConnectSuccess();
+        if (mode === "ai") maybeShowConnectSuccess();
         try { localStorage.setItem("review-mode", mode); } catch (e) {}
         parent.postMessage({ pluginMessage: { type: "set-mode", mode } }, "*");
       }
@@ -2555,7 +2550,7 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
         if (msg.type === "suggestion-check-result") { lastSuggestionAt = msg.lastAt || 0; return; }
         if (msg.type === "prefs") renderPrefs(msg.data);
         else if (msg.type === "selection") renderSelection(msg.data, msg.total, msg.capped, msg.maxSelection, msg.thumbnail);
-        else if (msg.type === "review-starting") showPreparing();
+        else if (msg.type === "review-starting") { if (msg.switchMode) applyMode(msg.switchMode); showPreparing(); }
         else if (msg.type === "locked") showLocked(msg.data);
         else if (msg.type === "unlocked") hideLocked();
         else if (msg.type === "report") renderReport(msg.data);
@@ -2815,6 +2810,7 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
       // Fires on announce_review_start so the UI doesn't look frozen
       // while Claude reads the instructions string (~10s).
       function showPreparing() {
+        document.body.classList.add("reviewing");
         reviewPanel.style.display = "";
         reviewPanel.style.borderBottom = "1px solid var(--border)";
         stopWrap.style.display = "block";
@@ -2823,6 +2819,7 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
           `<strong><span class="reviewing-dot"></span>Preparing review…</strong>`;
       }
       function showLocked(data) {
+        document.body.classList.add("reviewing");
         reviewPanel.style.display = "";
         reviewPanel.style.borderBottom = "1px solid var(--border)";
         stopWrap.style.display = "block";
@@ -2833,6 +2830,7 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
           data.names.map(esc).join(", ");
       }
       function hideLocked() {
+        document.body.classList.remove("reviewing");
         stopWrap.style.display = "none";
         lockedBanner.style.display = "none";
         stopBtn.disabled = false;
@@ -2841,29 +2839,15 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         reviewPanel.style.display = "none";
       }
       stopBtn.addEventListener("click", () => {
-        // Tell the sandbox to flip its cancelled flag. CLI invocations are
-        // short-lived; only the plugin can persist state across RPC calls.
+        // Tell the sandbox to flip its cancelled flag.
         parent.postMessage({ pluginMessage: { type: "set-cancelled", value: true } }, "*");
-        // Also send the WS cancel event in case anyone on the bridge
-        // side is listening — currently nothing does, but it's a cheap
-        // belt-and-suspenders signal.
+        // Also send the WS cancel event for any in-flight CLI call.
         if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: "event", name: "cancel" }));
         }
         stopBtn.disabled = true;
-        stopBtn.textContent = "Stop signal sent";
-        // Honest UX: the AI can only see the cancel flag when it makes its
-        // NEXT tool call. If it's mid-thinking on a long turn, that can be
-        // 30–60s away. Update the banner to say so, and recommend the host
-        // AI's interrupt key (Esc in most CLI agents — Claude Code, Codex,
-        // Gemini; Cmd+. in Cursor) as the immediate option.
-        // Fallback auto-hide is 60s — long enough that almost any in-flight
-        // turn will resolve, short enough that the banner doesn't get stuck.
-        lockedBanner.innerHTML =
-          '<strong><span class="reviewing-dot"></span>Stop signal sent</strong>' +
-          'Your AI tool will halt at its next tool call (usually within 5–30 seconds). ' +
-          'For an immediate stop, use your AI tool\'s interrupt key (<kbd class="kbd">Esc</kbd> in most CLIs).';
-        setTimeout(hideLocked, 60000);
+        stopBtn.textContent = "Stopped";
+        setTimeout(hideLocked, 800);
       });
 
       function scoreClass(score, perfect) {

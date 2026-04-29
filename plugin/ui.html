@@ -81,7 +81,7 @@
         min-height: 0;
       }
       .panel-grow .selection-list {
-        flex: 1;
+        flex: 0 0 auto;
         max-height: none;
       }
 
@@ -457,6 +457,23 @@
       .rule-prefix-smart {
         color: var(--accent);
         font-weight: 800;
+      }
+
+      /* ── Selection thumbnail (AI mode only) ── */
+      #selection-thumbnail {
+        flex: 0 0 auto;
+        width: 100%;
+        border-radius: 6px;
+        overflow: hidden;
+        background: var(--bg-secondary, #1e1e1e);
+        line-height: 0;
+      }
+      #selection-thumbnail img {
+        width: 100%;
+        height: auto;
+        max-height: 160px;
+        object-fit: contain;
+        display: block;
       }
 
       /* ── Selection list ── */
@@ -1570,7 +1587,7 @@
               </button>
             </div>
             <div id="mode-hint-simple" class="mode-hint">Fast, deterministic checks.</div>
-            <div id="mode-hint-ai" class="mode-hint" style="display:none">Deeper review. Slower. Max 3 frames.</div>
+            <div id="mode-hint-ai" class="mode-hint" style="display:none">Deeper review. Slower. Max 1 frame.</div>
           </div>
 
           <div id="connect-success-banner" class="connect-success-banner">
@@ -1689,6 +1706,7 @@
             <div id="selection" class="selection-list">
               <div class="empty-state">Nothing selected in Figma</div>
             </div>
+            <div id="selection-thumbnail" style="display:none; margin-top: 8px;"><img id="selection-thumbnail-img" src="" alt="Selected frame preview" /></div>
           </div>
         </div>
 
@@ -2524,7 +2542,7 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
         }
         if (msg.type === "suggestion-check-result") { lastSuggestionAt = msg.lastAt || 0; return; }
         if (msg.type === "prefs") renderPrefs(msg.data);
-        else if (msg.type === "selection") renderSelection(msg.data, msg.total, msg.capped, msg.maxSelection);
+        else if (msg.type === "selection") renderSelection(msg.data, msg.total, msg.capped, msg.maxSelection, msg.thumbnail);
         else if (msg.type === "review-starting") showPreparing();
         else if (msg.type === "locked") showLocked(msg.data);
         else if (msg.type === "unlocked") hideLocked();
@@ -2599,7 +2617,20 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         return ignored ? EYE_SLASH_SVG : EYE_OPEN_SVG;
       }
 
-      function renderSelection(frames, total, capped, maxSelection) {
+      const selectionThumbnailEl = document.getElementById("selection-thumbnail");
+      const selectionThumbnailImg = document.getElementById("selection-thumbnail-img");
+
+      function renderSelection(frames, total, capped, maxSelection, thumbnail) {
+        // Thumbnail: show whenever exactly one frame is selected and a thumbnail was provided.
+        // Works in both Simple and AI modes.
+        if (thumbnail && frames && frames.length === 1) {
+          selectionThumbnailImg.src = "data:image/jpeg;base64," + thumbnail;
+          selectionThumbnailEl.style.display = "block";
+        } else {
+          selectionThumbnailEl.style.display = "none";
+          selectionThumbnailImg.src = "";
+        }
+
         if (!frames || frames.length === 0) {
           selectionEl.innerHTML = '<div class="empty-state">Nothing selected in Figma</div>';
           selectionCapEl.style.display = "none";

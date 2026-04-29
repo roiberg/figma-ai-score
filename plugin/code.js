@@ -376,7 +376,7 @@ async function savePrefs(p) {
 // ------- live selection mirror -------
 
 const MAX_SELECTION_SIMPLE = 10;
-const MAX_SELECTION_AI = 3;
+const MAX_SELECTION_AI = 1;
 let reviewMode = "simple";
 function currentMaxSelection() {
   return reviewMode === "ai" ? MAX_SELECTION_AI : MAX_SELECTION_SIMPLE;
@@ -443,7 +443,7 @@ function decorateFrameWithIgnored(frame, node) {
   });
 }
 
-function pushSelection() {
+async function pushSelection() {
   const sel = figma.currentPage.selection;
   const max = currentMaxSelection();
   const capped = sel.slice(0, max);
@@ -451,6 +451,22 @@ function pushSelection() {
     { id: n.id, name: n.name, type: n.type },
     n
   ));
+
+  // With exactly 1 frame selected, export a thumbnail for the selection preview.
+  // Shown in both Simple and AI modes.
+  let thumbnail = null;
+  if (capped.length === 1) {
+    const node = capped[0];
+    try {
+      if (typeof node.exportAsync === "function") {
+        const bytes = await node.exportAsync({ format: "JPG", constraint: { type: "SCALE", value: 1 } });
+        thumbnail = bytesToBase64(bytes);
+      }
+    } catch (e) {
+      // Thumbnail is best-effort — don't block selection update.
+    }
+  }
+
   figma.ui.postMessage({
     type: "selection",
     data: frames,
@@ -458,7 +474,8 @@ function pushSelection() {
     capped: sel.length > max,
     maxSelection: max,
     fileName: figma.root.name,
-    pageName: figma.currentPage.name
+    pageName: figma.currentPage.name,
+    thumbnail,
   });
 }
 figma.on("selectionchange", pushSelection);

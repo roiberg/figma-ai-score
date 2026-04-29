@@ -341,7 +341,7 @@
         position: absolute;
         top: 2px;
         left: 2px;
-        width: calc(50% - 2px);
+        width: calc(33.3333% - 2px);
         bottom: 2px;
         background: var(--accent);
         border-radius: 4px;
@@ -352,6 +352,9 @@
       }
       .mode-toggle[data-mode="ai"]::before {
         transform: translateX(100%);
+      }
+      .mode-toggle[data-mode="ultra"]::before {
+        transform: translateX(200%);
       }
       button.mode-option {
         position: relative;
@@ -1582,12 +1585,17 @@
             <div class="mode-toggle" role="tablist">
               <button class="mode-option is-active" data-mode="simple" role="tab" aria-selected="true">Simple</button>
               <button class="mode-option" data-mode="ai" role="tab" aria-selected="false">
+                <svg width="11" height="11" viewBox="0 0 12 12" fill="currentColor"><path d="M6 0 C6 4 8 6 12 6 C8 6 6 8 6 12 C6 8 4 6 0 6 C4 6 6 4 6 0 Z"/></svg>
+                Smart
+              </button>
+              <button class="mode-option" data-mode="ultra" role="tab" aria-selected="false">
                 <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 1.5l1.2 2.8 2.8.3-2.1 1.9.7 2.8L6 7.9 3.4 9.3l.7-2.8-2.1-1.9 2.8-.3z"/></svg>
-                AI
+                Ultra
               </button>
             </div>
             <div id="mode-hint-simple" class="mode-hint">Fast, deterministic checks.</div>
             <div id="mode-hint-ai" class="mode-hint" style="display:none">Deeper review. Slower. Max 1 frame.</div>
+            <div id="mode-hint-ultra" class="mode-hint" style="display:none">Conversational review via your AI coding tool.</div>
           </div>
 
           <div id="connect-success-banner" class="connect-success-banner">
@@ -2078,16 +2086,18 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
       const modeOptions = document.querySelectorAll(".mode-option");
       const modeHintSimple = document.getElementById("mode-hint-simple");
       const modeHintAi = document.getElementById("mode-hint-ai");
+      const modeHintUltra = document.getElementById("mode-hint-ultra");
 
       const RULE_LABELS = {
-        components: { simple: "component usage", ai: "component usage" },
-        autolayout: { simple: "auto layout",     ai: "auto layout"     },
-        naming:     { simple: "layer naming",    ai: "layer naming"    }
+        components: { simple: "component usage", ai: "component usage", ultra: "component usage" },
+        autolayout: { simple: "auto layout",     ai: "auto layout",     ultra: "auto layout"     },
+        naming:     { simple: "layer naming",    ai: "layer naming",    ultra: "layer naming"    }
       };
 
       function applyMode(mode) {
         document.body.classList.toggle("mode-simple", mode === "simple");
         document.body.classList.toggle("mode-ai", mode === "ai");
+        document.body.classList.toggle("mode-ultra", mode === "ultra");
         if (modeToggle) modeToggle.setAttribute("data-mode", mode);
         modeOptions.forEach(b => {
           const active = b.dataset.mode === mode;
@@ -2096,9 +2106,10 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
         });
         modeHintSimple.style.display = mode === "simple" ? "" : "none";
         modeHintAi.style.display = mode === "ai" ? "" : "none";
+        modeHintUltra.style.display = mode === "ultra" ? "" : "none";
 
         // Update mode-dependent rule labels ("Naive" / "Smart" shown in bold).
-        // In AI mode, only the word "Smart" is tinted purple (accent) — "Naive" stays default.
+        // In AI/Ultra modes, only the word "Smart" is tinted purple (accent) — "Naive" stays default.
         const prefixHtml = mode === "simple"
           ? `<strong class="rule-prefix-naive">Naive</strong>`
           : `<strong class="rule-prefix-smart">Smart</strong>`;
@@ -2107,16 +2118,17 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
           if (el) el.innerHTML = `${prefixHtml} ${labels[mode]}`;
         }
 
-        // Swap sticky-bottom contents
+        // Swap sticky-bottom contents. Ultra mode currently shares the AI surface
+        // (the "tell Claude" prompt) until plugin-native AI mode is built.
         const simpleRunWrap = document.getElementById("simple-run-wrap");
         const aiPromptWrap = document.getElementById("ai-prompt-wrap");
         if (simpleRunWrap) simpleRunWrap.style.display = mode === "simple" ? "" : "none";
-        if (aiPromptWrap) aiPromptWrap.style.display = mode === "ai" ? "" : "none";
+        if (aiPromptWrap) aiPromptWrap.style.display = (mode === "ai" || mode === "ultra") ? "" : "none";
         window.__currentMode = mode;
         refreshConnectionUi();
-        // If switching to AI while already connected, this is the moment
+        // If switching to AI/Ultra while already connected, this is the moment
         // the success card becomes relevant.
-        if (mode === "ai") maybeShowConnectSuccess();
+        if (mode === "ai" || mode === "ultra") maybeShowConnectSuccess();
         try { localStorage.setItem("review-mode", mode); } catch (e) {}
         parent.postMessage({ pluginMessage: { type: "set-mode", mode } }, "*");
       }

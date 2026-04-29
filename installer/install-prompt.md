@@ -64,7 +64,17 @@ Run it directly: `bash /tmp/figma-ai-score-dl/expanded/Scripts/postinstall`. It'
 Either way is legitimate; pick whichever the user prefers. Don't loop on permission requests inside the sandbox if the tool isn't granting them.
 
 **3. Verify.**
-`figma-ai-score --version` should print `0.6.2`. `which figma-ai-score` should resolve. If neither does, `~/.local/bin` likely isn't on PATH; instruct the user to add `export PATH="$HOME/.local/bin:$PATH"` to their shell rc.
+Run `~/.local/bin/figma-ai-score --version` using the full path — should print `0.6.2`. That confirms the install itself succeeded, independent of PATH state.
+
+Then run `which figma-ai-score`. If it resolves, PATH is already wired up — verify is done.
+
+If `which` fails (common on fresh Macs without Homebrew — `~/.local/bin` isn't in zsh's default PATH), offer the user this one-liner to fix it. Ask before running it; it modifies their shell config:
+
+```
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zprofile
+```
+
+(Substitute `~/.bashrc` if the user is on bash; macOS default since Catalina is zsh.) After running it, the user either opens a new terminal or runs `source ~/.zprofile` to apply it to their current shell. From then on, `figma-ai-score` is on PATH for every session.
 
 **4. Clean up temp files.**
 `rm -rf /tmp/figma-ai-score-dl /tmp/figma-ai-score-pkg`. The postinstall already cleaned up its own staged copy under `~/Library/Caches/`.

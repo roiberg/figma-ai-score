@@ -521,6 +521,10 @@ figma.ui.onmessage = async (msg) => {
         const libsSeen = await figma.clientStorage.getAsync("figma-ai-score.libraries-seen");
         figma.ui.postMessage({ type: "libraries-seen-result", value: !!libsSeen });
       } catch (e) {}
+      try {
+        const rulesCollapsed = await figma.clientStorage.getAsync("figma-ai-score.rules-collapsed");
+        figma.ui.postMessage({ type: "rules-collapsed-result", value: !!rulesCollapsed });
+      } catch (e) {}
       figma.ui.postMessage({ type: "prefs", data: prefs });
       pushSelection();
       return;
@@ -531,6 +535,12 @@ figma.ui.onmessage = async (msg) => {
       } catch (e) {
         console.warn("[figma-ai-score] couldn't persist connect-success suppression:", e && e.message);
       }
+      return;
+    }
+    if (msg.type === "set-rules-collapsed") {
+      try {
+        await figma.clientStorage.setAsync("figma-ai-score.rules-collapsed", !!msg.value);
+      } catch (e) {}
       return;
     }
     if (msg.type === "set-libraries-seen") {

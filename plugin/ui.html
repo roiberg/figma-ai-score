@@ -484,6 +484,7 @@
         overflow: hidden;
         background: var(--bg-secondary, #1e1e1e);
         line-height: 0;
+        outline: 1px solid rgba(0, 0, 0, 0.1);
       }
       #selection-thumbnail img {
         width: 100%;
@@ -1330,7 +1331,7 @@
       .md-drop-zone.drag-over { border-color: var(--accent); background: #e8e8e8; }
       .md-drop-zone svg { opacity: 0.4; flex-shrink: 0; }
       .md-drop-zone-label {
-        font-size: 12px;
+        font-size: 13px;
         font-weight: 500;
         color: var(--text-secondary);
       }
@@ -1630,7 +1631,9 @@
           <h3 class="settings-hero-title">Token libraries</h3>
           <p class="settings-hero-hint">Select the libraries that hold your design tokens. The plugin reads variables from these when suggesting fixes.</p>
         </div>
-        <div id="tokens-library-list" class="settings-lib-list lib-half-scroll"></div>
+        <div class="lib-half-scroll">
+          <div id="tokens-library-list" class="settings-lib-list"></div>
+        </div>
       </div>
 
       <!-- Right half: design.md -->
@@ -1641,7 +1644,7 @@
         </div>
         <input type="file" id="md-file-input" accept=".md,.txt" style="display:none">
         <div id="md-drop-zone" class="md-drop-zone">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
             <polyline points="14 2 14 8 20 8"/>
             <line x1="12" y1="18" x2="12" y2="12"/>
@@ -2233,21 +2236,27 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
         rulesSummaryChip.classList.toggle("is-visible", !!visible);
       }
 
+      function applyRulesCollapsed(collapsed) {
+        if (!rulesToggle || !rulesList) return;
+        if (collapsed) {
+          rulesList.style.maxHeight = rulesList.scrollHeight + "px";
+          requestAnimationFrame(() => rulesList.classList.add("is-collapsed"));
+          rulesToggle.setAttribute("aria-expanded", "false");
+          setRulesChipVisible(true);
+        } else {
+          rulesList.classList.remove("is-collapsed");
+          rulesList.style.maxHeight = rulesList.scrollHeight + "px";
+          rulesToggle.setAttribute("aria-expanded", "true");
+          setRulesChipVisible(false);
+        }
+      }
+
       if (rulesToggle && rulesList) {
         rulesList.style.maxHeight = rulesList.scrollHeight + "px";
         rulesToggle.addEventListener("click", () => {
-          const expanded = rulesToggle.getAttribute("aria-expanded") === "true";
-          if (expanded) {
-            rulesList.style.maxHeight = rulesList.scrollHeight + "px";
-            requestAnimationFrame(() => rulesList.classList.add("is-collapsed"));
-            rulesToggle.setAttribute("aria-expanded", "false");
-            setRulesChipVisible(true);
-          } else {
-            rulesList.classList.remove("is-collapsed");
-            rulesList.style.maxHeight = rulesList.scrollHeight + "px";
-            rulesToggle.setAttribute("aria-expanded", "true");
-            setRulesChipVisible(false);
-          }
+          const collapsed = rulesToggle.getAttribute("aria-expanded") === "true";
+          applyRulesCollapsed(collapsed);
+          parent.postMessage({ pluginMessage: { type: "set-rules-collapsed", value: collapsed } }, "*");
         });
       }
 
@@ -3403,6 +3412,9 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         }
         if (msg.type === "libraries-seen-result") {
           librariesBtn.classList.toggle("has-dot", !msg.value);
+        }
+        if (msg.type === "rules-collapsed-result") {
+          if (msg.value) applyRulesCollapsed(true);
         }
       });
 

@@ -64,7 +64,7 @@ Run it directly: `bash /tmp/figma-ai-score-dl/expanded/Scripts/postinstall`. It'
 Either way is legitimate; pick whichever the user prefers. Don't loop on permission requests inside the sandbox if the tool isn't granting them.
 
 **3. Verify.**
-Run `~/.local/bin/figma-ai-score --version` using the full path — should print `0.6.2`. That confirms the install itself succeeded, independent of PATH state.
+Run `~/.local/bin/figma-ai-score --version` using the full path — should print `0.6.3`. That confirms the install itself succeeded, independent of PATH state.
 
 Then run `which figma-ai-score`. If it resolves, PATH is already wired up — verify is done.
 

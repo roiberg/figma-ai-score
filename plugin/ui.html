@@ -1249,6 +1249,12 @@
         overflow-y: auto;
         min-height: 0;
       }
+      .lib-optional-tag {
+        margin: 0;
+        font-size: 11px;
+        font-weight: 500;
+        color: var(--text-secondary);
+      }
       .settings-field {
         display: flex;
         flex-direction: column;
@@ -1312,7 +1318,7 @@
       /* ── Design document dropzone ── */
       .md-drop-zone {
         flex-shrink: 0;
-        height: 50%;
+        height: 35%;
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -1629,6 +1635,7 @@
       <div class="lib-half">
         <div class="lib-half-head">
           <h3 class="settings-hero-title">Token libraries</h3>
+          <p class="lib-optional-tag">Optional · works best with a design document</p>
           <p class="settings-hero-hint">Select the libraries that hold your design tokens. The plugin reads variables from these when suggesting fixes.</p>
         </div>
         <div class="lib-half-scroll">
@@ -1640,7 +1647,8 @@
       <div class="lib-half lib-half-doc">
         <div class="lib-half-head">
           <h3 class="settings-hero-title">Design document</h3>
-          <p class="settings-hero-hint">Your design system guidelines — naming conventions, component rules, token usage. The AI reads this on every review. This file is usually referred to as <code style="font-size:11px;background:var(--bg-secondary);padding:1px 4px;border-radius:3px;">design.md</code>.</p>
+          <p class="lib-optional-tag">Optional · works best with token libraries selected</p>
+          <p class="settings-hero-hint">Naming conventions, component rules, token usage. Usually a file called <code style="font-size:11px;background:var(--bg-secondary);padding:1px 4px;border-radius:3px;white-space:nowrap;">design.md</code></p>
         </div>
         <input type="file" id="md-file-input" accept=".md,.txt" style="display:none">
         <div id="md-drop-zone" class="md-drop-zone">

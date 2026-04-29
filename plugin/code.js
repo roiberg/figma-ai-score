@@ -1641,12 +1641,14 @@ async function listAvailableLibraries() {
     // so the fallback doesn't double-count them.
     try {
       const localColls = figma.variables.getLocalVariableCollections();
-      const teamLibNames = new Set([...byLib.keys()]);
+      const teamLibNames = new Set(Array.from(byLib.keys()));
       for (const lc of localColls) {
         if (lc.remote && lc.libraryName && teamLibNames.has(lc.libraryName)) {
           seenCollectionIds.add(lc.id);
         }
       }
+      console.log("[figma-ai-score] seenCollectionIds (team-API covered):", seenCollectionIds.size,
+        "localColls remote:", localColls.filter(function(lc) { return lc.remote; }).map(function(lc) { return lc.libraryName + "/" + lc.name; }));
     } catch (e) {}
   }
 
@@ -1670,7 +1672,7 @@ async function listAvailableLibraries() {
     figma.currentPage.children.forEach(collectBoundVars);
 
     // Group by collection ID
-    const byColl = new Map(); // collId → { name, colorCount, numberCount }
+    const byColl = new Map(); // collId → { name, colorCount, numberCount, varNames }
     for (const varId of seenVarIds) {
       try {
         const v = figma.variables.getVariableById(varId);
@@ -1679,12 +1681,19 @@ async function listAvailableLibraries() {
         if (!byColl.has(v.variableCollectionId)) {
           const coll = figma.variables.getVariableCollectionById(v.variableCollectionId);
           if (!coll || !coll.remote) continue; // only fallback for remote (library) variables
-          byColl.set(v.variableCollectionId, { name: coll.name, colorCount: 0, numberCount: 0 });
+          byColl.set(v.variableCollectionId, { name: coll.name, colorCount: 0, numberCount: 0, varNames: [] });
         }
         const entry = byColl.get(v.variableCollectionId);
+        entry.varNames.push(v.resolvedType + ":" + v.name);
         if (v.resolvedType === "COLOR") entry.colorCount++;
         else if (v.resolvedType === "FLOAT") entry.numberCount++;
       } catch (e) {}
+    }
+    // Debug: log every variable found per collection so counts can be verified
+    for (const pair of byColl) {
+      var collDebugId = pair[0];
+      var collDebugEntry = pair[1];
+      console.log("[figma-ai-score] fallback collection '" + collDebugEntry.name + "' (" + collDebugId + "):", collDebugEntry.varNames);
     }
     if (byColl.size > 0) {
       // Aggregate all fallback collections under a single entry — Figma doesn't expose

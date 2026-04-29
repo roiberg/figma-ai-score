@@ -161,14 +161,30 @@ STRIPMARKERS
   echo "Removed existing figma-ai-score block from CLAUDE.md."
 fi
 
-# Append the fresh block, prefixed by a single blank line.
-{
-  if [ -s "$CLAUDE_MD" ] && [ "$(tail -c1 "$CLAUDE_MD" 2>/dev/null)" != "" ]; then
-    echo ""
-  fi
-  echo ""
-  printf '%s\n' "$CLAUDE_BLOCK"
-} >> "$CLAUDE_MD"
+# Append the fresh block. Spacing rules:
+#   - Empty / whitespace-only file: write the block alone, no leading blanks.
+#   - File with real content: trim trailing whitespace, add one blank-line
+#     separator, then the block.
+# The previous shell-only logic always echoed an unconditional separator,
+# which produced two leading blank lines when the file had been left as
+# just "\n" by the strip phase above. Validated bug from a real fresh-Mac
+# install run.
+python3 - "$CLAUDE_MD" "$CLAUDE_BLOCK" <<'APPEND_BLOCK'
+import sys
+path, block = sys.argv[1], sys.argv[2]
+try:
+    with open(path) as f:
+        existing = f.read()
+except FileNotFoundError:
+    existing = ''
+stripped = existing.rstrip()
+if stripped:
+    out = stripped + '\n\n' + block + '\n'
+else:
+    out = block + '\n'
+with open(path, 'w') as f:
+    f.write(out)
+APPEND_BLOCK
 echo "Appended fresh figma-ai-score block to CLAUDE.md."
 
 # ── 4. Regenerate /ai-score slash command ──

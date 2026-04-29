@@ -1598,27 +1598,121 @@ function isPrimitiveTokenName(variableName, collectionName) {
 // ──────────────────────────────────────────────────────────────────
 
 async function listAvailableLibraries() {
-  // Returns [{ name: <libraryName>, collectionCount: <number> }] —
-  // grouped by libraryName so the user picks a library, not a collection.
-  if (!figma.teamLibrary || typeof figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync !== "function") {
-    console.warn("[figma-ai-score] figma.teamLibrary API not available in this Figma version.");
-    return [];
-  }
-  let collections = [];
-  try {
-    collections = await figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync();
-  } catch (e) {
-    console.warn("[figma-ai-score] getAvailableLibraryVariableCollectionsAsync failed:", e && e.message);
-    return [];
-  }
-  console.log("[figma-ai-score] team-library variable collections found:", collections.length, collections.map(c => ({ libraryName: c.libraryName, name: c.name })));
-  const byLib = new Map();
-  for (const c of collections) {
-    const n = c.libraryName || "Unknown library";
-    byLib.set(n, (byLib.get(n) || 0) + 1);
-  }
+  // Returns [{ name, kind, collectionCount, colorCount, numberCount }]
+  //   kind: "library"   — proper team library (multi-collection grouping)
+  //   kind: "collection" — fallback for libraries the team API misses (e.g. MVP);
+  //                        each collection appears separately because Figma doesn't
+  //                        expose a libraryName for these locally-imported variables
   const result = [];
-  for (const [name, collectionCount] of byLib) result.push({ name, collectionCount });
+  const seenCollectionIds = new Set();
+
+  // ── Source 1: team library API (preferred — gives library names + grouping) ──
+  if (figma.teamLibrary && typeof figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync === "function") {
+    let collections = [];
+    try {
+      collections = await figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync();
+    } catch (e) {
+      console.warn("[figma-ai-score] getAvailableLibraryVariableCollectionsAsync failed:", e && e.message);
+    }
+    console.log("[figma-ai-score] team-library variable collections found:", collections.length, collections.map(c => ({ libraryName: c.libraryName, name: c.name })));
+    const byLib = new Map();
+    for (const c of collections) {
+      const n = c.libraryName || "Unknown library";
+      if (!byLib.has(n)) byLib.set(n, { collectionCount: 0, colorCount: 0, numberCount: 0, keys: [] });
+      const entry = byLib.get(n);
+      entry.collectionCount++;
+      entry.keys.push(c.key);
+    }
+    for (const [, entry] of byLib) {
+      for (const key of entry.keys) {
+        try {
+          const vars = await figma.teamLibrary.getVariablesInLibraryCollectionAsync(key);
+          for (const v of vars) {
+            if (v.resolvedType === "COLOR") entry.colorCount++;
+            else if (v.resolvedType === "FLOAT") entry.numberCount++;
+          }
+        } catch (e) {}
+      }
+    }
+    for (const [name, stats] of byLib) {
+      result.push({ name, kind: "library", collectionCount: stats.collectionCount, colorCount: stats.colorCount, numberCount: stats.numberCount });
+    }
+    // Track which local collection IDs are already covered by the team API
+    // so the fallback doesn't double-count them.
+    try {
+      const localColls = figma.variables.getLocalVariableCollections();
+      const teamLibNames = new Set([...byLib.keys()]);
+      for (const lc of localColls) {
+        if (lc.remote && lc.libraryName && teamLibNames.has(lc.libraryName)) {
+          seenCollectionIds.add(lc.id);
+        }
+      }
+    } catch (e) {}
+  }
+
+  // ── Source 2: node-walk fallback (catches libraries the team API misses) ──
+  // Walks every node on the current page for bound variable IDs, resolves them
+  // back to their collection, and adds collections we haven't seen yet.
+  try {
+    const seenVarIds = new Set();
+    function collectBoundVars(node) {
+      if (node.boundVariables) {
+        const slots = Object.values(node.boundVariables);
+        for (const slot of slots) {
+          const items = Array.isArray(slot) ? slot : [slot];
+          for (const ref of items) {
+            if (ref && ref.id) seenVarIds.add(ref.id);
+          }
+        }
+      }
+      if (node.children) node.children.forEach(collectBoundVars);
+    }
+    figma.currentPage.children.forEach(collectBoundVars);
+
+    // Group by collection ID
+    const byColl = new Map(); // collId → { name, colorCount, numberCount }
+    for (const varId of seenVarIds) {
+      try {
+        const v = figma.variables.getVariableById(varId);
+        if (!v) continue;
+        if (seenCollectionIds.has(v.variableCollectionId)) continue;
+        if (!byColl.has(v.variableCollectionId)) {
+          const coll = figma.variables.getVariableCollectionById(v.variableCollectionId);
+          if (!coll || !coll.remote) continue; // only fallback for remote (library) variables
+          byColl.set(v.variableCollectionId, { name: coll.name, colorCount: 0, numberCount: 0 });
+        }
+        const entry = byColl.get(v.variableCollectionId);
+        if (v.resolvedType === "COLOR") entry.colorCount++;
+        else if (v.resolvedType === "FLOAT") entry.numberCount++;
+      } catch (e) {}
+    }
+    if (byColl.size > 0) {
+      // Aggregate all fallback collections under a single entry — Figma doesn't expose
+      // the parent library name for these, so we can't split them by library.
+      let libIndex = 1;
+      // Bump the index past any "Library #N" names already in result (shouldn't happen,
+      // but defensive in case the user has a real library named "Library #1").
+      while (result.some(r => r.name === `Library #${libIndex}`)) libIndex++;
+      const collVals = Array.from(byColl.values());
+      const totalColors = collVals.reduce(function(s, e) { return s + e.colorCount; }, 0);
+      const totalNumbers = collVals.reduce(function(s, e) { return s + e.numberCount; }, 0);
+      const collectionIds = Array.from(byColl.keys());
+      const collectionNames = collVals.map(function(e) { return e.name; });
+      result.push({
+        name: "Library #" + libIndex,
+        kind: "collection",
+        collectionCount: byColl.size,
+        colorCount: totalColors,
+        numberCount: totalNumbers,
+        collectionIds: collectionIds,
+        collectionNames: collectionNames
+      });
+      console.log("[figma-ai-score] fallback collections (via node walk):", byColl.size, "collections aggregated as 'Library #" + libIndex + "':", collectionNames);
+    }
+  } catch (e) {
+    console.warn("[figma-ai-score] node-walk fallback failed:", e && e.message);
+  }
+
   result.sort((a, b) => a.name.localeCompare(b.name));
   return result;
 }
@@ -1641,20 +1735,20 @@ async function getLibraryDesignSystem(getColl) {
   const numberVariables = [];
   const selected = await getSelectedTokenLibraries();
   if (!selected.length) return { variables, numberVariables };
-  if (!figma.teamLibrary || typeof figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync !== "function") {
-    return { variables, numberVariables };
-  }
+
+  const selectedSet = new Set(selected);
+  const seenCollIds = new Set(); // tracks collections covered by the team API path
 
   let collections = [];
-  try {
-    collections = await figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync();
-  } catch (e) {
-    console.warn("[figma-ai-score] team-library collections fetch failed:", e && e.message);
-    return { variables, numberVariables };
+  if (figma.teamLibrary && typeof figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync === "function") {
+    try {
+      collections = await figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync();
+    } catch (e) {
+      console.warn("[figma-ai-score] team-library collections fetch failed:", e && e.message);
+    }
   }
-  const selectedSet = new Set(selected);
-  const matchingCollections = collections.filter(c => selectedSet.has(c.libraryName));
-  if (!matchingCollections.length) return { variables, numberVariables };
+  // Match by library name (proper libraries) OR by collection name (fallback collections).
+  const matchingCollections = collections.filter(c => selectedSet.has(c.libraryName) || selectedSet.has(c.name));
 
   // Step 1: list variable metadata across all matching collections.
   const allMeta = []; // [{ key, name, resolvedType, libraryName, collectionName }]
@@ -1731,6 +1825,80 @@ async function getLibraryDesignSystem(getColl) {
         isPrimitive: isPrimitiveTokenName(v.name, m.collectionName)
       });
     }
+    // Mark this collection as covered so the fallback skips it
+    if (v && v.variableCollectionId) seenCollIds.add(v.variableCollectionId);
+  }
+
+  // ── Fallback: walk current page for remote collections selected by name ──
+  // Catches libraries that the team API doesn't expose (e.g. MVP). Uses
+  // bound variables already in the file as a partial catalog.
+  try {
+    const seenVarIds = new Set();
+    function collectBoundVars(node) {
+      if (node.boundVariables) {
+        const slots = Object.values(node.boundVariables);
+        for (const slot of slots) {
+          const items = Array.isArray(slot) ? slot : [slot];
+          for (const ref of items) {
+            if (ref && ref.id) seenVarIds.add(ref.id);
+          }
+        }
+      }
+      if (node.children) node.children.forEach(collectBoundVars);
+    }
+    figma.currentPage.children.forEach(collectBoundVars);
+
+    for (const varId of seenVarIds) {
+      try {
+        const v = figma.variables.getVariableById(varId);
+        if (!v) continue;
+        if (seenCollIds.has(v.variableCollectionId)) continue;
+        const coll = await getColl(v.variableCollectionId);
+        if (!coll || !coll.remote) continue;
+        // Accept if the user selected this collection by name (legacy) OR selected
+        // any "Library #N" aggregated group (which covers all fallback collections).
+        const selectedAsGroup = Array.from(selectedSet).some(function(s) { return /^Library #\d+$/.test(s); });
+        if (!selectedSet.has(coll.name) && !selectedAsGroup) continue;
+        const modeId = coll.defaultModeId;
+        let raw = v.valuesByMode && modeId ? v.valuesByMode[modeId] : null;
+        if (raw && typeof raw === "object" && raw.type === "VARIABLE_ALIAS") {
+          try {
+            const referenced = typeof figma.variables.getVariableByIdAsync === "function"
+              ? await figma.variables.getVariableByIdAsync(raw.id)
+              : figma.variables.getVariableById(raw.id);
+            if (referenced && referenced.valuesByMode) {
+              const refColl = await getColl(referenced.variableCollectionId);
+              const refModeId = refColl && refColl.defaultModeId;
+              raw = refModeId ? referenced.valuesByMode[refModeId] : null;
+            }
+          } catch (e) { raw = null; }
+        }
+        if (v.resolvedType === "COLOR") {
+          if (!raw || typeof raw !== "object" || !("r" in raw)) continue;
+          const hex = rgbToHex(raw, typeof raw.a === "number" ? raw.a : undefined);
+          variables.push({
+            id: v.id,
+            name: v.name,
+            color: hex,
+            collectionName: coll.name,
+            libraryName: coll.name,
+            isPrimitive: isPrimitiveTokenName(v.name, coll.name)
+          });
+        } else if (v.resolvedType === "FLOAT") {
+          if (typeof raw !== "number") continue;
+          numberVariables.push({
+            id: v.id,
+            name: v.name,
+            value: raw,
+            collectionName: coll.name,
+            libraryName: coll.name,
+            isPrimitive: isPrimitiveTokenName(v.name, coll.name)
+          });
+        }
+      } catch (e) {}
+    }
+  } catch (e) {
+    console.warn("[figma-ai-score] design-system fallback failed:", e && e.message);
   }
 
   return { variables, numberVariables };

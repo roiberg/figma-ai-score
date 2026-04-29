@@ -124,6 +124,23 @@
       }
       button.header-icon-btn:focus,
       button.header-icon-btn:active { outline: none; }
+      /* Notification dot on the libraries button */
+      button.header-icon-btn.has-dot {
+        position: relative;
+        overflow: visible;
+      }
+      button.header-icon-btn.has-dot::after {
+        content: "";
+        position: absolute;
+        top: -3px;
+        right: -3px;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--red);
+        border: 1.5px solid var(--bg);
+        pointer-events: none;
+      }
       /* ── Suggestion overlay ── */
       .suggestion-overlay {
         position: absolute;
@@ -1189,18 +1206,41 @@
       .settings-back-btn:hover { background: var(--bg-secondary); color: var(--text); }
       .settings-body {
         flex: 1;
-        padding: 16px;
+        padding: 20px 16px;
         overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+      .settings-hero {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .settings-hero-title {
+        margin: 0;
+        font-size: 22px;
+        font-weight: 700;
+        color: #000;
+        line-height: 1.2;
+      }
+      .settings-hero-hint {
+        margin: 0;
+        font-size: 13px;
+        color: #444;
+        line-height: 1.5;
       }
       .settings-field {
         display: flex;
         flex-direction: column;
-        gap: 6px;
+        gap: 8px;
       }
       .settings-field-label {
         font-size: 11px;
         font-weight: 600;
-        color: var(--text);
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
       }
       .settings-field-hint {
         margin: 0;
@@ -1208,64 +1248,63 @@
         color: var(--text-secondary);
         line-height: 1.4;
       }
-      .settings-picker {
-        border: 1px solid var(--border);
-        border-radius: var(--radius-sm);
-        background: var(--bg);
-        overflow: hidden;
-      }
-      .settings-picker-trigger {
-        width: 100%;
-        padding: 9px 11px;
+      /* ── Library card ── */
+      .lib-card {
         display: flex;
         align-items: center;
-        justify-content: space-between;
-        gap: 8px;
-        background: transparent;
-        border: 0;
-        font: inherit;
-        font-size: 11px;
-        color: var(--text);
+        gap: 12px;
+        padding: 12px;
+        border-bottom: 1px solid var(--border);
         cursor: pointer;
-        text-align: left;
+        transition: background 0.15s;
+        user-select: none;
       }
-      .settings-picker-trigger:hover { background: var(--bg-secondary); }
-      .settings-picker-trigger-text {
+      .lib-card:first-child { border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
+      .lib-card:last-child { border-bottom: 0; border-radius: 0 0 var(--radius-sm) var(--radius-sm); }
+      .lib-card:only-child { border-radius: var(--radius-sm); }
+      .lib-card:hover { background: var(--bg-secondary); }
+      .lib-card-info {
         flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        min-width: 0;
+      }
+      .lib-card-name {
+        font-size: 14px;
+        font-weight: 600;
+        color: #000;
+        white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-        white-space: nowrap;
       }
-      .settings-picker-trigger-text.placeholder { color: var(--text-secondary); }
-      .settings-picker-chev {
-        flex-shrink: 0;
+      .lib-card-stats {
+        font-size: 11px;
         color: var(--text-secondary);
-        transition: transform 0.15s ease;
       }
-      .settings-picker.open .settings-picker-chev { transform: rotate(180deg); }
-      .settings-picker-list {
-        display: none;
-        border-top: 1px solid var(--border);
-        max-height: 220px;
-        overflow-y: auto;
+      .lib-card input[type="checkbox"] { display: none; }
+      .lib-card input:checked ~ .toggle-track { background: var(--toggle-on); }
+      .lib-card input:checked ~ .toggle-track::after { transform: translateX(14px); }
+      .settings-lib-list {
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        overflow: hidden;
       }
-      .settings-picker.open .settings-picker-list { display: block; }
       .settings-picker-item {
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 10px;
         padding: 8px 11px;
         font-size: 11px;
         color: var(--text);
         cursor: pointer;
         border-bottom: 1px solid var(--border);
+        user-select: none;
+        transition: background 0.15s;
       }
       .settings-picker-item:last-child { border-bottom: 0; }
       .settings-picker-item:hover { background: var(--bg-secondary); }
-      .settings-picker-item input[type="checkbox"] {
-        margin: 0;
-        cursor: pointer;
-      }
+      .settings-picker-item input[type="checkbox"] { display: none; }
       .settings-picker-empty {
         padding: 10px 11px;
         font-size: 11px;
@@ -1488,16 +1527,12 @@
         <h2>Libraries</h2>
       </div>
       <div class="settings-body">
+        <div class="settings-hero">
+          <h3 class="settings-hero-title">Token libraries</h3>
+          <p class="settings-hero-hint">Select the libraries that hold your design tokens. The plugin reads variables from these when suggesting fixes. Only libraries that publish native Figma Variables appear here.</p>
+        </div>
         <div class="settings-field">
-          <label class="settings-field-label" for="tokens-library-trigger">Tokens library</label>
-          <p class="settings-field-hint">Pick the library (or libraries) that hold your design tokens. The plugin will read variables from these libraries when suggesting tokens.</p>
-          <div id="tokens-library-picker" class="settings-picker">
-            <button type="button" id="tokens-library-trigger" class="settings-picker-trigger" aria-expanded="false">
-              <span id="tokens-library-trigger-text" class="settings-picker-trigger-text placeholder">None selected</span>
-              <svg class="settings-picker-chev" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4l3 3 3-3"/></svg>
-            </button>
-            <div id="tokens-library-list" class="settings-picker-list"></div>
-          </div>
+          <div id="tokens-library-list" class="settings-lib-list"></div>
         </div>
       </div>
     </div>
@@ -2156,52 +2191,47 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
       const librariesBtn = document.getElementById("libraries-btn");
       const librariesScreen = document.getElementById("libraries-screen");
       const librariesBack = document.getElementById("libraries-back");
-      const tokensLibPicker = document.getElementById("tokens-library-picker");
-      const tokensLibTrigger = document.getElementById("tokens-library-trigger");
-      const tokensLibTriggerText = document.getElementById("tokens-library-trigger-text");
       const tokensLibList = document.getElementById("tokens-library-list");
 
       let availableLibraries = []; // [{ name, collectionCount }]
       let selectedLibraries = []; // [name, ...]
-      let librariesFetched = false;
+
+      // Show a dot on the libraries button until the user opens it at least once.
+      const LIBS_SEEN_KEY = "figma-ai-score.libraries-seen";
+      function updateLibrariesDot() {
+        let seen = false;
+        try { seen = localStorage.getItem(LIBS_SEEN_KEY) === "1"; } catch (e) {}
+        librariesBtn.classList.toggle("has-dot", !seen);
+      }
+      updateLibrariesDot();
 
       function openLibraries() {
         librariesScreen.style.display = "flex";
-        if (!librariesFetched) {
-          parent.postMessage({ pluginMessage: { type: "get-libraries" } }, "*");
-        }
+        // Mark as seen — dot goes away permanently.
+        try { localStorage.setItem(LIBS_SEEN_KEY, "1"); } catch (e) {}
+        librariesBtn.classList.remove("has-dot");
+        // Always re-fetch so newly added libraries appear immediately.
+        parent.postMessage({ pluginMessage: { type: "get-libraries" } }, "*");
       }
       function closeLibraries() {
         librariesScreen.style.display = "none";
-        // Always collapse the picker on close so it starts collapsed next time.
-        tokensLibPicker.classList.remove("open");
-        tokensLibTrigger.setAttribute("aria-expanded", "false");
       }
       librariesBtn.addEventListener("click", openLibraries);
       librariesBack.addEventListener("click", closeLibraries);
-
-      function renderTokensLibTrigger() {
-        if (!selectedLibraries.length) {
-          tokensLibTriggerText.textContent = "None selected";
-          tokensLibTriggerText.classList.add("placeholder");
-        } else {
-          tokensLibTriggerText.textContent = selectedLibraries.join(", ");
-          tokensLibTriggerText.classList.remove("placeholder");
-        }
-      }
 
       function renderTokensLibList() {
         tokensLibList.innerHTML = "";
         if (!availableLibraries.length) {
           const empty = document.createElement("div");
           empty.className = "settings-picker-empty";
-          empty.textContent = "No token libraries found. Make sure the library is enabled in Assets > Libraries AND publishes variables (not just paint styles — Figma's API can only list libraries that publish variables).";
+          empty.textContent = "No token libraries found. Only libraries that publish native Figma Variables are listed here — paint styles and third-party token plugins are not supported by Figma's API.";
           tokensLibList.appendChild(empty);
           return;
         }
         for (const lib of availableLibraries) {
           const item = document.createElement("label");
-          item.className = "settings-picker-item";
+          item.className = "lib-card";
+
           const cb = document.createElement("input");
           cb.type = "checkbox";
           cb.checked = selectedLibraries.indexOf(lib.name) !== -1;
@@ -2211,23 +2241,46 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
             } else {
               selectedLibraries = selectedLibraries.filter(n => n !== lib.name);
             }
-            renderTokensLibTrigger();
             parent.postMessage({
               pluginMessage: { type: "set-token-libraries", libraries: selectedLibraries }
             }, "*");
           });
-          const name = document.createElement("span");
-          name.textContent = lib.name;
+
+          const info = document.createElement("div");
+          info.className = "lib-card-info";
+
+          const nameEl = document.createElement("div");
+          nameEl.className = "lib-card-name";
+          nameEl.textContent = lib.name;
+
+          const stats = [];
+          if (lib.colorCount) stats.push(`${lib.colorCount} color${lib.colorCount !== 1 ? "s" : ""}`);
+          if (lib.numberCount) stats.push(`${lib.numberCount} number${lib.numberCount !== 1 ? "s" : ""}`);
+          if (!stats.length && lib.collectionCount) stats.push(`${lib.collectionCount} collection${lib.collectionCount !== 1 ? "s" : ""}`);
+          if (lib.kind === "collection") {
+            if (lib.collectionNames && lib.collectionNames.length) {
+              stats.push(lib.collectionNames.join(", "));
+            } else {
+              stats.push("collection only");
+            }
+          }
+
+          const statsEl = document.createElement("div");
+          statsEl.className = "lib-card-stats";
+          statsEl.textContent = stats.join(" · ");
+
+          info.appendChild(nameEl);
+          info.appendChild(statsEl);
+
+          const track = document.createElement("span");
+          track.className = "toggle-track";
+
           item.appendChild(cb);
-          item.appendChild(name);
+          item.appendChild(info);
+          item.appendChild(track);
           tokensLibList.appendChild(item);
         }
       }
-
-      tokensLibTrigger.addEventListener("click", () => {
-        const open = tokensLibPicker.classList.toggle("open");
-        tokensLibTrigger.setAttribute("aria-expanded", open ? "true" : "false");
-      });
 
       // ── Suggestion overlay ──
       const suggestionBtn = document.getElementById("suggestion-btn");
@@ -3130,9 +3183,7 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         if (msg.type === "libraries-result") {
           availableLibraries = Array.isArray(msg.libraries) ? msg.libraries : [];
           selectedLibraries = Array.isArray(msg.selected) ? msg.selected.slice() : [];
-          librariesFetched = true;
           renderTokensLibList();
-          renderTokensLibTrigger();
         }
         if (msg.type === "connect-success-suppressed") {
           // Sandbox replying with the persisted "Don't show again" flag.

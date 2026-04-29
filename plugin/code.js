@@ -262,7 +262,7 @@ When AI tools translate Figma designs into code, the output quality depends heav
 
 ## FLOW
 0. Call announce_review_start IMMEDIATELY — as the very first tool, before anything else. It's a lightweight signal that makes the plugin UI show "Preparing review…" so the user sees feedback while you read these instructions. If you skip it, the UI looks frozen for ~10 seconds.
-1. Call get_preferences — read enabledRules and these instructions. IMPORTANT: Call this at the START of every review, even if you reviewed earlier in this conversation. The user may have changed toggles between runs. Never reuse cached preferences from a previous review.
+1. Call get_preferences — read enabledRules and these instructions. IMPORTANT: Call this at the START of every review, even if you reviewed earlier in this conversation. The user may have changed toggles between runs. Never reuse cached preferences from a previous review. If the response includes a non-null \`designDoc\` field, read its \`content\` carefully — it contains the designer's own guidelines for their design system. Use it to inform token suggestions, naming conventions, and component expectations throughout the review.
 2. Call get_selection — read the selected frames. If capped is true, warn the user only the first 10 will be reviewed.
 3. Call begin_review with the selected node ids.
 4. For each selected frame, call request_scan with its nodeId.
@@ -517,6 +517,10 @@ figma.ui.onmessage = async (msg) => {
         const hasEver = await figma.clientStorage.getAsync("figma-ai-score.has-ever-installed");
         figma.ui.postMessage({ type: "has-ever-installed", value: !!hasEver });
       } catch (e) {}
+      try {
+        const libsSeen = await figma.clientStorage.getAsync("figma-ai-score.libraries-seen");
+        figma.ui.postMessage({ type: "libraries-seen-result", value: !!libsSeen });
+      } catch (e) {}
       figma.ui.postMessage({ type: "prefs", data: prefs });
       pushSelection();
       return;
@@ -527,6 +531,12 @@ figma.ui.onmessage = async (msg) => {
       } catch (e) {
         console.warn("[figma-ai-score] couldn't persist connect-success suppression:", e && e.message);
       }
+      return;
+    }
+    if (msg.type === "set-libraries-seen") {
+      try {
+        await figma.clientStorage.setAsync("figma-ai-score.libraries-seen", true);
+      } catch (e) {}
       return;
     }
     if (msg.type === "set-has-ever-installed") {
@@ -561,6 +571,27 @@ figma.ui.onmessage = async (msg) => {
         await figma.clientStorage.setAsync("figma-ai-score.token-libraries", libraries);
       } catch (e) {
         console.warn("[figma-ai-score] couldn't persist token libraries:", e && e.message);
+      }
+      return;
+    }
+    if (msg.type === "get-design-doc") {
+      try {
+        const doc = await figma.clientStorage.getAsync("figma-ai-score.design-doc") || null;
+        figma.ui.postMessage({ type: "design-doc-result", doc });
+      } catch (e) {
+        figma.ui.postMessage({ type: "design-doc-result", doc: null });
+      }
+      return;
+    }
+    if (msg.type === "set-design-doc") {
+      try {
+        if (msg.doc && msg.doc.content) {
+          await figma.clientStorage.setAsync("figma-ai-score.design-doc", { filename: msg.doc.filename || "design.md", content: msg.doc.content });
+        } else {
+          await figma.clientStorage.deleteAsync("figma-ai-score.design-doc");
+        }
+      } catch (e) {
+        console.warn("[figma-ai-score] couldn't persist design doc:", e && e.message);
       }
       return;
     }
@@ -784,10 +815,15 @@ async function handleRpc(method, params) {
       };
     }
     case "get_preferences": {
+      let designDoc = null;
+      try {
+        designDoc = await figma.clientStorage.getAsync("figma-ai-score.design-doc") || null;
+      } catch (e) {}
       return {
         enabledRules: prefs,
         scoringMethod: "proportional",
-        instructions: buildInstructions(prefs)
+        instructions: buildInstructions(prefs),
+        designDoc: designDoc ? { filename: designDoc.filename, content: designDoc.content } : null
       };
     }
     case "is_cancelled": {

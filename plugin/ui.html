@@ -1204,31 +1204,49 @@
         cursor: pointer;
       }
       .settings-back-btn:hover { background: var(--bg-secondary); color: var(--text); }
-      .settings-body {
-        flex: 1;
-        padding: 20px 16px;
-        overflow-y: auto;
-        display: flex;
-        flex-direction: column;
-        gap: 16px;
-      }
-      .settings-hero {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-      }
       .settings-hero-title {
         margin: 0;
-        font-size: 22px;
+        font-size: 18px;
         font-weight: 700;
         color: #000;
         line-height: 1.2;
       }
       .settings-hero-hint {
         margin: 0;
-        font-size: 13px;
+        font-size: 12px;
         color: #444;
-        line-height: 1.5;
+        line-height: 1.4;
+      }
+      /* 50/50 horizontal split layout for the libraries screen */
+      .lib-halves {
+        flex: 1;
+        display: flex;
+        flex-direction: row;
+        overflow: hidden;
+        min-height: 0;
+      }
+      .lib-half {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 14px 16px;
+        overflow: hidden;
+        min-width: 0;
+      }
+      .lib-half-doc {
+        border-left: 1px solid var(--border);
+      }
+      .lib-half-head {
+        flex-shrink: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+      }
+      .lib-half-scroll {
+        flex: 1;
+        overflow-y: auto;
+        min-height: 0;
       }
       .settings-field {
         display: flex;
@@ -1290,6 +1308,84 @@
         border-radius: var(--radius-sm);
         overflow: hidden;
       }
+      /* ── Design document dropzone ── */
+      .md-drop-zone {
+        flex-shrink: 0;
+        height: 50%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 12px;
+        border: 1.5px dashed var(--border);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        transition: border-color 0.15s, background 0.15s;
+        text-align: center;
+        box-sizing: border-box;
+      }
+      .md-drop-zone { background: var(--bg-secondary); }
+      .md-drop-zone:hover { border-color: var(--accent); background: #e8e8e8; }
+      .md-drop-zone.drag-over { border-color: var(--accent); background: #e8e8e8; }
+      .md-drop-zone svg { opacity: 0.4; flex-shrink: 0; }
+      .md-drop-zone-label {
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--text-secondary);
+      }
+      .md-loaded {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 9px 12px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        background: var(--bg-secondary);
+      }
+      .md-loaded-icon { flex-shrink: 0; opacity: 0.5; }
+      .md-loaded-info { flex: 1; min-width: 0; }
+      .md-loaded-name {
+        font-size: 12px;
+        font-weight: 600;
+        color: #000;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-family: ui-monospace, "SF Mono", monospace;
+      }
+      .md-loaded-meta { font-size: 11px; color: var(--text-secondary); }
+      .md-remove-btn {
+        flex-shrink: 0;
+        background: none;
+        border: none;
+        cursor: pointer;
+        padding: 4px;
+        color: var(--text-secondary);
+        border-radius: 4px;
+        transition: background 0.15s, color 0.15s;
+        display: flex;
+        align-items: center;
+      }
+      .md-remove-btn:hover { background: var(--bg-hover, #f0f0f0); color: var(--red); }
+      .md-paste-btn {
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 7px 12px;
+        background: var(--accent);
+        border: 1px solid var(--accent);
+        border-radius: var(--radius-sm);
+        font-size: 12px;
+        font-weight: 500;
+        color: #fff;
+        cursor: pointer;
+        transition: background 0.15s;
+        width: 100%;
+      }
+      .md-paste-btn:hover { background: #7c3aed; border-color: #7c3aed; }
       .settings-picker-item {
         display: flex;
         align-items: center;
@@ -1526,15 +1622,52 @@
         </button>
         <h2>Libraries</h2>
       </div>
-      <div class="settings-body">
-        <div class="settings-hero">
+
+      <div class="lib-halves">
+      <!-- Left half: token libraries (scrollable) -->
+      <div class="lib-half">
+        <div class="lib-half-head">
           <h3 class="settings-hero-title">Token libraries</h3>
-          <p class="settings-hero-hint">Select the libraries that hold your design tokens. The plugin reads variables from these when suggesting fixes. Only libraries that publish native Figma Variables appear here.</p>
+          <p class="settings-hero-hint">Select the libraries that hold your design tokens. The plugin reads variables from these when suggesting fixes.</p>
         </div>
-        <div class="settings-field">
-          <div id="tokens-library-list" class="settings-lib-list"></div>
+        <div id="tokens-library-list" class="settings-lib-list lib-half-scroll"></div>
+      </div>
+
+      <!-- Right half: design.md -->
+      <div class="lib-half lib-half-doc">
+        <div class="lib-half-head">
+          <h3 class="settings-hero-title">Design document</h3>
+          <p class="settings-hero-hint">Your design system guidelines — naming conventions, component rules, token usage. The AI reads this on every review. This file is usually referred to as <code style="font-size:11px;background:var(--bg-secondary);padding:1px 4px;border-radius:3px;">design.md</code>.</p>
+        </div>
+        <input type="file" id="md-file-input" accept=".md,.txt" style="display:none">
+        <div id="md-drop-zone" class="md-drop-zone">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="12" y1="18" x2="12" y2="12"/>
+            <line x1="9" y1="15" x2="15" y2="15"/>
+          </svg>
+          <span class="md-drop-zone-label">Drop design.md or click to browse</span>
+        </div>
+        <button id="md-paste-btn" class="md-paste-btn">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="8" height="11" rx="1.5"/><path d="M3 4H2a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1"/></svg>
+          Paste from clipboard
+        </button>
+        <div id="md-loaded" class="md-loaded" style="display:none">
+          <svg class="md-loaded-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+          </svg>
+          <div class="md-loaded-info">
+            <div class="md-loaded-name" id="md-loaded-name">design.md</div>
+            <div class="md-loaded-meta" id="md-loaded-meta"></div>
+          </div>
+          <button class="md-remove-btn" id="md-remove-btn" title="Remove document" aria-label="Remove document">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="2" y1="2" x2="12" y2="12"/><line x1="12" y1="2" x2="2" y2="12"/></svg>
+          </button>
         </div>
       </div>
+      </div><!-- /.lib-halves -->
     </div>
 
     <div id="replaced-overlay" class="suggestion-overlay" style="display:none">
@@ -2197,21 +2330,14 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
       let selectedLibraries = []; // [name, ...]
 
       // Show a dot on the libraries button until the user opens it at least once.
-      const LIBS_SEEN_KEY = "figma-ai-score.libraries-seen";
-      function updateLibrariesDot() {
-        let seen = false;
-        try { seen = localStorage.getItem(LIBS_SEEN_KEY) === "1"; } catch (e) {}
-        librariesBtn.classList.toggle("has-dot", !seen);
-      }
-      updateLibrariesDot();
-
+      // Uses clientStorage (via sandbox) so it persists across plugin sessions.
       function openLibraries() {
         librariesScreen.style.display = "flex";
-        // Mark as seen — dot goes away permanently.
-        try { localStorage.setItem(LIBS_SEEN_KEY, "1"); } catch (e) {}
         librariesBtn.classList.remove("has-dot");
+        parent.postMessage({ pluginMessage: { type: "set-libraries-seen" } }, "*");
         // Always re-fetch so newly added libraries appear immediately.
         parent.postMessage({ pluginMessage: { type: "get-libraries" } }, "*");
+        parent.postMessage({ pluginMessage: { type: "get-design-doc" } }, "*");
       }
       function closeLibraries() {
         librariesScreen.style.display = "none";
@@ -2281,6 +2407,79 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
           tokensLibList.appendChild(item);
         }
       }
+
+      // ── Design document (design.md) ──
+      const mdFileInput  = document.getElementById("md-file-input");
+      const mdDropZone   = document.getElementById("md-drop-zone");
+      const mdPasteBtn   = document.getElementById("md-paste-btn");
+      const mdLoaded     = document.getElementById("md-loaded");
+      const mdLoadedName = document.getElementById("md-loaded-name");
+      const mdLoadedMeta = document.getElementById("md-loaded-meta");
+      const mdRemoveBtn  = document.getElementById("md-remove-btn");
+
+      function renderDesignDoc(doc) {
+        // doc = { filename, content } or null
+        if (doc && doc.content) {
+          mdDropZone.style.display = "none";
+          mdPasteBtn.style.display = "none";
+          mdLoaded.style.display = "flex";
+          mdLoadedName.textContent = doc.filename || "design.md";
+          const kb = (new TextEncoder().encode(doc.content).length / 1024).toFixed(1);
+          const lines = doc.content.split("\n").length;
+          mdLoadedMeta.textContent = kb + " KB · " + lines + " lines";
+        } else {
+          mdDropZone.style.display = "flex";
+          mdPasteBtn.style.display = "flex";
+          mdLoaded.style.display = "none";
+        }
+      }
+
+      function loadMdFile(file) {
+        if (!file) return;
+        if (file.size > 200 * 1024) {
+          alert("File is too large. Max 200 KB.");
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = function(e) {
+          const content = e.target.result;
+          const doc = { filename: file.name, content: content };
+          parent.postMessage({ pluginMessage: { type: "set-design-doc", doc: doc } }, "*");
+          renderDesignDoc(doc);
+        };
+        reader.readAsText(file);
+      }
+
+      mdDropZone.addEventListener("click", function() { mdFileInput.click(); });
+      mdFileInput.addEventListener("change", function() { loadMdFile(mdFileInput.files[0]); mdFileInput.value = ""; });
+
+      mdDropZone.addEventListener("dragover", function(e) { e.preventDefault(); mdDropZone.classList.add("drag-over"); });
+      mdDropZone.addEventListener("dragleave", function() { mdDropZone.classList.remove("drag-over"); });
+      mdDropZone.addEventListener("drop", function(e) {
+        e.preventDefault();
+        mdDropZone.classList.remove("drag-over");
+        loadMdFile(e.dataTransfer.files[0]);
+      });
+
+      mdPasteBtn.addEventListener("click", async function() {
+        try {
+          const text = await navigator.clipboard.readText();
+          if (!text || !text.trim()) { alert("Clipboard is empty or doesn't contain text."); return; }
+          const doc = { filename: "design.md", content: text };
+          parent.postMessage({ pluginMessage: { type: "set-design-doc", doc: doc } }, "*");
+          renderDesignDoc(doc);
+        } catch (e) {
+          alert("Couldn't read clipboard. Make sure you've copied some text first.");
+        }
+      });
+
+      mdRemoveBtn.addEventListener("click", function() {
+        parent.postMessage({ pluginMessage: { type: "set-design-doc", doc: null } }, "*");
+        renderDesignDoc(null);
+      });
+
+      // Request existing doc when libraries screen opens (piggybacked on get-libraries).
+      // The sandbox will reply with design-doc-result.
 
       // ── Suggestion overlay ──
       const suggestionBtn = document.getElementById("suggestion-btn");
@@ -3185,6 +3384,9 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
           selectedLibraries = Array.isArray(msg.selected) ? msg.selected.slice() : [];
           renderTokensLibList();
         }
+        if (msg.type === "design-doc-result") {
+          renderDesignDoc(msg.doc || null);
+        }
         if (msg.type === "connect-success-suppressed") {
           // Sandbox replying with the persisted "Don't show again" flag.
           // If true and we already showed the card optimistically (race
@@ -3198,6 +3400,9 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
           // WS handshake this session.
           hasEverInstalled = !!msg.value;
           if (hasEverInstalled) refreshConnectionUi();
+        }
+        if (msg.type === "libraries-seen-result") {
+          librariesBtn.classList.toggle("has-dot", !msg.value);
         }
       });
 

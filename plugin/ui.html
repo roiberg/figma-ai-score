@@ -1937,13 +1937,17 @@ echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zprofile
 
 ## When you're done
 
-Tell me:
+After step 4 (cleanup), verify the plugin is reachable yourself by running \`figma-ai-score get-selection\` once. The user almost certainly has the plugin open already (they used it to copy these instructions). Pick the message based on what \`get-selection\` returned:
 
-> "Install complete. Next steps:
->
-> 1. Make sure the AI Programmability Score plugin in Figma is open (Plugins menu → AI Programmability Score → Run).
-> 2. Say \`connect to ai score\` to verify the plugin is wired up. I'll confirm or troubleshoot.
-> 3. Once that's confirmed, say \`review my design\` or run \`/ai-score\` to start a real review."
+- **Succeeded** (returned selection JSON, no error) — tell the user:
+  > "Install complete and verified — the plugin is connected. Say \`review my design\` or run \`/ai-score\` to start a review."
+
+- **Failed with \`PLUGIN_NOT_CONNECTED\`** (plugin is closed) — tell the user:
+  > "Install complete, but the plugin isn't open in Figma yet. Open it (Plugins menu → AI Programmability Score → Run) and let me know — I'll re-verify."
+
+  When they confirm, run \`get-selection\` again.
+
+- **Failed with anything else** (e.g., \`BIND_FAILED\`) — troubleshoot using the error guidance elsewhere in this prompt and surface what you found.
 
 ## If you are NOT Claude Code
 

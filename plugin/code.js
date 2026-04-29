@@ -1604,7 +1604,8 @@ async function listAvailableLibraries() {
   //                        each collection appears separately because Figma doesn't
   //                        expose a libraryName for these locally-imported variables
   const result = [];
-  const seenCollectionIds = new Set();
+  const seenCollectionIds = new Set(); // collection IDs covered by team API (excluded from fallback)
+  const teamVarKeys = new Set();       // variable keys covered by team API (used to exclude in fallback)
 
   // ── Source 1: team library API (preferred — gives library names + grouping) ──
   if (figma.teamLibrary && typeof figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync === "function") {
@@ -1614,7 +1615,7 @@ async function listAvailableLibraries() {
     } catch (e) {
       console.warn("[figma-ai-score] getAvailableLibraryVariableCollectionsAsync failed:", e && e.message);
     }
-    console.log("[figma-ai-score] team-library variable collections found:", collections.length, collections.map(c => ({ libraryName: c.libraryName, name: c.name })));
+    console.log("[figma-ai-score] team-library variable collections found:", collections.length, collections.map(function(c) { return { libraryName: c.libraryName, name: c.name }; }));
     const byLib = new Map();
     for (const c of collections) {
       const n = c.libraryName || "Unknown library";
@@ -1623,33 +1624,29 @@ async function listAvailableLibraries() {
       entry.collectionCount++;
       entry.keys.push(c.key);
     }
-    for (const [, entry] of byLib) {
+    for (const pair of byLib) {
+      var entry = pair[1];
       for (const key of entry.keys) {
         try {
           const vars = await figma.teamLibrary.getVariablesInLibraryCollectionAsync(key);
           for (const v of vars) {
+            // Save every variable key so the fallback can skip variables
+            // already covered by the team API (cross-referenced by key,
+            // not by local collection ID — because getLocalVariableCollections
+            // only returns file-local collections, not imported ones).
+            if (v.key) teamVarKeys.add(v.key);
             if (v.resolvedType === "COLOR") entry.colorCount++;
             else if (v.resolvedType === "FLOAT") entry.numberCount++;
           }
         } catch (e) {}
       }
     }
-    for (const [name, stats] of byLib) {
-      result.push({ name, kind: "library", collectionCount: stats.collectionCount, colorCount: stats.colorCount, numberCount: stats.numberCount });
+    for (const pair of byLib) {
+      var name = pair[0];
+      var stats = pair[1];
+      result.push({ name: name, kind: "library", collectionCount: stats.collectionCount, colorCount: stats.colorCount, numberCount: stats.numberCount });
     }
-    // Track which local collection IDs are already covered by the team API
-    // so the fallback doesn't double-count them.
-    try {
-      const localColls = figma.variables.getLocalVariableCollections();
-      const teamLibNames = new Set(Array.from(byLib.keys()));
-      for (const lc of localColls) {
-        if (lc.remote && lc.libraryName && teamLibNames.has(lc.libraryName)) {
-          seenCollectionIds.add(lc.id);
-        }
-      }
-      console.log("[figma-ai-score] seenCollectionIds (team-API covered):", seenCollectionIds.size,
-        "localColls remote:", localColls.filter(function(lc) { return lc.remote; }).map(function(lc) { return lc.libraryName + "/" + lc.name; }));
-    } catch (e) {}
+    console.log("[figma-ai-score] team API covered", teamVarKeys.size, "variable keys across", seenCollectionIds.size, "collection IDs");
   }
 
   // ── Source 2: node-walk fallback (catches libraries the team API misses) ──
@@ -1677,6 +1674,10 @@ async function listAvailableLibraries() {
       try {
         const v = figma.variables.getVariableById(varId);
         if (!v) continue;
+        // Skip variables already covered by the team API (matched by key).
+        // We can't use seenCollectionIds here because getLocalVariableCollections()
+        // only returns file-local collections, not imported ones.
+        if (v.key && teamVarKeys.has(v.key)) continue;
         if (seenCollectionIds.has(v.variableCollectionId)) continue;
         if (!byColl.has(v.variableCollectionId)) {
           const coll = figma.variables.getVariableCollectionById(v.variableCollectionId);
@@ -1857,11 +1858,20 @@ async function getLibraryDesignSystem(getColl) {
     }
     figma.currentPage.children.forEach(collectBoundVars);
 
+    // Build a set of variable keys already imported via the team API path,
+    // so we can skip them in the fallback (seenCollIds alone isn't enough
+    // because imported variables get new local IDs that don't map back easily).
+    const importedVarIds = new Set();
+    for (const entry of imported) {
+      if (entry && entry.variable && entry.variable.id) importedVarIds.add(entry.variable.id);
+    }
+
     for (const varId of seenVarIds) {
       try {
         const v = figma.variables.getVariableById(varId);
         if (!v) continue;
         if (seenCollIds.has(v.variableCollectionId)) continue;
+        if (importedVarIds.has(v.id)) continue; // already handled by team API path
         const coll = await getColl(v.variableCollectionId);
         if (!coll || !coll.remote) continue;
         // Accept if the user selected this collection by name (legacy) OR selected

@@ -156,10 +156,22 @@ The \`suggestedTokens[i]\` object shape for dimensional suggestions:
 For every auto-layout node, check the four padding properties: \`paddingTop\`, \`paddingRight\`, \`paddingBottom\`, \`paddingLeft\`. Rules are **per axis** — each axis is evaluated independently.
 
 **Per-axis fixed-padding rule (takes priority over tokenization check):**
-- If \`autolayout.sizingVertical === "FIXED"\` **and** \`autolayout.hasVerticalFillChild\` is absent/false, and paddingTop or paddingBottom > 0 → those paddings have no visible effect in code output and should be zeroed. Flag them with \`zeroActions: [{ label: "Clear vertical padding", props: [...] }]\`. Do NOT suggest tokens for these sides.
-- If \`autolayout.sizingHorizontal === "FIXED"\` **and** \`autolayout.hasHorizontalFillChild\` is absent/false, and paddingLeft or paddingRight > 0 → same treatment. Flag with \`zeroActions: [{ label: "Clear horizontal padding", props: [...] }]\`.
-- **Skip zeroing if a fill-child exists on that axis** — a fill-child's size is constrained by the padding, so it IS meaningful and should instead be tokenized.
-- The two axes are independent: a node can have vertical=FIXED (zero action) and horizontal=HUG with un-tokenized padding (tokenize suggestion) at the same time.
+Three conditions must ALL hold for a zero-action to be offered on an axis:
+1. \`autolayout.sizingVertical/Horizontal === "FIXED"\` (axis is fixed size)
+2. \`autolayout.hasVerticalFillChild / hasHorizontalFillChild\` is absent/false (no child fills that axis — a fill-child's size is constrained by padding, making it meaningful)
+3. Gravity (alignment) confirms the padding has no visual effect — **isZeroSafe(paddingMin, paddingMax, gravity)**:
+   - Only MIN-side padding non-zero → gravity must be **MAX** (children pulled to opposite side)
+   - Only MAX-side padding non-zero → gravity must be **MIN**
+   - Both paddings non-zero and equal → gravity must be **CENTER** (zeroing both preserves the center)
+   - Any other combo → NOT safe; fall back to normal tokenization check
+
+Where to find gravity:
+- VERTICAL layout: \`primaryAxisAlignItems\` = vertical axis, \`counterAxisAlignItems\` = horizontal axis
+- HORIZONTAL layout: \`primaryAxisAlignItems\` = horizontal axis, \`counterAxisAlignItems\` = vertical axis
+
+When all three conditions hold, flag with \`zeroActions: [{ label: "Clear vertical/horizontal padding", props: [...] }]\` and do NOT suggest tokens for those sides.
+If conditions 1+2 hold but 3 fails, the padding visually positions children — include those props in the normal tokenization check.
+The two axes are evaluated independently.
 
 **Tokenization check (for non-fixed-axis paddings only):** A property fails when:
   1. Its numeric value is non-zero.
@@ -1396,46 +1408,72 @@ function lintSpacing(root, ds) {
 }
 
 // ── padding rule — paddingTop/Right/Bottom/Left ──
-// Keeps the fixed-height-atom exemption: when the node has FIXED vertical
-// sizing AND paddingTop === paddingBottom, those vertical paddings are
-// derived from centering content in the fixed height (not independent
-// design decisions). Skip them.
 function lintPadding(root, ds) {
   const offenders = [];
   let totalChecked = 0;
+
+  // Returns true when padding on an axis can be safely zeroed without changing
+  // the visual layout.  Requires gravity (alignment) to be either:
+  //   • pointing AWAY from the non-zero side  (only one side non-zero), or
+  //   • CENTER with symmetric padding         (both sides equal → zeroing both
+  //                                             keeps the center position).
+  // Any other combination means the padding visually positions children, so it
+  // should be tokenized, not cleared.
+  //   paddingMin = top / left value   paddingMax = bottom / right value
+  //   gravity = "MIN" | "CENTER" | "MAX"  (other values → false)
+  function isZeroSafe(paddingMin, paddingMax, gravity) {
+    if (!paddingMin && !paddingMax) return false;
+    if (paddingMin > 0 && paddingMax === 0) return gravity === "MAX";
+    if (paddingMin === 0 && paddingMax > 0) return gravity === "MIN";
+    // Both non-zero: safe only if equal and centered (zeroing both preserves center).
+    return paddingMin === paddingMax && gravity === "CENTER";
+  }
+
   walkDesignerNodes(root, (node) => {
     if (!node.autolayout) return;
     // COMPONENT_SET padding is canvas-only variant arrangement — not code output.
     if (node.type === "COMPONENT_SET") return;
     const al = node.autolayout;
-    const b = al.bound || {};
-    // An axis qualifies for zeroing only when the frame is FIXED on that axis
-    // AND no direct child fills that axis.  A fill-child relies on padding to
-    // determine its own size, so zeroing the padding would change the layout.
-    const verticalFixed   = al.sizingVertical   === "FIXED" && !al.hasVerticalFillChild;
-    const horizontalFixed = al.sizingHorizontal === "FIXED" && !al.hasHorizontalFillChild;
+    const b  = al.bound || {};
 
-    // Per-axis rule: if an axis is FIXED (and no fill-child depends on it),
-    // its padding has no effect in code output and should be zeroed, NOT tokenized.
-    // Collect the non-zero props on each fixed axis so we can offer a one-click clear action.
+    const topPad   = al.paddingTop    || 0;
+    const botPad   = al.paddingBottom || 0;
+    const leftPad  = al.paddingLeft   || 0;
+    const rightPad = al.paddingRight  || 0;
+
+    // Which alignment value applies to each axis depends on layout direction:
+    //   VERTICAL layout  → primary = vertical, counter = horizontal
+    //   HORIZONTAL layout → primary = horizontal, counter = vertical
+    const primaryAlign = al.primaryAxisAlignItems  || null;
+    const counterAlign = al.counterAxisAlignItems  || null;
+    const isVerticalLayout = al.mode === "VERTICAL";
+    const vAlign = isVerticalLayout ? primaryAlign : counterAlign; // top/bottom axis
+    const hAlign = isVerticalLayout ? counterAlign : primaryAlign; // left/right axis
+
+    // An axis qualifies for zeroing only when:
+    //   1. The frame is FIXED on that axis.
+    //   2. No direct child fills that axis (a fill-child's size depends on padding).
+    //   3. The gravity (alignment) confirms padding has no visual effect (isZeroSafe).
+    const canZeroVertical   = al.sizingVertical   === "FIXED" && !al.hasVerticalFillChild   && isZeroSafe(topPad,  botPad,   vAlign);
+    const canZeroHorizontal = al.sizingHorizontal === "FIXED" && !al.hasHorizontalFillChild && isZeroSafe(leftPad, rightPad, hAlign);
+
+    // Collect props to offer the clear action for.
     const zeroVerticalProps = [];
-    if (verticalFixed) {
-      if (al.paddingTop    > 0) zeroVerticalProps.push("paddingTop");
-      if (al.paddingBottom > 0) zeroVerticalProps.push("paddingBottom");
+    if (canZeroVertical) {
+      if (topPad > 0) zeroVerticalProps.push("paddingTop");
+      if (botPad > 0) zeroVerticalProps.push("paddingBottom");
     }
     const zeroHorizontalProps = [];
-    if (horizontalFixed) {
-      if (al.paddingLeft  > 0) zeroHorizontalProps.push("paddingLeft");
-      if (al.paddingRight > 0) zeroHorizontalProps.push("paddingRight");
+    if (canZeroHorizontal) {
+      if (leftPad  > 0) zeroHorizontalProps.push("paddingLeft");
+      if (rightPad > 0) zeroHorizontalProps.push("paddingRight");
     }
 
-    // Non-fixed-axis paddings that are un-tokenized should be tokenized.
+    // Props to tokenize: non-zero, un-bound, NOT being offered as zero-action.
+    const zeroSet = new Set([...zeroVerticalProps, ...zeroHorizontalProps]);
     const failedProps = [];
     for (const p of ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"]) {
-      const isVertical   = p === "paddingTop"  || p === "paddingBottom";
-      const isHorizontal = p === "paddingLeft" || p === "paddingRight";
-      if (isVertical   && verticalFixed)   continue; // handled by zero check above
-      if (isHorizontal && horizontalFixed) continue; // handled by zero check above
+      if (zeroSet.has(p)) continue; // handled by zero action
       const val = al[p];
       if (val === 0 || val === null || val === undefined) continue;
       if (!b[p]) failedProps.push(p);
@@ -1464,13 +1502,13 @@ function lintPadding(root, ds) {
       detail: detailParts.join(" "),
     };
 
-    // One suggestion per failing non-fixed prop, each with its own slot.
+    // One suggestion per failing non-zero-action prop.
     if (failedProps.length) {
       const sugs = failedProps.map(p => buildDimensionalSuggestion(ds, "padding", p, al[p])).filter(Boolean);
       if (sugs.length) o.suggestedTokens = sugs;
     }
 
-    // One-click zero actions for fixed-axis paddings.
+    // One-click zero actions for safe-to-clear fixed-axis paddings.
     const zeroActions = [];
     if (zeroVerticalProps.length)   zeroActions.push({ label: "Clear vertical padding",   props: zeroVerticalProps });
     if (zeroHorizontalProps.length) zeroActions.push({ label: "Clear horizontal padding", props: zeroHorizontalProps });
@@ -1785,6 +1823,8 @@ function extractNode(node, depth = 0, maxDepth = 8) {
     };
     const pai = ("primaryAxisAlignItems" in node) ? node.primaryAxisAlignItems : null;
     if (pai !== null) al.primaryAxisAlignItems = pai;
+    const cai = ("counterAxisAlignItems" in node) ? node.counterAxisAlignItems : null;
+    if (cai !== null) al.counterAxisAlignItems = cai;
     // bound: only include properties that ARE bound — absent = unbound.
     const bound = {};
     for (const k of ["paddingTop","paddingRight","paddingBottom","paddingLeft","itemSpacing"]) {

@@ -59,7 +59,8 @@ If the root has only 1 or 2 direct children and ONE of them is an INSTANCE whose
 **Check 3 — Repeated siblings that should share a component.**
 For each parent node, compare its direct children's structure signatures (type + immediate children types). If 3 or more siblings share the same signature AND they are NOT all instances of the same mainComponentId, flag each repeated sibling (2nd through Nth). Signal: these look like list items; extract a shared component.
 
-**Check 4 — Semantic names that should be components.**
+**Check 4 — Semantic names that should be components. (AI mode only — intentionally removed from simple mode.)**
+Simple mode can't distinguish a deliberate naming choice from a real structural problem without seeing the design, so this check only runs here where the screenshot is available.
 A layer whose name (case-insensitive, partial-match) contains any of: \`nav\`, \`navigation\`, \`header\`, \`footer\`, \`action bar\`, \`app bar\`, \`toolbar\`, \`tab bar\`, \`bottom sheet\`, \`sidebar\`, \`dialog\`, \`modal\`, \`card\`, \`list item\`, \`row\`, \`hero\`, \`banner\` — when it is a raw FRAME/GROUP (NOT an INSTANCE or COMPONENT), flag it.
 
 **Vision check — structural expectations from the thumbnail.**
@@ -1025,22 +1026,20 @@ function lintComponents(root) {
     }
   }
 
-  // Check 1 (orphan) and Check 4 (semantic names) + totalChecked count
+  // Check 1 (orphan) + totalChecked count
   // If the root itself is a COMPONENT or COMPONENT_SET, its contents are already
-  // inside a component — orphan and semantic-name checks don't apply.
+  // inside a component — orphan check doesn't apply.
+  // NOTE: Check 4 (semantic names) is intentionally simple-mode-only removed —
+  // it's a name-pattern heuristic, not real intent detection. Without vision it
+  // produces too many false positives. It lives in AI mode only (see RULE_DESCRIPTIONS).
   const rootIsComponent = root.type === "COMPONENT" || root.type === "COMPONENT_SET";
-  const SEMANTIC_NAMES = /\b(navigation|nav|header|footer|action ?bar|app ?bar|toolbar|tab ?bar|bottom ?sheet|sidebar|dialog|modal|card|list ?item|row|hero|banner)\b/i;
   walkDesignerNodes(root, (node, isRoot, ancestors) => {
     if (isRoot) return;
     totalChecked++;
     if (rootIsComponent) return; // inside a component — nothing to flag here
     const hasContainerAncestor = ancestors.some(a => a !== root && isComponentContainer(a));
     const isOrphan = !isComponentContainer(node) && !hasContainerAncestor;
-    const isRawFrameGroup = (node.type === "FRAME" || node.type === "GROUP") && !isInstance(node) && node.type !== "COMPONENT" && node.type !== "COMPONENT_SET";
-    const hasSemanticName = isRawFrameGroup && SEMANTIC_NAMES.test(node.name || "");
-    if (hasSemanticName) {
-      addOffense(node, "semantic", `"${node.name}" should be a reusable component.`);
-    } else if (isOrphan) {
+    if (isOrphan) {
       addOffense(node, "orphan", `Raw ${node.type} — should be wrapped in a component.`);
     }
   });

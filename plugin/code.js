@@ -1670,23 +1670,24 @@ async function listAvailableLibraries() {
       entry.collectionCount++;
       entry.keys.push(c.key);
     }
+    // Fetch all collections in parallel to avoid sequential round-trips.
+    var allFetches = [];
     for (const pair of byLib) {
       var entry = pair[1];
       for (const key of entry.keys) {
-        try {
-          const vars = await figma.teamLibrary.getVariablesInLibraryCollectionAsync(key);
-          for (const v of vars) {
-            // Save every variable key so the fallback can skip variables
-            // already covered by the team API (cross-referenced by key,
-            // not by local collection ID — because getLocalVariableCollections
-            // only returns file-local collections, not imported ones).
-            if (v.key) teamVarKeys.add(v.key);
-            if (v.resolvedType === "COLOR") entry.colorCount++;
-            else if (v.resolvedType === "FLOAT") entry.numberCount++;
-          }
-        } catch (e) {}
+        allFetches.push({ entry: entry, key: key });
       }
     }
+    await Promise.all(allFetches.map(async function(item) {
+      try {
+        const vars = await figma.teamLibrary.getVariablesInLibraryCollectionAsync(item.key);
+        for (const v of vars) {
+          if (v.key) teamVarKeys.add(v.key);
+          if (v.resolvedType === "COLOR") item.entry.colorCount++;
+          else if (v.resolvedType === "FLOAT") item.entry.numberCount++;
+        }
+      } catch (e) {}
+    }));
     for (const pair of byLib) {
       var name = pair[0];
       var stats = pair[1];
@@ -1696,11 +1697,11 @@ async function listAvailableLibraries() {
   }
 
   // ── Source 2: node-walk fallback (catches libraries the team API misses) ──
-  // Walks every node on the current page for bound variable IDs, resolves them
-  // back to their collection, and adds collections we haven't seen yet.
+  // Walks only 2 levels deep (page → frame → direct children) to avoid
+  // freezing on large pages. Enough to detect which libraries are in use.
   try {
     const seenVarIds = new Set();
-    function collectBoundVars(node) {
+    function collectBoundVarsShallow(node) {
       if (node.boundVariables) {
         const slots = Object.values(node.boundVariables);
         for (const slot of slots) {
@@ -1710,9 +1711,15 @@ async function listAvailableLibraries() {
           }
         }
       }
-      if (node.children) node.children.forEach(collectBoundVars);
     }
-    figma.currentPage.children.forEach(collectBoundVars);
+    for (const frame of figma.currentPage.children) {
+      collectBoundVarsShallow(frame);
+      if (frame.children) {
+        for (const child of frame.children) {
+          collectBoundVarsShallow(child);
+        }
+      }
+    }
 
     // Group by collection ID
     const byColl = new Map(); // collId → { name, colorCount, numberCount, varNames }

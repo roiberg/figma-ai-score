@@ -76,7 +76,7 @@ Be specific in the detail: reference what you see in the screenshot AND the node
   colors: `### colors
 Every visible SOLID fill or stroke must have either a boundVariable (non-null) OR a fillStyleId/strokeStyleId (non-null). A raw hex color with no binding is an offender. Only SOLID fills/strokes are checked — IMAGE, VIDEO, and gradient fills are never flagged (they don't carry color tokens). Skip fills/strokes where \`visible\` is false. Don't recurse into INSTANCE children (library internals — designer can't fix from the instance side). Don't evaluate nodes the user marked ignored (\`node.ignored === true\`).
 
-Note on COMPONENT_SET nodes: Figma automatically renders a dotted purple outline around a component set as a canvas affordance (the variant container marker). That isn't a real product style. Don't flag the dotted purple outline. But OTHER fills/strokes on a component set, if any, are evaluated normally — the user has the explicit ignore mechanism for case-by-case exclusions.
+Skip COMPONENT_SET nodes entirely for color checks — the container never renders in code, and its purple dotted outline is a Figma canvas affordance, not a real style.
 
 #### Token suggestions (attach \`suggestedTokens\` array to color offenders)
 
@@ -1091,6 +1091,10 @@ function lintColors(root, ds) {
   let totalChecked = 0;
   const hasDs = ds && ((ds.variables || []).length > 0 || (ds.paintStyles || []).length > 0);
   walkDesignerNodes(root, (node) => {
+    // COMPONENT_SET is a canvas-only variant container — it never renders in
+    // code. Its purple dotted outline is a Figma affordance, not a real style.
+    // Skip fills and strokes entirely.
+    if (node.type === "COMPONENT_SET") return;
     // Only SOLID fills can be tokenized. Image/video/gradient fills are skipped
     // (they don't carry color tokens). A layer with only an image fill and no
     // SOLID fill produces nothing to check.

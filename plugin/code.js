@@ -125,7 +125,7 @@ Every TEXT node must have textStyleId set (non-null), OR have ALL of boundTypogr
   spacing: `### spacing
 For every auto-layout node (\`node.autolayout\` is truthy), check \`itemSpacing\` — the gap between siblings. A node is an offender when ALL of these are true:
   1. \`itemSpacing\` is a non-zero number (zero is always fine).
-  2. \`autolayout.bound.itemSpacing\` is null (no variable bound).
+  2. \`autolayout.bound.itemSpacing\` is absent or null (no variable bound).
   3. The node has 2 or more children (with 0 or 1 children, itemSpacing has no visible effect — skip).
   4. \`autolayout.primaryAxisAlignItems\` is NOT \`"SPACE_BETWEEN"\` — that is Figma's "Auto" gap mode where spacing is distributed algorithmically with no fixed tokenizable value.
 
@@ -359,8 +359,25 @@ Name exact layers and node IDs. Don't say "some layers have bad names" — say "
 - Limit offenders to 30 per rule to keep payloads manageable.
 - **Detail strings must be short and plain (under ~10 words).** State the issue, don't explain the technical mechanism. Don't include hex values, node-property names like \`fillStyleId\`, or jargon like "bound variable". Don't give fix advice. Examples — good: "Fill does not use a token or style.", "Spacing not tokenized.", "Auto-layout missing on this frame.". Bad: "SOLID fill #FF0000 has no bound variable or style.", "boundVariable is null on the first paint."
 - After submitting the report, briefly summarize the results to the user in chat — mention the score, which rules passed/failed, and top issues.
-- If the scan data is too large for your context, use a sub-agent to process it in chunks. Instruct it to read the entire file and return only the rule results.
 - Repeated use of the same component instance across variants is CORRECT and EXPECTED.
+
+## SCAN DATA FORMAT (sparse)
+The scan tree uses a sparse format to keep payloads small:
+- **Absent array** (no \`fills\`, \`strokes\`, or \`effects\` key) means the node has none — treat as empty.
+- **Absent \`sizeBound\`** means neither width nor height is bound to a variable.
+- **\`autolayout.bound\`** only lists properties that ARE bound. If a property is absent from \`bound\`, treat it as unbound (null).
+- **\`hasMultipleFills\` / \`hasMultipleStrokes\`** only appear when \`true\`.
+
+## GROUPING REPEATED OFFENDERS
+When 5 or more nodes share the exact same rule violation (same rule, same detail string), collapse them into a single offender entry instead of listing each separately. Use this shape:
+\`\`\`
+{ nodeId: "<first node id>", name: "<first node name>", detail: "<shared detail>", groupedCount: <total count> }
+\`\`\`
+This dramatically reduces report size and token generation cost for frames with many identical issues (e.g. 26 rectangles all named "Rectangle N").
+
+## LARGE SCAN FILES / CONTEXT COMPACTION
+- If you need to read the scan result file in more than one chunk, tell the user: "The scan file is large — reading in chunks. Expect about 1–2 extra minutes for this step."
+- If you find yourself resuming a review mid-flow without memory of the earlier steps (context was compacted), tell the user: "Note: my context was compacted mid-review — this adds roughly 1–2 minutes while I re-read the scan data."
 `;
 }
 
@@ -1534,20 +1551,28 @@ function extractNode(node, depth = 0, maxDepth = 8) {
   }
 
   if ("fills" in node && Array.isArray(node.fills)) {
-    out.fills = node.fills.map(serializePaint);
-    out.fillStyleId = node.fillStyleId || null;
-    // Token-suggestion logic skips nodes with more than one fill (visible
-    // or hidden) — the intent is ambiguous with multiple paints stacked.
-    out.hasMultipleFills = node.fills.length > 1;
+    const fills = node.fills.map(serializePaint);
+    if (fills.length > 0) {
+      out.fills = fills;
+      out.fillStyleId = node.fillStyleId || null; // null = not styled; AI needs this
+      if (node.fills.length > 1) out.hasMultipleFills = true; // omit when false
+    }
+    // No fills → omit fills/fillStyleId/hasMultipleFills entirely (saves space)
   }
   if ("strokes" in node && Array.isArray(node.strokes)) {
-    out.strokes = node.strokes.map(serializePaint);
-    out.strokeStyleId = node.strokeStyleId || null;
-    out.hasMultipleStrokes = node.strokes.length > 1;
+    const strokes = node.strokes.map(serializePaint);
+    if (strokes.length > 0) {
+      out.strokes = strokes;
+      out.strokeStyleId = node.strokeStyleId || null;
+      if (node.strokes.length > 1) out.hasMultipleStrokes = true;
+    }
   }
   if ("effects" in node && Array.isArray(node.effects)) {
-    out.effects = node.effects.map(serializeEffect);
-    out.effectStyleId = node.effectStyleId || null;
+    const effects = node.effects.map(serializeEffect);
+    if (effects.length > 0) {
+      out.effects = effects;
+      out.effectStyleId = node.effectStyleId || null;
+    }
   }
 
   if (node.type === "TEXT") {
@@ -1561,37 +1586,37 @@ function extractNode(node, depth = 0, maxDepth = 8) {
   }
 
   if ("layoutMode" in node && node.layoutMode && node.layoutMode !== "NONE") {
-    out.autolayout = {
+    const al = {
       mode: node.layoutMode,
       paddingTop: node.paddingTop,
       paddingRight: node.paddingRight,
       paddingBottom: node.paddingBottom,
       paddingLeft: node.paddingLeft,
       itemSpacing: node.itemSpacing,
-      primaryAxisAlignItems: ("primaryAxisAlignItems" in node) ? node.primaryAxisAlignItems : null,
-      bound: {
-        paddingTop: boundVarId(node, "paddingTop"),
-        paddingRight: boundVarId(node, "paddingRight"),
-        paddingBottom: boundVarId(node, "paddingBottom"),
-        paddingLeft: boundVarId(node, "paddingLeft"),
-        itemSpacing: boundVarId(node, "itemSpacing")
-      },
-      // FIXED / HUG / FILL — used by the linter to detect fixed-height atoms
-      // (buttons, chips, inputs) where vertical padding is derived, not tokenized.
-      sizingVertical: ("layoutSizingVertical" in node) ? node.layoutSizingVertical : null,
-      sizingHorizontal: ("layoutSizingHorizontal" in node) ? node.layoutSizingHorizontal : null
     };
+    const pai = ("primaryAxisAlignItems" in node) ? node.primaryAxisAlignItems : null;
+    if (pai !== null) al.primaryAxisAlignItems = pai;
+    // bound: only include properties that ARE bound — absent = unbound.
+    const bound = {};
+    for (const k of ["paddingTop","paddingRight","paddingBottom","paddingLeft","itemSpacing"]) {
+      const v = boundVarId(node, k);
+      if (v) bound[k] = v;
+    }
+    if (Object.keys(bound).length) al.bound = bound;
+    const sv = ("layoutSizingVertical" in node) ? node.layoutSizingVertical : null;
+    const sh = ("layoutSizingHorizontal" in node) ? node.layoutSizingHorizontal : null;
+    if (sv !== null) al.sizingVertical = sv;
+    if (sh !== null) al.sizingHorizontal = sh;
+    out.autolayout = al;
   }
 
-  // Dimensions — used by the size rule. We always extract width/height
-  // and which side(s) are bound to a variable; the linter decides
-  // whether to flag based on autolayout sizing mode (or non-autolayout).
+  // Dimensions — used by the size rule.
   if (typeof node.width === "number") out.width = node.width;
   if (typeof node.height === "number") out.height = node.height;
-  out.sizeBound = {
-    width: boundVarId(node, "width"),
-    height: boundVarId(node, "height")
-  };
+  // sizeBound: only include when at least one dimension is bound (absent = neither bound).
+  const sbW = boundVarId(node, "width");
+  const sbH = boundVarId(node, "height");
+  if (sbW || sbH) out.sizeBound = { width: sbW, height: sbH };
 
   // Stop recursion at INSTANCE boundaries — their children are library
   // internals the designer doesn't control, and skipping them shrinks

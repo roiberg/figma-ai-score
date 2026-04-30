@@ -113,6 +113,7 @@ The \`suggestedTokens[i]\` object shape for color suggestions:
   name: string,                // display name (e.g. "colors/brand/primary")
   slot: "fill" | "stroke",     // which paint slot it binds to on the node
   reason: string               // one-sentence "why"
+  // value field not applicable for color suggestions
 }
 \`\`\``,
 
@@ -142,6 +143,7 @@ The \`suggestedTokens[i]\` object shape for dimensional suggestions:
   kind: "variable",            // dimensional suggestions are always variables
   id: string,                  // variable id from the catalog
   name: string,                // display name (e.g. "spacing/medium")
+  value: number,               // the token's actual px value — ALWAYS include this
   slot: "itemSpacing",         // for the spacing rule, always this
   reason: string               // one-sentence "why"
 }
@@ -1180,6 +1182,7 @@ function buildDimensionalSuggestion(ds, rule, slot, value) {
     kind: "variable",
     id: match.id,
     name: match.name,
+    value: match.value,
     slot,
     reason: "Exact match."
   };

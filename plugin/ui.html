@@ -1003,7 +1003,7 @@
         line-height: 1.45;
       }
       button.apply-rename-btn {
-        margin-top: 4px;
+        margin-top: 0;
         padding: 3px 8px;
         font-size: 10px;
         font-weight: 600;
@@ -1022,14 +1022,33 @@
         outline: none;
       }
       button.apply-rename-btn:disabled { opacity: 0.5; cursor: default; }
+      .token-btn-value {
+        font-weight: 400;
+        opacity: 0.6;
+      }
       /* Reason text shown under a token-apply button (color suggestions).
          Explains why this particular token was picked. */
-      .apply-reason {
-        font-size: 9.5px;
-        line-height: 1.4;
-        color: var(--text-tertiary);
-        margin-top: 3px;
-        max-width: 100%;
+      .token-suggest-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px;
+        margin-top: 6px;
+      }
+      .token-suggest-label {
+        font-size: 11px;
+        color: var(--text-secondary);
+        font-weight: 500;
+        flex-shrink: 0;
+        line-height: 1;
+        align-self: center;
+      }
+      .token-suggest-or {
+        font-size: 11px;
+        color: var(--text-secondary);
+        flex-shrink: 0;
+        align-self: center;
+        line-height: 1;
       }
       button.bullseye-btn {
         flex-shrink: 0;
@@ -1603,7 +1622,7 @@
       /* ── Stop wrap ── */
       .stop-wrap {
         display: none;
-        margin-bottom: 4px;
+        margin-top: 8px;
       }
     </style>
   </head>
@@ -1761,9 +1780,11 @@
       <div class="col col-left">
         <div class="col-scroll scroll-area">
           <div class="panel" id="review-panel" style="display:none">
-            <div id="locked-banner" class="locked-banner"></div>
-            <div id="stop-wrap" class="stop-wrap">
-              <button id="stop" class="danger">Stop review</button>
+            <div id="locked-banner" class="locked-banner">
+              <div id="locked-banner-text"></div>
+              <div id="stop-wrap" class="stop-wrap">
+                <button id="stop" class="danger" style="width:100%">Stop review</button>
+              </div>
             </div>
           </div>
 
@@ -2024,6 +2045,7 @@
       });
       selectionEl.addEventListener("scroll", hideChipTooltip);
       const lockedBanner = document.getElementById("locked-banner");
+      const lockedBannerText = document.getElementById("locked-banner-text");
       const reviewPanel = document.getElementById("review-panel");
       const stopWrap = document.getElementById("stop-wrap");
       const stopBtn = document.getElementById("stop");
@@ -2807,14 +2829,16 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
         const msg = ev.data && ev.data.pluginMessage;
         if (!msg) return;
         if (msg.__rpc) {
+          const payload = JSON.stringify({ type: "response", id: msg.id, result: msg.result, error: msg.error });
           if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({
-              type: "response",
-              id: msg.id,
-              result: msg.result,
-              error: msg.error
-            }));
+            ws.send(payload);
+          } else if (ws && ws.readyState === WebSocket.CONNECTING) {
+            // Socket is mid-reconnect — wait for it to open, then flush.
+            // This prevents silent drops when a brief WS blip occurs while
+            // the sandbox is processing a long-running RPC (e.g. request_scan).
+            ws.addEventListener("open", () => { try { ws.send(payload); } catch (e) {} }, { once: true });
           }
+          // If CLOSING/CLOSED the bridge already rejected the pending call; drop.
           return;
         }
         if (msg.type === "suggestion-check-result") { lastSuggestionAt = msg.lastAt || 0; return; }
@@ -3085,7 +3109,7 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         reviewPanel.style.borderBottom = "1px solid var(--border)";
         stopWrap.style.display = "block";
         lockedBanner.style.display = "block";
-        lockedBanner.innerHTML =
+        lockedBannerText.innerHTML =
           `<strong><span class="reviewing-dot"></span>Preparing review…</strong>`;
       }
       function showLocked(data) {
@@ -3095,7 +3119,7 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         stopWrap.style.display = "block";
         lockedBanner.style.display = "block";
         const n = data.names.length;
-        lockedBanner.innerHTML =
+        lockedBannerText.innerHTML =
           `<strong><span class="reviewing-dot"></span>Reviewing ${n} frame${n === 1 ? "" : "s"}</strong>` +
           data.names.map(esc).join(", ");
       }
@@ -3174,20 +3198,15 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
                     if (rule === "naming" && o.suggestedName) {
                       applyBtn = `<button class="apply-rename-btn" data-apply-rename="${esc(o.nodeId)}" data-new-name="${esc(o.suggestedName)}" title="Rename layer to '${esc(o.suggestedName)}'">Rename to "${esc(o.suggestedName)}"</button>`;
                     } else if (Array.isArray(o.suggestedTokens) && o.suggestedTokens.length > 0) {
-                      // Render one button per suggestion + the suggestion's
-                      // "why" reason underneath each. Multiple suggestions
-                      // happen for dimensional rules in Smart mode (above +
-                      // below candidates when the value sits between two
-                      // tokens). Color suggestions are always 1 element.
-                      applyBtn = o.suggestedTokens.map(t =>
+                      const btns = o.suggestedTokens.map(t =>
                         `<button class="apply-rename-btn" ` +
                           `data-apply-token="${esc(o.nodeId)}" ` +
                           `data-token-kind="${esc(t.kind)}" ` +
                           `data-token-id="${esc(t.id)}" ` +
                           `data-token-slot="${esc(t.slot)}" ` +
-                          `title="Bind ${esc(t.slot)} to ${esc(t.name)}">Use ${esc(t.name)}</button>` +
-                        (t.reason ? `<div class="apply-reason">${esc(t.reason)}</div>` : '')
-                      ).join('');
+                          `title="Bind ${esc(t.slot)} to ${esc(t.name)}">${esc(t.name)}${t.value != null ? ' <span class="token-btn-value">(' + t.value + 'px)</span>' : ''}</button>`
+                      ).join('<span class="token-suggest-or">or</span>');
+                      applyBtn = `<div class="token-suggest-row"><span class="token-suggest-label">Use</span>${btns}</div>`;
                     }
                     return `<div class="offender-row" data-offender-node="${esc(o.nodeId)}" data-offender-rule="${esc(rule)}">
                       <div class="offender-body">

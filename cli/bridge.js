@@ -163,6 +163,13 @@ export class Bridge {
             const e = new Error(msg.error.message || "plugin error");
             e.code = msg.error.code || "PLUGIN_ERROR";
             p.reject(e);
+          } else if (msg.result === undefined || msg.result === null && !("result" in msg)) {
+            // Plugin sent a response with no result field — the WebSocket relay
+            // likely dropped the response while the socket was closing. Treat as
+            // a retryable failure rather than silently resolving with undefined.
+            const e = new Error("plugin returned empty response — try again");
+            e.code = "EMPTY_RESPONSE";
+            p.reject(e);
           } else {
             p.resolve(msg.result);
           }

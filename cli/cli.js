@@ -42,6 +42,10 @@ const SUBCOMMAND_TO_METHOD = {
 // ────────────────────────────────────────────────────────────
 
 function emitJson(obj) {
+  if (obj === undefined) {
+    emitErr("EMPTY_RESPONSE", "plugin returned empty response — reopen the plugin and try again");
+    process.exit(1);
+  }
   process.stdout.write(JSON.stringify(obj, null, 2) + "\n");
 }
 

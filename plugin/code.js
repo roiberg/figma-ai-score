@@ -51,6 +51,7 @@ A design scores well when its structure decomposes into reusable components the 
 
 **Check 1 — Orphan raw layers.**
 Every descendant must be a COMPONENT, COMPONENT_SET, or INSTANCE, OR have an ancestor (below the root) that is one of those types. A raw FRAME/GROUP/TEXT with no component-or-instance ancestor is an offender.
+Exception: if the root frame itself is a COMPONENT or COMPONENT_SET, its contents are already inside a component — skip checks 1 and 4 entirely for this frame. Atoms like TEXT and shapes are expected to live directly inside a primitive component (tooltip, badge, chip, etc.).
 
 **Check 2 — Over-instancing (the "giant instance" problem).**
 If the root has only 1 or 2 direct children and ONE of them is an INSTANCE whose subtree contains more than 80% of the root's total descendant count, flag that INSTANCE. Signal: the entire page is wrapped in a single bulky instance instead of being decomposed into meaningful components.
@@ -1025,10 +1026,14 @@ function lintComponents(root) {
   }
 
   // Check 1 (orphan) and Check 4 (semantic names) + totalChecked count
+  // If the root itself is a COMPONENT or COMPONENT_SET, its contents are already
+  // inside a component — orphan and semantic-name checks don't apply.
+  const rootIsComponent = root.type === "COMPONENT" || root.type === "COMPONENT_SET";
   const SEMANTIC_NAMES = /\b(navigation|nav|header|footer|action ?bar|app ?bar|toolbar|tab ?bar|bottom ?sheet|sidebar|dialog|modal|card|list ?item|row|hero|banner)\b/i;
   walkDesignerNodes(root, (node, isRoot, ancestors) => {
     if (isRoot) return;
     totalChecked++;
+    if (rootIsComponent) return; // inside a component — nothing to flag here
     const hasContainerAncestor = ancestors.some(a => a !== root && isComponentContainer(a));
     const isOrphan = !isComponentContainer(node) && !hasContainerAncestor;
     const isRawFrameGroup = (node.type === "FRAME" || node.type === "GROUP") && !isInstance(node) && node.type !== "COMPONENT" && node.type !== "COMPONENT_SET";

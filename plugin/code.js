@@ -1278,8 +1278,17 @@ function lintPadding(root, ds) {
         : sides.slice(0, -1).join(", ") + " and " + sides[sides.length - 1];
       detailParts.push(`${sideList} padding not tokenized.`);
     }
-    if (zeroVerticalProps.length)   detailParts.push("Top/bottom padding ignored (fixed height).");
-    if (zeroHorizontalProps.length) detailParts.push("Left/right padding ignored (fixed width).");
+    // Format only the sides actually being zeroed: "Top", "Bottom", or "Top and bottom".
+    const sideLabel = (props, reason) => {
+      const map = { paddingTop: "Top", paddingBottom: "bottom", paddingLeft: "Left", paddingRight: "right" };
+      const names = props.map(p => map[p]);
+      // Capitalize the first one; lowercase any subsequent ones (only 1 or 2 ever).
+      names[0] = names[0][0].toUpperCase() + names[0].slice(1);
+      const joined = names.length === 1 ? names[0] : `${names[0]} and ${names[1]}`;
+      return `${joined} padding ignored (${reason}).`;
+    };
+    if (zeroVerticalProps.length)   detailParts.push(sideLabel(zeroVerticalProps,   "fixed height"));
+    if (zeroHorizontalProps.length) detailParts.push(sideLabel(zeroHorizontalProps, "fixed width"));
 
     const o = {
       nodeId: node.id,

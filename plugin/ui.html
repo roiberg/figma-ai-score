@@ -3209,10 +3209,11 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
                 : '';
               const offendersHtml = hasOffenders
                 ? '<div class="breakdown-offenders">' + offenders.map(o => {
-                    let applyBtn = '';
+                    const applyParts = [];
                     if (rule === "naming" && o.suggestedName) {
-                      applyBtn = `<button class="apply-rename-btn" data-apply-rename="${esc(o.nodeId)}" data-new-name="${esc(o.suggestedName)}" title="Rename layer to '${esc(o.suggestedName)}'">Rename to "${esc(o.suggestedName)}"</button>`;
-                    } else if (Array.isArray(o.suggestedTokens) && o.suggestedTokens.length > 0) {
+                      applyParts.push(`<button class="apply-rename-btn" data-apply-rename="${esc(o.nodeId)}" data-new-name="${esc(o.suggestedName)}" title="Rename layer to '${esc(o.suggestedName)}'">Rename to "${esc(o.suggestedName)}"</button>`);
+                    }
+                    if (Array.isArray(o.suggestedTokens) && o.suggestedTokens.length > 0) {
                       const btns = o.suggestedTokens.map(t =>
                         `<button class="apply-rename-btn" ` +
                           `data-apply-token="${esc(o.nodeId)}" ` +
@@ -3221,8 +3222,18 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
                           `data-token-slot="${esc(t.slot)}" ` +
                           `title="Bind ${esc(t.slot)} to ${esc(t.name)}">${esc(t.name)}${t.value != null ? ' <span class="token-btn-value">(' + t.value + 'px)</span>' : ''}</button>`
                       ).join('<span class="token-suggest-or">or</span>');
-                      applyBtn = `<div class="token-suggest-row"><span class="token-suggest-label">Use</span>${btns}</div>`;
+                      applyParts.push(`<div class="token-suggest-row"><span class="token-suggest-label">Use</span>${btns}</div>`);
                     }
+                    if (Array.isArray(o.zeroActions) && o.zeroActions.length > 0) {
+                      const zeroBtns = o.zeroActions.map(a =>
+                        `<button class="apply-rename-btn apply-zero-btn"` +
+                          ` data-zero-padding="${esc(o.nodeId)}"` +
+                          ` data-zero-props="${esc(JSON.stringify(a.props))}"` +
+                          ` title="${esc(a.label)}">${esc(a.label)}</button>`
+                      ).join('');
+                      applyParts.push(`<div class="token-suggest-row"><span class="token-suggest-label">Fix</span>${zeroBtns}</div>`);
+                    }
+                    const applyBtn = applyParts.join('');
                     return `<div class="offender-row" data-offender-node="${esc(o.nodeId)}" data-offender-rule="${esc(rule)}">
                       <div class="offender-body">
                         <div class="offender-name">${esc(o.name)}</div>
@@ -3299,6 +3310,18 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
             applyBtn.textContent = "Applying…";
             parent.postMessage({
               pluginMessage: { type: "apply-token", nodeId: tokenNodeId, kind, tokenId, slot }
+            }, "*");
+            return;
+          }
+          // Zero-padding action — clears fixed-axis padding (no visual effect in code).
+          const zeroPaddingId = applyBtn.getAttribute("data-zero-padding");
+          if (zeroPaddingId) {
+            let props;
+            try { props = JSON.parse(applyBtn.getAttribute("data-zero-props") || "[]"); } catch { return; }
+            applyBtn.disabled = true;
+            applyBtn.textContent = "Clearing…";
+            parent.postMessage({
+              pluginMessage: { type: "zero-padding", nodeId: zeroPaddingId, props }
             }, "*");
             return;
           }
@@ -3466,7 +3489,67 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         }
       }
 
-      // Listen for rename-done / rename-failed / apply-token-* from the sandbox
+      // Called when zero-padding succeeds. Removes the matching zeroAction
+      // entry from the offender; if no issues remain, removes the offender
+      // entirely and bumps the frame score.
+      function handleZeroPaddingDone(nodeId, props) {
+        if (!lastReport || !lastReport.frames) return;
+        for (const frame of lastReport.frames) {
+          const paddingRule = frame.breakdown && frame.breakdown.padding;
+          if (!paddingRule || !Array.isArray(paddingRule.offenders)) continue;
+          const idx = paddingRule.offenders.findIndex(o =>
+            o.nodeId === nodeId && Array.isArray(o.zeroActions)
+          );
+          if (idx === -1) continue;
+          const beforeCount = paddingRule.offenders.length;
+          const o = paddingRule.offenders[idx];
+
+          // Remove the specific zeroAction(s) whose props were just cleared.
+          if (Array.isArray(o.zeroActions)) {
+            o.zeroActions = o.zeroActions.filter(a =>
+              !props.every(p => a.props.includes(p))
+            );
+            if (!o.zeroActions.length) delete o.zeroActions;
+          }
+
+          const hasRemainingIssues =
+            (Array.isArray(o.suggestedTokens) && o.suggestedTokens.length > 0) ||
+            (Array.isArray(o.zeroActions)     && o.zeroActions.length     > 0);
+
+          let removedOffender = false;
+          if (!hasRemainingIssues) {
+            paddingRule.offenders.splice(idx, 1);
+            removedOffender = true;
+          }
+
+          const justEmptied = beforeCount > 0 && paddingRule.offenders.length === 0;
+          if (justEmptied) paddingRule.passed = true;
+
+          if (frame.issues && removedOffender) {
+            frame.issues = frame.issues.filter(i => !(i.nodeId === nodeId && i.rule === "padding"));
+          }
+
+          if (removedOffender) {
+            const rules = Object.values(frame.breakdown).filter(r => r.enabled !== false);
+            const ruleShare = rules.length ? 100 / rules.length : 0;
+            const current = frame.score || 0;
+            let next = justEmptied
+              ? current + Math.round(ruleShare * 0.6)
+              : current + Math.max(1, Math.round(ruleShare / (beforeCount + 1)));
+            frame.perfect = rules.every(r => r.passed);
+            if (frame.perfect) frame.score = 100;
+            else frame.score = Math.max(current, Math.min(100, next));
+            patchOffenderRemoved(nodeId, "padding", frame, paddingRule);
+          } else {
+            // Offender still exists but with fewer zeroActions — do a targeted
+            // re-render so the button disappears without a full flash.
+            if (lastReport) renderReport(lastReport);
+          }
+          break;
+        }
+      }
+
+      // Listen for rename-done / rename-failed / apply-token-* / zero-padding-* from the sandbox
       window.addEventListener("message", (ev) => {
         const msg = ev.data && ev.data.pluginMessage;
         if (!msg) return;
@@ -3476,6 +3559,12 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
           console.error("[figma-ai-score] token apply failed:", msg.error);
           alert("Couldn't apply the token: " + (msg.error || "unknown error"));
           // Re-render so the disabled/loading button resets from the report.
+          if (lastReport) renderReport(lastReport);
+        }
+        if (msg.type === "zero-padding-done") handleZeroPaddingDone(msg.nodeId, msg.props);
+        if (msg.type === "zero-padding-failed") {
+          console.error("[figma-ai-score] zero-padding failed:", msg.error);
+          alert("Couldn't clear padding: " + (msg.error || "unknown error"));
           if (lastReport) renderReport(lastReport);
         }
         if (msg.type === "export-image-result") {

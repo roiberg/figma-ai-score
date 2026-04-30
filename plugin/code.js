@@ -153,26 +153,32 @@ The \`suggestedTokens[i]\` object shape for dimensional suggestions:
 \`\`\``,
 
   padding: `### padding
-For every auto-layout node, check the four padding properties: \`paddingTop\`, \`paddingRight\`, \`paddingBottom\`, \`paddingLeft\`. A property fails when:
+For every auto-layout node, check the four padding properties: \`paddingTop\`, \`paddingRight\`, \`paddingBottom\`, \`paddingLeft\`. Rules are **per axis** — each axis is evaluated independently.
+
+**Per-axis fixed-padding rule (takes priority over tokenization check):**
+- If \`autolayout.sizingVertical === "FIXED"\` and paddingTop or paddingBottom > 0 → those paddings have no visible effect in code output and should be zeroed. Flag them with \`zeroActions: [{ label: "Clear vertical padding", props: [...] }]\`. Do NOT suggest tokens for these sides.
+- If \`autolayout.sizingHorizontal === "FIXED"\` and paddingLeft or paddingRight > 0 → same treatment. Flag with \`zeroActions: [{ label: "Clear horizontal padding", props: [...] }]\`.
+- The two axes are independent: a node can have vertical=FIXED (zero action) and horizontal=HUG with un-tokenized padding (tokenize suggestion) at the same time.
+
+**Tokenization check (for non-fixed-axis paddings only):** A property fails when:
   1. Its numeric value is non-zero.
   2. Its corresponding \`autolayout.bound.<prop>\` is null.
+  3. Its axis is NOT fixed (skip if the axis is FIXED — covered by the zero-action rule above).
 
-**One offender per node, not per property.** If multiple sides fail, combine them into a single offender with a detail like "top, bottom and left padding not tokenized." Do NOT produce separate rows for each side.
+**One offender per node, not per property.** Combine all issues into a single offender. Detail format: "top/bottom padding ignored (fixed height). Left padding not tokenized." (adapt as needed).
 
 Skip COMPONENT_SET nodes entirely — their padding is canvas-only variant arrangement, not code output. Walker still doesn't recurse into INSTANCE children, and user-ignored nodes are skipped.
 
-EXCEPTION — vertical paddings on fixed-height atoms. When a node has \`autolayout.sizingVertical === "FIXED"\` AND \`paddingTop === paddingBottom\`, those two paddings are derived from the fixed height (centering content) — not independent design decisions. Skip both \`paddingTop\` and \`paddingBottom\` on these nodes. Horizontal paddings on the same node still need to be bound (they ARE design decisions). Use the screenshot to confirm: button/chip/pill/input shapes visually reading as fixed-height atoms get this exemption.
-
 #### Token suggestions for padding offenders
 
-Use \`designSystem.numberVariables\`. For each failing side on the node, attempt a suggestion:
+Use \`designSystem.numberVariables\`. For each failing non-fixed-axis side on the node, attempt a suggestion:
 - **Filter to padding-appropriate tokens.** Names/collections containing "padding" or "pad". Reject obvious mismatches.
 - **Exact value match → 1 candidate.**
 - **No exact match → 2 candidates (above + below).** Highest token below and lowest above the offender's value. Reason for each explains the gap.
 - **Multiple exact matches → semantic preferred over primitive.**
 - **No appropriate tokens at all** → omit that side's entry.
 
-\`suggestedTokens\` is an array with one entry per failing side; \`suggestedTokens[i].slot\` is the property name: \`"paddingTop"\` | \`"paddingRight"\` | \`"paddingBottom"\` | \`"paddingLeft"\`.`,
+\`suggestedTokens\` is an array with one entry per failing non-fixed side; \`suggestedTokens[i].slot\` is the property name: \`"paddingTop"\` | \`"paddingRight"\` | \`"paddingBottom"\` | \`"paddingLeft"\`.`,
 
   size: `### size
 For every eligible node (COMPONENT, COMPONENT_SET, INSTANCE), check whether its width and height are using a size token:
@@ -792,6 +798,32 @@ figma.ui.onmessage = async (msg) => {
       }
       return;
     }
+    if (msg.type === "zero-padding") {
+      // Zero out one or more padding props (used to clean up padding on
+      // fixed-size axes where padding has no visual effect in code output).
+      try {
+        const { nodeId, props } = msg;
+        if (!Array.isArray(props) || !props.length) return;
+        let node = null;
+        if (typeof figma.getNodeByIdAsync === "function") {
+          try { node = await figma.getNodeByIdAsync(nodeId); } catch (e) {}
+        }
+        if (!node) node = figma.getNodeById(nodeId);
+        if (!node) throw new Error("node not found");
+        const ALLOWED = new Set(["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"]);
+        for (const prop of props) {
+          if (ALLOWED.has(prop)) node[prop] = 0;
+        }
+        figma.ui.postMessage({ type: "zero-padding-done", nodeId, props });
+      } catch (e) {
+        figma.ui.postMessage({
+          type: "zero-padding-failed",
+          nodeId: msg.nodeId,
+          error: (e && e.message) ? e.message : String(e)
+        });
+      }
+      return;
+    }
     if (msg.type === "select-node") {
       try {
         const node = await figma.getNodeByIdAsync(msg.nodeId);
@@ -1376,31 +1408,70 @@ function lintPadding(root, ds) {
     if (node.type === "COMPONENT_SET") return;
     const al = node.autolayout;
     const b = al.bound || {};
-    const skipVertical = al.sizingVertical === "FIXED" && al.paddingTop === al.paddingBottom;
-    const props = ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"];
+    const verticalFixed   = al.sizingVertical   === "FIXED";
+    const horizontalFixed = al.sizingHorizontal === "FIXED";
+
+    // Per-axis rule: if an axis is FIXED, its padding has no effect in code
+    // output and should be zeroed, NOT tokenized.  Collect the non-zero props
+    // on each fixed axis so we can offer a one-click clear action.
+    const zeroVerticalProps = [];
+    if (verticalFixed) {
+      if (al.paddingTop    > 0) zeroVerticalProps.push("paddingTop");
+      if (al.paddingBottom > 0) zeroVerticalProps.push("paddingBottom");
+    }
+    const zeroHorizontalProps = [];
+    if (horizontalFixed) {
+      if (al.paddingLeft  > 0) zeroHorizontalProps.push("paddingLeft");
+      if (al.paddingRight > 0) zeroHorizontalProps.push("paddingRight");
+    }
+
+    // Non-fixed-axis paddings that are un-tokenized should be tokenized.
     const failedProps = [];
-    for (const p of props) {
-      if (skipVertical && (p === "paddingTop" || p === "paddingBottom")) continue;
+    for (const p of ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"]) {
+      const isVertical   = p === "paddingTop"  || p === "paddingBottom";
+      const isHorizontal = p === "paddingLeft" || p === "paddingRight";
+      if (isVertical   && verticalFixed)   continue; // handled by zero check above
+      if (isHorizontal && horizontalFixed) continue; // handled by zero check above
       const val = al[p];
       if (val === 0 || val === null || val === undefined) continue;
       if (!b[p]) failedProps.push(p);
     }
+
     // Count one check per node (not per prop) and one offender per node.
     totalChecked++;
-    if (!failedProps.length) return;
-    // Build "top, bottom and left" label from the failing prop names.
-    const sides = failedProps.map(p => p.replace("padding", "").toLowerCase());
-    const sideList = sides.length === 1
-      ? sides[0]
-      : sides.slice(0, -1).join(", ") + " and " + sides[sides.length - 1];
+    const hasZeroIssue = zeroVerticalProps.length > 0 || zeroHorizontalProps.length > 0;
+    if (!failedProps.length && !hasZeroIssue) return;
+
+    // Build detail from all issues on this node.
+    const detailParts = [];
+    if (failedProps.length) {
+      const sides = failedProps.map(p => p.replace("padding", "").toLowerCase());
+      const sideList = sides.length === 1
+        ? sides[0]
+        : sides.slice(0, -1).join(", ") + " and " + sides[sides.length - 1];
+      detailParts.push(`${sideList} padding not tokenized.`);
+    }
+    if (zeroVerticalProps.length)   detailParts.push("Top/bottom padding ignored (fixed height).");
+    if (zeroHorizontalProps.length) detailParts.push("Left/right padding ignored (fixed width).");
+
     const o = {
       nodeId: node.id,
-      name: node.name,
-      detail: `${sideList} padding not tokenized.`
+      name:   node.name,
+      detail: detailParts.join(" "),
     };
-    // One suggestion per failing prop, each with its own slot.
-    const sugs = failedProps.map(p => buildDimensionalSuggestion(ds, "padding", p, al[p])).filter(Boolean);
-    if (sugs.length) o.suggestedTokens = sugs;
+
+    // One suggestion per failing non-fixed prop, each with its own slot.
+    if (failedProps.length) {
+      const sugs = failedProps.map(p => buildDimensionalSuggestion(ds, "padding", p, al[p])).filter(Boolean);
+      if (sugs.length) o.suggestedTokens = sugs;
+    }
+
+    // One-click zero actions for fixed-axis paddings.
+    const zeroActions = [];
+    if (zeroVerticalProps.length)   zeroActions.push({ label: "Clear vertical padding",   props: zeroVerticalProps });
+    if (zeroHorizontalProps.length) zeroActions.push({ label: "Clear horizontal padding", props: zeroHorizontalProps });
+    if (zeroActions.length) o.zeroActions = zeroActions;
+
     offenders.push(o);
   });
   return {

@@ -125,8 +125,9 @@ For every auto-layout node (\`node.autolayout\` is truthy), check \`itemSpacing\
   1. \`itemSpacing\` is a non-zero number (zero is always fine).
   2. \`autolayout.bound.itemSpacing\` is null (no variable bound).
   3. The node has 2 or more children (with 0 or 1 children, itemSpacing has no visible effect — skip).
+  4. \`autolayout.primaryAxisAlignItems\` is NOT \`"SPACE_BETWEEN"\` — that is Figma's "Auto" gap mode where spacing is distributed algorithmically with no fixed tokenizable value.
 
-No hardcoded skips by name or type. The root frame, INSTANCE nodes, and COMPONENT_SET nodes ARE evaluated. The walker still doesn't recurse into INSTANCE *children* (library internals — designer can't fix from instance side) and skips nodes the user has explicitly marked ignored (\`node.ignored === true\`). Everything else is fair game; the user has the explicit ignore mechanism for case-by-case exclusions.
+Skip COMPONENT_SET nodes entirely — their spacing is canvas-only variant arrangement, not code output. The walker still doesn't recurse into INSTANCE *children* (library internals — designer can't fix from instance side) and skips nodes the user has explicitly marked ignored (\`node.ignored === true\`).
 
 #### Token suggestions for spacing offenders
 
@@ -156,7 +157,7 @@ For every auto-layout node, check the four padding properties: \`paddingTop\`, \
 
 Each failing property is its own offender entry (so a node with three unbound paddings produces three offender rows).
 
-No hardcoded skips by name or type. Root frame, INSTANCE nodes, COMPONENT_SET nodes — all evaluated. Walker still doesn't recurse into INSTANCE children, and user-ignored nodes are skipped. The user marks specific nodes ignored when they don't want them flagged.
+Skip COMPONENT_SET nodes entirely — their padding is canvas-only variant arrangement, not code output. Walker still doesn't recurse into INSTANCE children, and user-ignored nodes are skipped.
 
 EXCEPTION — vertical paddings on fixed-height atoms. When a node has \`autolayout.sizingVertical === "FIXED"\` AND \`paddingTop === paddingBottom\`, those two paddings are derived from the fixed height (centering content) — not independent design decisions. Skip both \`paddingTop\` and \`paddingBottom\` on these nodes. Horizontal paddings on the same node still need to be bound (they ARE design decisions). Use the screenshot to confirm: button/chip/pill/input shapes visually reading as fixed-height atoms get this exemption.
 
@@ -1194,8 +1195,12 @@ function lintSpacing(root, ds) {
   let totalChecked = 0;
   walkDesignerNodes(root, (node) => {
     if (!node.autolayout) return;
+    // COMPONENT_SET padding/spacing is canvas-only variant arrangement — not code output.
+    if (node.type === "COMPONENT_SET") return;
     const al = node.autolayout;
     const b = al.bound || {};
+    // "Auto" gap = SPACE_BETWEEN mode — algorithmically distributed, no fixed value to tokenize.
+    if (al.primaryAxisAlignItems === "SPACE_BETWEEN") return;
     // itemSpacing has no visible effect when there are fewer than 2
     // children — it's purely a gap between siblings. Don't flag it in
     // that case even if the value is hardcoded.
@@ -1233,6 +1238,8 @@ function lintPadding(root, ds) {
   let totalChecked = 0;
   walkDesignerNodes(root, (node) => {
     if (!node.autolayout) return;
+    // COMPONENT_SET padding is canvas-only variant arrangement — not code output.
+    if (node.type === "COMPONENT_SET") return;
     const al = node.autolayout;
     const b = al.bound || {};
     const skipVertical = al.sizingVertical === "FIXED" && al.paddingTop === al.paddingBottom;
@@ -1543,6 +1550,7 @@ function extractNode(node, depth = 0, maxDepth = 8) {
       paddingBottom: node.paddingBottom,
       paddingLeft: node.paddingLeft,
       itemSpacing: node.itemSpacing,
+      primaryAxisAlignItems: ("primaryAxisAlignItems" in node) ? node.primaryAxisAlignItems : null,
       bound: {
         paddingTop: boundVarId(node, "paddingTop"),
         paddingRight: boundVarId(node, "paddingRight"),

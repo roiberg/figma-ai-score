@@ -156,8 +156,9 @@ The \`suggestedTokens[i]\` object shape for dimensional suggestions:
 For every auto-layout node, check the four padding properties: \`paddingTop\`, \`paddingRight\`, \`paddingBottom\`, \`paddingLeft\`. Rules are **per axis** — each axis is evaluated independently.
 
 **Per-axis fixed-padding rule (takes priority over tokenization check):**
-- If \`autolayout.sizingVertical === "FIXED"\` and paddingTop or paddingBottom > 0 → those paddings have no visible effect in code output and should be zeroed. Flag them with \`zeroActions: [{ label: "Clear vertical padding", props: [...] }]\`. Do NOT suggest tokens for these sides.
-- If \`autolayout.sizingHorizontal === "FIXED"\` and paddingLeft or paddingRight > 0 → same treatment. Flag with \`zeroActions: [{ label: "Clear horizontal padding", props: [...] }]\`.
+- If \`autolayout.sizingVertical === "FIXED"\` **and** \`autolayout.hasVerticalFillChild\` is absent/false, and paddingTop or paddingBottom > 0 → those paddings have no visible effect in code output and should be zeroed. Flag them with \`zeroActions: [{ label: "Clear vertical padding", props: [...] }]\`. Do NOT suggest tokens for these sides.
+- If \`autolayout.sizingHorizontal === "FIXED"\` **and** \`autolayout.hasHorizontalFillChild\` is absent/false, and paddingLeft or paddingRight > 0 → same treatment. Flag with \`zeroActions: [{ label: "Clear horizontal padding", props: [...] }]\`.
+- **Skip zeroing if a fill-child exists on that axis** — a fill-child's size is constrained by the padding, so it IS meaningful and should instead be tokenized.
 - The two axes are independent: a node can have vertical=FIXED (zero action) and horizontal=HUG with un-tokenized padding (tokenize suggestion) at the same time.
 
 **Tokenization check (for non-fixed-axis paddings only):** A property fails when:
@@ -1408,12 +1409,15 @@ function lintPadding(root, ds) {
     if (node.type === "COMPONENT_SET") return;
     const al = node.autolayout;
     const b = al.bound || {};
-    const verticalFixed   = al.sizingVertical   === "FIXED";
-    const horizontalFixed = al.sizingHorizontal === "FIXED";
+    // An axis qualifies for zeroing only when the frame is FIXED on that axis
+    // AND no direct child fills that axis.  A fill-child relies on padding to
+    // determine its own size, so zeroing the padding would change the layout.
+    const verticalFixed   = al.sizingVertical   === "FIXED" && !al.hasVerticalFillChild;
+    const horizontalFixed = al.sizingHorizontal === "FIXED" && !al.hasHorizontalFillChild;
 
-    // Per-axis rule: if an axis is FIXED, its padding has no effect in code
-    // output and should be zeroed, NOT tokenized.  Collect the non-zero props
-    // on each fixed axis so we can offer a one-click clear action.
+    // Per-axis rule: if an axis is FIXED (and no fill-child depends on it),
+    // its padding has no effect in code output and should be zeroed, NOT tokenized.
+    // Collect the non-zero props on each fixed axis so we can offer a one-click clear action.
     const zeroVerticalProps = [];
     if (verticalFixed) {
       if (al.paddingTop    > 0) zeroVerticalProps.push("paddingTop");
@@ -1792,6 +1796,12 @@ function extractNode(node, depth = 0, maxDepth = 8) {
     const sh = ("layoutSizingHorizontal" in node) ? node.layoutSizingHorizontal : null;
     if (sv !== null) al.sizingVertical = sv;
     if (sh !== null) al.sizingHorizontal = sh;
+    // Flag if any direct child fills a given axis — padding on that axis
+    // constrains the fill-child's size, so it's NOT safe to zero it.
+    if (Array.isArray(node.children) && node.children.length) {
+      if (node.children.some(c => c.layoutSizingVertical   === "FILL")) al.hasVerticalFillChild   = true;
+      if (node.children.some(c => c.layoutSizingHorizontal === "FILL")) al.hasHorizontalFillChild = true;
+    }
     out.autolayout = al;
   }
 

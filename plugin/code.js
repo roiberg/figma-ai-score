@@ -36,7 +36,7 @@ const CANCEL_EXEMPT_METHODS = new Set([
 ]);
 const CANCEL_CLEARING_METHODS = new Set([
   // A new review cycle clears any stale cancel flag.
-  "announce_review_start", "begin_review"
+  "announce_review_start", "begin_review", "begin_and_scan"
 ]);
 
 // ── Full review protocol. Returned by get_preferences so any Claude ──
@@ -269,12 +269,11 @@ When AI tools translate Figma designs into code, the output quality depends heav
 0. Call announce_review_start IMMEDIATELY — as the very first tool, before anything else. It's a lightweight signal that makes the plugin UI show "Preparing review…" so the user sees feedback while you read these instructions. If you skip it, the UI looks frozen for ~10 seconds.
 1. Call get_preferences — read enabledRules and these instructions. IMPORTANT: Call this at the START of every review, even if you reviewed earlier in this conversation. The user may have changed toggles between runs. Never reuse cached preferences from a previous review. If the response includes a non-null \`designDoc\` field, read its \`content\` carefully — it contains the designer's own guidelines for their design system. Use it to inform token suggestions, naming conventions, and component expectations throughout the review.
 2. Call get_selection — read the selected frames. If capped is true, warn the user only the first 10 will be reviewed.
-3. Call begin_review with the selected node ids.
-4. For each selected frame, call request_scan with its nodeId.
-5. Walk the returned tree and apply ONLY the enabled rules listed below.
-6. Compute the score using proportional scoring (see below).
-7. Call submit_report with the completed report.
-8. If any tool returns { cancelled: true }, stop immediately and tell the user "Review cancelled."
+3. For each selected frame, call begin_and_scan with its nodeIds. This locks the plugin AND returns the scan tree, thumbnail, lintResults, and nodeStats in a single call — saving one round-trip.
+4. Walk the returned tree and apply ONLY the enabled rules listed below.
+5. Compute the score using proportional scoring (see below).
+6. Call submit_report with the completed report.
+7. If any tool returns { cancelled: true }, stop immediately and tell the user "Review cancelled."
 
 ## CRITICAL SCOPING RULES — READ BEFORE ANALYZING
 
@@ -295,6 +294,20 @@ Lists or scrollable content that extends beyond its container bounds is intentio
 
 ### Repeated component instances are GOOD
 The same component instance appearing multiple times (e.g., same icon in 12 button variants) is correct component reuse — exactly the pattern this review rewards. NEVER flag as duplication.
+
+## PRE-COMPUTED LINT RESULTS
+The scan response includes \`lintResults\` — deterministic offenders already computed server-side for all rules. Use them as follows:
+
+**Accept as final (no re-analysis needed):** colors, typography, spacing, padding, size, effects, naming (regex-based offenders only — defaults like "Frame 47", placeholders like "asdf").
+
+**Augment with vision:**
+- naming: keep pre-computed offenders, ADD semantic accuracy and typo offenders you find by looking at the thumbnail.
+- components: keep pre-computed check 1-3 offenders, ADD vision-check offenders (check 5).
+- autolayout: keep pre-computed presence-check offenders, ADD quality-check offenders (pathological structure, wrong direction) from the thumbnail.
+
+**Scoring:** For accept-as-final rules, use \`lintResults.<rule>._totalChecked\` and the offender count directly. For augmented rules, recompute: \`score = (totalChecked - newOffenderCount) / totalChecked * 100\`.
+
+Do NOT re-walk the tree for rules you accept as final — it wastes time and will produce identical results.
 
 ## ENABLED RULES
 ${disabledNote}
@@ -360,6 +373,8 @@ Name exact layers and node IDs. Don't say "some layers have bad names" — say "
 - **Detail strings must be short and plain (under ~10 words).** State the issue, don't explain the technical mechanism. Don't include hex values, node-property names like \`fillStyleId\`, or jargon like "bound variable". Don't give fix advice. Examples — good: "Fill does not use a token or style.", "Spacing not tokenized.", "Auto-layout missing on this frame.". Bad: "SOLID fill #FF0000 has no bound variable or style.", "boundVariable is null on the first paint."
 - After submitting the report, briefly summarize the results to the user in chat — mention the score, which rules passed/failed, and top issues.
 - Repeated use of the same component instance across variants is CORRECT and EXPECTED.
+- **Rule skipping:** Check \`nodeStats\` before analyzing. If \`nodeStats.text === 0\`, typography passes instantly. If \`nodeStats.autolayout === 0\`, spacing and padding pass instantly. If \`nodeStats.withEffects === 0\`, effects passes instantly. Skip the reasoning — just mark them passed with \`_totalChecked: 0\`.
+- **Color token suggestions:** If the frame has more than 10 color offenders, skip token suggestions entirely for colors — on wireframes with many unbound fills, suggestions aren't actionable.
 
 ## SCAN DATA FORMAT (sparse)
 The scan tree uses a sparse format to keep payloads small:
@@ -367,9 +382,11 @@ The scan tree uses a sparse format to keep payloads small:
 - **Absent \`sizeBound\`** means neither width nor height is bound to a variable.
 - **\`autolayout.bound\`** only lists properties that ARE bound. If a property is absent from \`bound\`, treat it as unbound (null).
 - **\`hasMultipleFills\` / \`hasMultipleStrokes\`** only appear when \`true\`.
+- **\`lintResults\`** contains pre-computed rule results (see PRE-COMPUTED LINT RESULTS above).
+- **\`nodeStats\`** contains node type counts for fast rule-skipping.
 
 ## GROUPING REPEATED OFFENDERS
-When 5 or more nodes share the exact same rule violation (same rule, same detail string), collapse them into a single offender entry instead of listing each separately. Use this shape:
+When 3 or more nodes share the exact same rule violation (same rule, same detail string), collapse them into a single offender entry instead of listing each separately. Use this shape:
 \`\`\`
 { nodeId: "<first node id>", name: "<first node name>", detail: "<shared detail>", groupedCount: <total count> }
 \`\`\`
@@ -888,6 +905,57 @@ async function handleRpc(method, params) {
       figma.ui.postMessage({ type: "unlocked" });
       return { ok: true };
     }
+    case "begin_and_scan": {
+      // Lock phase (mirrors begin_review)
+      const ids = Array.isArray(params.nodeIds) ? params.nodeIds : [];
+      cancelled = false;
+      locked = true;
+      lockedIds = ids;
+      const names = ids.map(id => {
+        const n = figma.getNodeById(id);
+        return n ? n.name : "(missing)";
+      });
+      figma.ui.postMessage({ type: "locked", data: { nodeIds: ids, names } });
+
+      // Scan phase (mirrors request_scan for the first node)
+      const scanNodeId = ids[0];
+      if (!scanNodeId) return { locked: true, ok: true, count: ids.length };
+      let node = null;
+      try {
+        if (typeof figma.getNodeByIdAsync === "function") node = await figma.getNodeByIdAsync(scanNodeId);
+      } catch (e) {}
+      if (!node) node = figma.getNodeById(scanNodeId);
+      if (!node) return { locked: true, error: "node not found: " + scanNodeId };
+      const tree = extractNode(node);
+      let thumbnail = null;
+      let thumbError = null;
+      try {
+        if (typeof node.exportAsync === "function") {
+          const bytes = await node.exportAsync({ format: "JPG", constraint: { type: "WIDTH", value: 384 } });
+          thumbnail = bytesToBase64(bytes);
+        }
+      } catch (e) { thumbError = String(e && e.message || e); }
+      let designSystem = null;
+      try { designSystem = await getDesignSystem(); } catch (e) {}
+      if (designSystem && Array.isArray(designSystem.variables) && designSystem.variables.length) {
+        const frameHexes = extractFrameHexColors(tree);
+        designSystem.variables = designSystem.variables.filter(v => v.color && frameHexes.has(v.color));
+      }
+      let lintResults = null;
+      try { lintResults = lintFrame(tree, prefs, designSystem, { keepInternalFields: true }); } catch (e) {}
+      return {
+        locked: true,
+        fileName: figma.root.name,
+        pageName: figma.currentPage.name,
+        root: { id: node.id, name: node.name, type: node.type },
+        tree,
+        thumbnail,
+        thumbError,
+        designSystem,
+        lintResults,
+        nodeStats: computeNodeStats(tree),
+      };
+    }
     case "request_scan": {
       // Resolve the node, preferring async (works in dynamic-page mode).
       let node = null;
@@ -937,6 +1005,16 @@ async function handleRpc(method, params) {
       try { designSystem = await getDesignSystem(); } catch (e) {
         console.warn("[figma-ai-score] getDesignSystem failed:", e && e.message);
       }
+      if (designSystem && Array.isArray(designSystem.variables) && designSystem.variables.length) {
+        const frameHexes = extractFrameHexColors(tree);
+        designSystem.variables = designSystem.variables.filter(v => v.color && frameHexes.has(v.color));
+      }
+      let lintResults = null;
+      try {
+        lintResults = lintFrame(tree, prefs, designSystem, { keepInternalFields: true });
+      } catch (e) {
+        console.warn("[figma-ai-score] lintFrame in request_scan failed:", e && e.message);
+      }
       return {
         fileName: figma.root.name,
         pageName: figma.currentPage.name,
@@ -944,7 +1022,9 @@ async function handleRpc(method, params) {
         tree,
         thumbnail,
         thumbError,
-        designSystem
+        designSystem,
+        lintResults,
+        nodeStats: computeNodeStats(tree),
       };
     }
     case "highlight_nodes": {
@@ -1014,6 +1094,36 @@ function countDescendants(root) {
   let c = 0;
   walkDesignerNodes(root, (_n, isRoot) => { if (!isRoot) c++; });
   return c;
+}
+
+// Returns the Set of hex color strings used in fills/strokes across the tree.
+// Used to pre-filter DS color variables — safe because color suggestions require
+// exact hex matches only (no nearest-neighbor needed).
+function extractFrameHexColors(tree) {
+  const hexes = new Set();
+  walkDesignerNodes(tree, (node) => {
+    for (const f of (node.fills || [])) {
+      if (f.type === "SOLID" && f.visible !== false && f.color) hexes.add(f.color);
+    }
+    for (const s of (node.strokes || [])) {
+      if (s.type === "SOLID" && s.visible !== false && s.color) hexes.add(s.color);
+    }
+  });
+  return hexes;
+}
+
+function computeNodeStats(tree) {
+  const stats = { total: 0, text: 0, instance: 0, autolayout: 0, withFills: 0, withStrokes: 0, withEffects: 0 };
+  walkDesignerNodes(tree, (node) => {
+    stats.total++;
+    if (node.type === "TEXT") stats.text++;
+    if (node.isInstance) stats.instance++;
+    if (node.autolayout) stats.autolayout++;
+    if (node.fills && node.fills.length > 0) stats.withFills++;
+    if (node.strokes && node.strokes.length > 0) stats.withStrokes++;
+    if (node.effects && node.effects.length > 0) stats.withEffects++;
+  });
+  return stats;
 }
 
 // ── components rule (4 checks) ──
@@ -1479,7 +1589,7 @@ function lintNaming(root) {
 }
 
 // ── orchestrator ──
-function lintFrame(tree, enabledRules, ds) {
+function lintFrame(tree, enabledRules, ds, { keepInternalFields = false } = {}) {
   const breakdown = {};
   if (enabledRules.naming) breakdown.naming = lintNaming(tree);
   if (enabledRules.components) breakdown.components = lintComponents(tree);
@@ -1505,10 +1615,14 @@ function lintFrame(tree, enabledRules, ds) {
   const finalScore = ruleScores.length === 0 ? 100 : Math.round(ruleScores.reduce((a, b) => a + b, 0) / ruleScores.length);
   const perfect = Object.values(breakdown).every(r => r.offenders.length === 0);
 
-  // Strip internal fields
+  // Strip internal fields (unless caller wants them for pre-computed results)
   const cleanBreakdown = {};
   for (const [k, v] of Object.entries(breakdown)) {
-    cleanBreakdown[k] = { enabled: v.enabled, passed: v.passed, offenders: v.offenders };
+    if (keepInternalFields) {
+      cleanBreakdown[k] = { enabled: v.enabled, passed: v.passed, offenders: v.offenders, _totalChecked: v._totalChecked, _offenderCount: v._offenderCount };
+    } else {
+      cleanBreakdown[k] = { enabled: v.enabled, passed: v.passed, offenders: v.offenders };
+    }
   }
 
   return { score: finalScore, perfect, breakdown: cleanBreakdown, issues: topIssues.slice(0, 20) };

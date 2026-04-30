@@ -31,6 +31,7 @@ const SUBCOMMAND_TO_METHOD = {
   "get-preferences":       "get_preferences",
   "get-selection":         "get_selection",
   "begin-review":          "begin_review",
+  "begin-and-scan":        "begin_and_scan",
   "request-scan":          "request_scan",
   "highlight-nodes":       "highlight_nodes",
   "submit-report":         "submit_report",
@@ -102,6 +103,8 @@ Subcommands (all return JSON on stdout):
   get-selection                           Returns the live selection from the plugin.
   begin-review --node-ids id1,id2,...     Lock the plugin into review state.
                   | --node-ids-file <path|->
+  begin-and-scan --node-ids id1,id2,...   Lock + scan in one call (saves a round-trip).
+                  | --node-ids-file <path|->
   request-scan --node-id <id>             Returns the scan tree + a thumbnailPath (PNG).
   highlight-nodes --node-ids id1,id2,...  Flash the given nodes in Figma.
   submit-report --report-file <path|->    Deliver the final report (use - for stdin).
@@ -137,6 +140,7 @@ or '--help' to succeed.
 async function buildParams(subcommand, flags) {
   switch (subcommand) {
     case "begin-review":
+    case "begin-and-scan":
     case "highlight-nodes": {
       let nodeIds = [];
       if (typeof flags["node-ids"] === "string") {
@@ -410,7 +414,7 @@ async function main() {
   }
   bridge.close();
 
-  if (subcommand === "request-scan") {
+  if (subcommand === "request-scan" || subcommand === "begin-and-scan") {
     result = unpackThumbnail(result, params);
   }
 

@@ -2676,14 +2676,10 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
       function maybeShowConnectSuccess() {
         // Only relevant in AI mode (Simple mode runs deterministic checks
         // without an AI tool, so the "connected" card is irrelevant there).
-        // Fires on either trigger that lands us in (AI + connected):
-        //   - first WS connect while already in AI mode
-        //   - switching to AI mode while already connected
         if (connectSuccessShown) return;
         if (connectSuccessDismissed) return;
         if (connectSuccessSuppressedForever) return;
         if ((window.__currentMode || "simple") !== "ai") return;
-        if (!window.__isConnected) return;
         if (!connectSuccessBanner) return;
         connectSuccessBanner.style.display = "block";
         connectSuccessShown = true;

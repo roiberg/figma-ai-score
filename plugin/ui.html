@@ -993,8 +993,17 @@
         padding: 6px 10px;
         border-bottom: 1px solid var(--border);
         font-size: 11px;
+        overflow: hidden;
+        max-height: 300px;
+        transition: max-height 0.22s ease, opacity 0.18s ease, padding 0.22s ease;
       }
       .offender-row:last-child { border-bottom: none; }
+      .offender-row.removing {
+        max-height: 0;
+        opacity: 0;
+        padding-top: 0;
+        padding-bottom: 0;
+      }
       .offender-row .offender-body {
         flex: 1;
         min-width: 0;
@@ -3309,6 +3318,60 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         item.classList.toggle("is-open");
       });
 
+      // Surgically remove one offender row and patch the affected rule chip +
+      // score ring in-place, avoiding a full re-render flash.
+      const RING_CIRCUMFERENCE = 263.89;
+      function patchOffenderRemoved(nodeId, rule, frame, updatedRule) {
+        const frameEl = reportEl.querySelector(`.frame-report[data-frame-node="${CSS.escape(frame.nodeId)}"]`);
+        if (!frameEl) { renderReport(lastReport); return; }
+
+        const row = frameEl.querySelector(`.offender-row[data-offender-node="${CSS.escape(nodeId)}"][data-offender-rule="${CSS.escape(rule)}"]`);
+
+        const applyPatch = () => {
+          // Update rule chip (pass/fail label + clickability)
+          const ruleItem = frameEl.querySelector(`.breakdown-item[data-rule="${CSS.escape(rule)}"]`);
+          if (ruleItem) {
+            const resultEl = ruleItem.querySelector(".result");
+            if (updatedRule.passed) {
+              if (resultEl) { resultEl.textContent = "Pass"; resultEl.className = "result pass"; }
+              const rowEl = ruleItem.querySelector(".breakdown-row");
+              if (rowEl) rowEl.classList.remove("clickable");
+              const chevron = rowEl && rowEl.querySelector(".row-chevron");
+              if (chevron) chevron.remove();
+              ruleItem.classList.remove("is-open");
+              const offendersEl = ruleItem.querySelector(".breakdown-offenders");
+              if (offendersEl) offendersEl.remove();
+            } else {
+              const count = updatedRule.offenders.length;
+              if (resultEl) resultEl.textContent = count + " issue" + (count === 1 ? "" : "s");
+            }
+          }
+          // Update score ring + number
+          const arc = frameEl.querySelector(".score-ring-progress");
+          const scoreEl = frameEl.querySelector(".score-big");
+          const circleEl = frameEl.querySelector(".score-circle");
+          const perfectBadge = frameEl.querySelector(".perfect-badge");
+          const pct = Math.max(0, Math.min(100, frame.score)) / 100;
+          if (arc) arc.style.strokeDashoffset = (RING_CIRCUMFERENCE * (1 - pct)).toFixed(2);
+          if (scoreEl) scoreEl.textContent = Math.round(frame.score);
+          if (circleEl) circleEl.className = "score-circle " + scoreClass(frame.score, frame.perfect);
+          // Show/hide perfect badge
+          const frameNameEl = frameEl.querySelector(".frame-name");
+          if (frame.perfect && frameNameEl && !perfectBadge) {
+            frameNameEl.insertAdjacentHTML("afterend", '<span class="perfect-badge">Perfect</span>');
+          } else if (!frame.perfect && perfectBadge) {
+            perfectBadge.remove();
+          }
+        };
+
+        if (row) {
+          row.classList.add("removing");
+          setTimeout(() => { row.remove(); applyPatch(); }, 230);
+        } else {
+          applyPatch();
+        }
+      }
+
       // When a rename succeeds, remove the naming offender + bump the score.
       // We can't perfectly recompute (we don't have totalChecked per rule),
       // so we estimate: every fixed offender nudges the score up by a small
@@ -3347,8 +3410,8 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
           } else {
             frame.score = Math.max(current, Math.min(100, next));
           }
+          patchOffenderRemoved(nodeId, "naming", frame, naming);
         }
-        renderReport(lastReport);
       }
 
       // Called when a color-token binding succeeded. Mirrors handleRenameDone
@@ -3399,8 +3462,8 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
           frame.perfect = rules.every(r => r.passed);
           if (frame.perfect) frame.score = 100;
           else frame.score = Math.max(current, Math.min(100, next));
+          patchOffenderRemoved(nodeId, removedFromRuleName, frame, removedFromRule);
         }
-        renderReport(lastReport);
       }
 
       // Listen for rename-done / rename-failed / apply-token-* from the sandbox

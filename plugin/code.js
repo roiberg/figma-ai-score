@@ -151,11 +151,11 @@ The \`suggestedTokens[i]\` object shape for dimensional suggestions:
 \`\`\``,
 
   padding: `### padding
-For every auto-layout node, check the four padding properties: \`paddingTop\`, \`paddingRight\`, \`paddingBottom\`, \`paddingLeft\`. A property is an offender when:
+For every auto-layout node, check the four padding properties: \`paddingTop\`, \`paddingRight\`, \`paddingBottom\`, \`paddingLeft\`. A property fails when:
   1. Its numeric value is non-zero.
   2. Its corresponding \`autolayout.bound.<prop>\` is null.
 
-Each failing property is its own offender entry (so a node with three unbound paddings produces three offender rows).
+**One offender per node, not per property.** If multiple sides fail, combine them into a single offender with a detail like "top, bottom and left padding not tokenized." Do NOT produce separate rows for each side.
 
 Skip COMPONENT_SET nodes entirely — their padding is canvas-only variant arrangement, not code output. Walker still doesn't recurse into INSTANCE children, and user-ignored nodes are skipped.
 
@@ -163,14 +163,14 @@ EXCEPTION — vertical paddings on fixed-height atoms. When a node has \`autolay
 
 #### Token suggestions for padding offenders
 
-Use \`designSystem.numberVariables\`. For each offender:
+Use \`designSystem.numberVariables\`. For each failing side on the node, attempt a suggestion:
 - **Filter to padding-appropriate tokens.** Names/collections containing "padding" or "pad". Reject obvious mismatches.
 - **Exact value match → 1 candidate.**
 - **No exact match → 2 candidates (above + below).** Highest token below and lowest above the offender's value. Reason for each explains the gap.
 - **Multiple exact matches → semantic preferred over primitive.**
-- **No appropriate tokens at all** → empty array.
+- **No appropriate tokens at all** → omit that side's entry.
 
-\`suggestedTokens[i].slot\` is the property name itself: \`"paddingTop"\` | \`"paddingRight"\` | \`"paddingBottom"\` | \`"paddingLeft"\`.`,
+\`suggestedTokens\` is an array with one entry per failing side; \`suggestedTokens[i].slot\` is the property name: \`"paddingTop"\` | \`"paddingRight"\` | \`"paddingBottom"\` | \`"paddingLeft"\`.`,
 
   size: `### size
 For every eligible node (COMPONENT, COMPONENT_SET, INSTANCE), check whether its width and height are using a size token:
@@ -1250,23 +1250,27 @@ function lintPadding(root, ds) {
     const failedProps = [];
     for (const p of props) {
       if (skipVertical && (p === "paddingTop" || p === "paddingBottom")) continue;
-      totalChecked++;
       const val = al[p];
       if (val === 0 || val === null || val === undefined) continue;
       if (!b[p]) failedProps.push(p);
     }
+    // Count one check per node (not per prop) and one offender per node.
+    totalChecked++;
     if (!failedProps.length) return;
-    // One offender per node per failed property.
-    for (const p of failedProps) {
-      const o = {
-        nodeId: node.id,
-        name: node.name,
-        detail: `${p} ${al[p]}px is not using a padding token.`
-      };
-      const sug = buildDimensionalSuggestion(ds, "padding", p, al[p]);
-      if (sug) o.suggestedTokens = [sug];
-      offenders.push(o);
-    }
+    // Build "top, bottom and left" label from the failing prop names.
+    const sides = failedProps.map(p => p.replace("padding", "").toLowerCase());
+    const sideList = sides.length === 1
+      ? sides[0]
+      : sides.slice(0, -1).join(", ") + " and " + sides[sides.length - 1];
+    const o = {
+      nodeId: node.id,
+      name: node.name,
+      detail: `${sideList} padding not tokenized.`
+    };
+    // One suggestion per failing prop, each with its own slot.
+    const sugs = failedProps.map(p => buildDimensionalSuggestion(ds, "padding", p, al[p])).filter(Boolean);
+    if (sugs.length) o.suggestedTokens = sugs;
+    offenders.push(o);
   });
   return {
     enabled: true,

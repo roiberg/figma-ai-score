@@ -47,224 +47,54 @@ const CANCEL_CLEARING_METHODS = new Set([
 
 const RULE_DESCRIPTIONS = {
   components: `### components (smart)
-A design scores well when its structure decomposes into reusable components the way a developer would decompose it for code. Run the FOUR mechanical checks below AND ALSO the vision-based check below. A node that fails any check is an offender. Do not recurse into INSTANCE children (library internals are out of scope) and do not evaluate nodes the user has explicitly marked ignored (\`node.ignored === true\`). The root frame itself is exempt from THIS rule's component-orphan check (it's the canvas, not a component candidate). Other rules evaluate the root.
+Pre-computed offenders cover Check 1 (orphan raw layers), Check 2 (over-instancing), Check 3 (repeated siblings) — pass through unchanged. ADD these from the thumbnail:
 
-**Check 1 — Orphan raw layers.**
-Every descendant must be a COMPONENT, COMPONENT_SET, or INSTANCE, OR have an ancestor (below the root) that is one of those types. A raw FRAME/GROUP/TEXT with no component-or-instance ancestor is an offender.
-Exception: if the root frame itself is a COMPONENT or COMPONENT_SET, its contents are already inside a component — skip checks 1 and 4 entirely for this frame. Atoms like TEXT and shapes are expected to live directly inside a primitive component (tooltip, badge, chip, etc.).
+**Check 4 — Semantic-name structures.**
+A raw FRAME/GROUP (NOT INSTANCE/COMPONENT) whose name (case-insensitive, partial match) contains any of: \`nav\`, \`navigation\`, \`header\`, \`footer\`, \`action bar\`, \`app bar\`, \`toolbar\`, \`tab bar\`, \`bottom sheet\`, \`sidebar\`, \`dialog\`, \`modal\`, \`card\`, \`list item\`, \`row\`, \`hero\`, \`banner\`. Skip Check 4 entirely if the root frame is itself a COMPONENT or COMPONENT_SET.
 
-**Check 2 — Over-instancing (the "giant instance" problem).**
-If the root has only 1 or 2 direct children and ONE of them is an INSTANCE whose subtree contains more than 80% of the root's total descendant count, flag that INSTANCE. Signal: the entire page is wrapped in a single bulky instance instead of being decomposed into meaningful components.
+**Vision check — discrete UI regions.**
+Enumerate every distinct visual region in the thumbnail (banners, search bars, filter rows, section containers, CTA blocks, list rows, cards, toolbars, etc.). For each, verify there's a corresponding INSTANCE node. If a region maps to a raw FRAME/GROUP, flag that node — INDEPENDENT of Check 1. An orphan parent does NOT absolve its visually-component-worthy children; do not skip children of flagged parents.
 
-**Check 3 — Repeated siblings that should share a component.**
-For each parent node, compare its direct children's structure signatures (type + immediate children types). If 3 or more siblings share the same signature AND they are NOT all instances of the same mainComponentId, flag each repeated sibling (2nd through Nth). Signal: these look like list items; extract a shared component.
-
-**Check 4 — Semantic names that should be components. (AI mode only — intentionally removed from simple mode.)**
-Simple mode can't distinguish a deliberate naming choice from a real structural problem without seeing the design, so this check only runs here where the screenshot is available.
-A layer whose name (case-insensitive, partial-match) contains any of: \`nav\`, \`navigation\`, \`header\`, \`footer\`, \`action bar\`, \`app bar\`, \`toolbar\`, \`tab bar\`, \`bottom sheet\`, \`sidebar\`, \`dialog\`, \`modal\`, \`card\`, \`list item\`, \`row\`, \`hero\`, \`banner\` — when it is a raw FRAME/GROUP (NOT an INSTANCE or COMPONENT), flag it.
-
-**Vision check — structural expectations from the thumbnail.**
-Look at the thumbnail of the frame. Enumerate EVERY distinct visual region that reads as a discrete UI element on its own (banners, search bars, filter rows, section containers, CTA blocks, list rows, cards, toolbars, etc.). Then cross-reference with the tree: for each such visual region, verify there's a corresponding INSTANCE node. If the region maps to a raw FRAME/GROUP instead, flag that node.
-
-IMPORTANT — this check is INDEPENDENT of Check 1 (orphan raw layers). Even if the region's parent frame is already flagged as an orphan and will be rolled-up fixed, each visually-distinct child that would be its own component ALSO gets flagged here. A parent being raw does not absolve its children from being called out as component-worthy. Do NOT skim or skip children just because their parent has been flagged.
-
-Be specific in the detail: reference what you see in the screenshot AND the node that should have been a component.
-
-**Counting & scoring:**
-- totalChecked = all designer-owned descendants that pass the scoping filters.
-- offenderCount = number of UNIQUE nodes that failed at least one check.
-- For each offender, combine failure reasons in the detail string.`,
+Be specific in the detail: reference what you see in the screenshot AND the node that should have been a component.`,
 
   colors: `### colors
-Every visible SOLID fill or stroke must have either a boundVariable (non-null) OR a fillStyleId/strokeStyleId (non-null). A raw hex color with no binding is an offender. Only SOLID fills/strokes are checked — IMAGE, VIDEO, and gradient fills are never flagged (they don't carry color tokens). Skip fills/strokes where \`visible\` is false. Don't recurse into INSTANCE children (library internals — designer can't fix from the instance side). Don't evaluate nodes the user marked ignored (\`node.ignored === true\`).
-
-Skip COMPONENT_SET nodes entirely for color checks — the container never renders in code, and its purple dotted outline is a Figma canvas affordance, not a real style.
-
-#### Token suggestions (attach \`suggestedTokens\` array to color offenders)
-
-For every color offender, attempt to suggest a specific token from the DS catalog (provided in the scan response as \`designSystem: { variables: [...], numberVariables: [...], paintStyles: [...] }\`). Follow these rules:
-
-1. **Skip the suggestion entirely if the node has \`hasMultipleFills: true\` (for fill offenders) or \`hasMultipleStrokes: true\` (for stroke offenders).** Multi-paint nodes have ambiguous intent; don't guess.
-2. **Only suggest tokens whose \`color\` exactly matches the offender's hex value (including alpha).** No "close enough" matching for colors — colors are unlike dimensional tokens; non-exact color matches are almost never what the designer wants.
-3. **If zero tokens match**: no suggestion. Leave the offender without \`suggestedTokens\`.
-4. **If exactly one token matches**: suggest it as a 1-element array. The \`reason\` is "Exact color match."
-5. **If multiple tokens match**: pick the MOST appropriate one based on the screenshot and the context of this specific use. Consider the layer's role (button background, surface, text color, etc.) and match it to the token's semantic name.
-6. **Prefer semantic tokens over primitives when values are equal.** Primitives (e.g. \`colors/blue-500\`, \`primitives/neutral/100\`) are scale-style raw values; semantic tokens (e.g. \`colors/surface/primary\`, \`colors/brand/accent\`) encode intent. Variables marked \`isPrimitive: true\` in the catalog are primitives. When the semantic choice differs in value from what the designer drew, still prefer the closest-semantic-match if the value is equal; NEVER override an exact-value match to pick a semantic one with a different value.
-7. **Prefer variables over paint styles** when both match — variables are the modern system.
-
-**\`reason\` MUST be a single short sentence — 8 to 15 words.** State two things: (1) the color matches, (2) the token's role fits the layer's purpose. NEVER mention rejected tokens, NEVER quote competing token names, NEVER explain methodology ("chosen over…", "because semantic tokens are preferred…", "encodes intent"). Good:
-- "Exact color match; surface role fits the canvas background."
-- "Same color, and the button-background role fits this CTA."
-- "Same color; semantic token preferred over the primitive scale value."
-- "Exact match for the page surface."
-
-Bad — these are too long or mention rejected tokens, do NOT write reasons in this style:
-- "Canvas background role — chosen over other exact-value #ffffff tokens (on-primary, on-secondary, surface-container-*) because 'Surface' encodes the page/canvas intent."
-- "Chosen over colors/neutral/100 (same value) because semantic tokens are preferred over primitives."
-
-Also bad — too terse:
-- "Same color; surface role." (under 6 words → fragmented; write a full short sentence instead)
-
-Color offenders always get an array of length 0 or 1 in \`suggestedTokens\`. Multiple-candidate suggestions (above + below) are reserved for dimensional rules.
-
-The \`suggestedTokens[i]\` object shape for color suggestions:
-\`\`\`
-{
-  kind: "variable" | "style",  // which system the token belongs to
-  id: string,                  // the variable or style id from the catalog
-  name: string,                // display name (e.g. "colors/brand/primary")
-  slot: "fill" | "stroke",     // which paint slot it binds to on the node
-  reason: string               // one-sentence "why"
-  // value field not applicable for color suggestions
-}
-\`\`\``,
+Pre-computed (offenders + \`suggestedTokens\`). Pass through unchanged.`,
 
   typography: `### typography
-Every TEXT node must have textStyleId set (non-null), OR have ALL of boundTypography.fontSize, boundTypography.fontFamily, boundTypography.fontWeight, and boundTypography.lineHeight bound (non-null). If neither condition is met, the text node is an offender. Skip TEXT nodes inside INSTANCE children.`,
+Pre-computed. Pass through unchanged.`,
 
   spacing: `### spacing
-For every auto-layout node (\`node.autolayout\` is truthy), check \`itemSpacing\` — the gap between siblings. A node is an offender when ALL of these are true:
-  1. \`itemSpacing\` is a non-zero number (zero is always fine).
-  2. \`autolayout.bound.itemSpacing\` is absent or null (no variable bound).
-  3. The node has 2 or more children (with 0 or 1 children, itemSpacing has no visible effect — skip).
-  4. \`autolayout.primaryAxisAlignItems\` is NOT \`"SPACE_BETWEEN"\` — that is Figma's "Auto" gap mode where spacing is distributed algorithmically with no fixed tokenizable value.
-
-Skip COMPONENT_SET nodes entirely — their spacing is canvas-only variant arrangement, not code output. The walker still doesn't recurse into INSTANCE *children* (library internals — designer can't fix from instance side) and skips nodes the user has explicitly marked ignored (\`node.ignored === true\`).
-
-#### Token suggestions for spacing offenders
-
-Use the FLOAT-typed entries in \`designSystem.numberVariables\`. For each offender:
-- **Filter to spacing-appropriate tokens.** Look at variable name + collection name; prefer ones with "spacing", "gap", "space" in either. Reject tokens whose names hint at unrelated dimensions (font-size, line-height, border-radius, opacity).
-- **Exact value match → 1 candidate.** Reason: "Exact value match."
-- **No exact match → 2 candidates (above + below).** Find the highest token \`value < offender\` and the lowest \`value > offender\`. Push both. Reason: short — name the relation, e.g. "12px (one step down)" or "16px (one step up)". Under 8 words.
-- **Tie-breakers when multiple exact matches**: prefer semantic over primitive. Same heuristic as colors.
-- **No appropriate tokens at all** → empty \`suggestedTokens\` array.
-
-The \`suggestedTokens[i]\` object shape for dimensional suggestions:
-\`\`\`
-{
-  kind: "variable",            // dimensional suggestions are always variables
-  id: string,                  // variable id from the catalog
-  name: string,                // display name (e.g. "spacing/medium")
-  value: number,               // the token's actual px value — ALWAYS include this
-  slot: "itemSpacing",         // for the spacing rule, always this
-  reason: string               // one-sentence "why"
-}
-\`\`\``,
+Pre-computed (offenders + \`suggestedTokens\`). Pass through unchanged.`,
 
   padding: `### padding
-For every auto-layout node, check the four padding properties: \`paddingTop\`, \`paddingRight\`, \`paddingBottom\`, \`paddingLeft\`. Rules are **per axis** — each axis is evaluated independently.
-
-**Per-axis fixed-padding rule (takes priority over tokenization check):**
-Three conditions must ALL hold for a zero-action to be offered on an axis:
-1. \`autolayout.sizingVertical/Horizontal === "FIXED"\` (axis is fixed size)
-2. \`autolayout.hasVerticalFillChild / hasHorizontalFillChild\` is absent/false (no child fills that axis — a fill-child's size is constrained by padding, making it meaningful)
-3. Gravity (alignment) confirms the padding has no visual effect — **isZeroSafe(paddingMin, paddingMax, gravity)**:
-   - Only MIN-side padding non-zero → gravity must be **MAX** (children pulled to opposite side)
-   - Only MAX-side padding non-zero → gravity must be **MIN**
-   - Both paddings non-zero and equal → gravity must be **CENTER** (zeroing both preserves the center)
-   - Any other combo → NOT safe; fall back to normal tokenization check
-
-Where to find gravity:
-- VERTICAL layout: \`primaryAxisAlignItems\` = vertical axis, \`counterAxisAlignItems\` = horizontal axis
-- HORIZONTAL layout: \`primaryAxisAlignItems\` = horizontal axis, \`counterAxisAlignItems\` = vertical axis
-
-When all three conditions hold, flag with \`zeroActions: [{ label: "Clear vertical/horizontal padding", props: [...] }]\` and do NOT suggest tokens for those sides.
-If conditions 1+2 hold but 3 fails, the padding visually positions children — include those props in the normal tokenization check.
-The two axes are evaluated independently.
-
-**Tokenization check (for non-fixed-axis paddings only):** A property fails when:
-  1. Its numeric value is non-zero.
-  2. Its corresponding \`autolayout.bound.<prop>\` is null.
-  3. Its axis is NOT fixed (skip if the axis is FIXED — covered by the zero-action rule above).
-
-**One offender per node, not per property.** Combine all issues into a single offender. Detail format: "top/bottom padding ignored (fixed height). Left padding not tokenized." (adapt as needed).
-
-Skip COMPONENT_SET nodes entirely — their padding is canvas-only variant arrangement, not code output. Walker still doesn't recurse into INSTANCE children, and user-ignored nodes are skipped.
-
-#### Token suggestions for padding offenders
-
-Use \`designSystem.numberVariables\`. For each failing non-fixed-axis side on the node, attempt a suggestion:
-- **Filter to padding-appropriate tokens.** Names/collections containing "padding" or "pad". Reject obvious mismatches.
-- **Exact value match → 1 candidate.**
-- **No exact match → 2 candidates (above + below).** Highest token below and lowest above the offender's value. Reason for each explains the gap.
-- **Multiple exact matches → semantic preferred over primitive.**
-- **No appropriate tokens at all** → omit that side's entry.
-
-\`suggestedTokens\` is an array with one entry per failing non-fixed side; \`suggestedTokens[i].slot\` is the property name: \`"paddingTop"\` | \`"paddingRight"\` | \`"paddingBottom"\` | \`"paddingLeft"\`.`,
+Pre-computed. Each offender may carry \`suggestedTokens\` (un-tokenized padding) and/or \`zeroActions\` (fixed-axis padding with no visual effect). Pass both through unchanged.`,
 
   size: `### size
-For every eligible node (COMPONENT, COMPONENT_SET, INSTANCE), check whether its width and height are using a size token:
-- **If the node has auto-layout**: check \`sizingHorizontal === "FIXED"\` (flag width) and \`sizingVertical === "FIXED"\` (flag height). Each FIXED axis whose corresponding \`sizeBound.width\` / \`sizeBound.height\` is null is an offender.
-- **If the node is non-autolayout**: width and height are intrinsically fixed (no hug/fill). Treat both as FIXED — flag both if not bound.
-
-Each failing axis is its own offender (so a non-autolayout component with neither width nor height bound produces two offenders).
-
-ELIGIBILITY by type: ONLY COMPONENT, COMPONENT_SET, INSTANCE are evaluated. Plain FRAME and GROUP are NOT evaluated — they're typically layout scaffolding (root canvases like an iPhone frame, section wrappers, positioning shells) whose dimensions come from device or parent context, not from a token a designer should pick. Components and instances are the atoms (buttons, chips, avatars, icons, inputs) where size tokens earn their keep. Other types (TEXT, RECTANGLE, ELLIPSE, VECTOR, etc.) are shape primitives whose dimensions come from their geometry.
-
-There is **no fixed-height-atom exemption for size**. A button at fixed height 39px is exactly the kind of node that should be tokenized to a "button-height" or "size-md" token. Flag it.
-
-The walker doesn't recurse into INSTANCE children (library internals), and user-ignored nodes (\`node.ignored === true\`) are skipped.
-
-#### Token suggestions for size offenders
-
-Use \`designSystem.numberVariables\`. For each offender:
-- **Filter to size-appropriate tokens.** Names/collections containing "size", "height", "width", "dim". Explicitly EXCLUDE tokens whose names hint at typography (font-size, line-height, letter-spacing) or radius (border-radius, radius).
-- **Exact value match → 1 candidate.**
-- **No exact match → 2 candidates (above + below).**
-- **Multiple exact matches → semantic preferred over primitive.**
-- **No appropriate tokens** → empty array.
-
-\`suggestedTokens[i].slot\` is \`"width"\` or \`"height"\`.`,
+Pre-computed (offenders + \`suggestedTokens\`). Pass through unchanged.`,
 
   autolayout: `### auto layout
-Every eligible container node should be using auto-layout. Eligible types: FRAME, GROUP, COMPONENT, COMPONENT_SET, INSTANCE. A container without auto-layout is an offender — the layout becomes brittle in code-generation contexts because positions are absolute, and changes to one element don't ripple through siblings.
+Pre-computed offenders cover the boolean "is this node auto-layout?" check. ADD from the thumbnail:
+- **Pathological structure** — auto-layout that's technically present but useless (e.g. a single wrapper with 50 absolutely-positioned children).
+- **Wrong direction** — HORIZONTAL where the layout reads VERTICAL (or vice versa); alignment that would break in code-gen; mismatched paddings between siblings that look broken.
 
-Skip COMPONENT_SET nodes entirely — their layout mode is canvas-only variant arrangement, not code output. Skips:
-- **Root frame** is exempt. Device canvases (iPhone, desktop, tablet artboards) are device-shaped containers, not layout decisions — their children carry the layout. Recurse into the root's children normally.
-- Nodes the user has explicitly marked ignored (\`node.ignored === true\`).
-- INSTANCE *children* (library internals — designer can't change them on the instance side). The instance node itself IS evaluated.
-- Ineligible types (TEXT, RECTANGLE, ELLIPSE, VECTOR, etc.) — they can't be auto-layout by Figma's data model.
+Decorative compositions (illustrations, vector groups not laid out) can be reasonable as non-autolayout — use judgment.
 
-#### Smart (vision) check on top of the deterministic baseline
-
-In addition to the boolean "is this node auto-layout?" check, use the screenshot to evaluate quality:
-- **Pathologically structured auto-layout** that's technically present but useless — e.g. a single auto-layout wrapper containing 50 absolutely-positioned children. Flag with detail explaining the problem.
-- **Auto-layout that's clearly wrong for the visual** — wrong direction (HORIZONTAL where the layout reads VERTICAL), incorrect alignment that would break in code-gen, mismatched paddings between siblings that look broken.
-- **Decorative compositions** (illustrations, vector groups that aren't laid out) can be reasonable as non-autolayout if the visual structure clearly isn't grid-like. Use judgment: if this group's children would always render as a unit (an icon, a graphic), flag is unnecessary.
-
-Detail format for offenders:
-- "<type> isn't using auto layout." — for the deterministic case.
-- "<type> uses auto layout but [vision-derived problem description]." — for the smart case.
-
-No token suggestions for autolayout offenders — this rule isn't about token bindings.`,
+Detail format:
+- "<type> isn't using auto layout." — deterministic case.
+- "<type> uses auto layout but [vision-derived problem]." — vision case.`,
 
   effects: `### effects
-Every visible effect (in the effects array) must come from an effectStyleId (non-null on the node). If a node has visible effects but no effectStyleId, it is an offender. Don't recurse into INSTANCE children (library internals); don't evaluate user-ignored nodes. Skip COMPONENT_SET nodes entirely — canvas-only variant containers that don't render in code.`,
+Pre-computed. Pass through unchanged.`,
 
   naming: `### naming (smart)
-Every designer-owned node should have a semantic, descriptive name that accurately reflects what the layer is. Run the two checks below on every designer-owned node, INCLUDING the root frame (a selected frame named "Frame 1" is itself a naming problem). Don't recurse into INSTANCE children (library internals). Don't evaluate user-ignored nodes (\`node.ignored === true\`).
+Pre-computed offenders cover Check 1 (regex defaults + placeholders). ADD from the thumbnail (Check 2 — semantic accuracy):
+- **Misleading**: name suggests one thing but the content is different (a "Button" that's plain text, an "Avatar" with a plain rectangle).
+- **Meaningless on purposeful layers**: "Container 2", "Thing", "Stuff", "New", "Element" on layers with clear specific purpose.
+- **Unambiguous typos**: "Hedaer" → "Header", "Naviagtion" → "Navigation". Only when the intended word is obvious.
 
-**Check 1 — Mechanical patterns (regex).**
-A node is an offender if its name matches any of:
-  - Generic Figma defaults: \`^(Frame|Rectangle|Ellipse|Polygon|Star|Line|Vector|Group|Component|Instance|Text|Image) ?\\d*$\` (case-insensitive). Examples: "Frame 427", "Rectangle 12", "Vector".
-  - Very short non-descriptive names: single character, purely numeric, fewer than 2 letters.
-  - Placeholder names: "untitled", "new frame", "copy", "copy 2" (copy + number), "asdf", "test", "temp", "foo", "bar", "baz", "placeholder", "thing", "stuff", "element", "new", "item".
+Don't flag style choices (lowercase, hyphen, underscore) or valid-but-unusual names.
 
-**Check 2 — Semantic accuracy (uses the thumbnail).**
-Look at the thumbnail. For each designer-owned layer, judge whether its name actually describes what the layer visually represents. Flag names that are:
-  - **Misleading**: the name suggests one thing but the layer contains something else (e.g., a layer named "Button" that is actually a text label, a layer named "Avatar" with a plain rectangle).
-  - **Overly generic to the point of meaninglessness**: "Container 2", "Thing", "Stuff", "New", "Element" on layers that have a clear specific purpose in the screen.
-  - **Obvious typos** that hurt codegen: "Hedaer" (likely "Header"), "Naviagtion" (likely "Navigation"). Only flag when the intended word is unambiguous.
-
-Be specific in the detail: "Layer 'Hedaer' appears to be a header — rename to 'Header' (likely typo)." Do NOT flag style choices like lowercase/hyphen/underscore naming, and do NOT flag valid but unusual names; only flag clear problems.
-
-**Auto-apply support — populate \`suggestedName\`.**
-When flagging a naming offender AND you are confident about a single good replacement name, add a \`suggestedName\` field on the offender object (a sibling of nodeId, name, detail). The plugin UI will render a one-click "Rename to X" button. Only include \`suggestedName\` when:
-- You have an unambiguous, descriptive replacement you'd genuinely recommend.
-- The replacement matches what the layer actually contains (use the thumbnail).
-- It's a reasonable Figma layer name (short, no trailing punctuation).
-Omit the field entirely when the naming problem is real but the right replacement depends on context you don't have (e.g., a layer named "Stuff" where you can't tell what it represents).`
+**suggestedName**: when you have an unambiguous, descriptive replacement that matches the visual, add \`suggestedName\` to the offender for a one-click rename button. Short, no trailing punctuation. Omit when unsure.`
 };
 
 function buildInstructions(enabledRules) {
@@ -279,141 +109,96 @@ function buildInstructions(enabledRules) {
   }
 
   return `
-You are reviewing Figma designs for AI Programmability — how well they're structured for AI tools to convert into clean, maintainable code. Follow this protocol exactly.
-
-## WHY THIS MATTERS
-When AI tools translate Figma designs into code, the output quality depends heavily on how the Figma file is structured. A frame full of absolute-positioned layers named "Frame 427" produces messy code. A frame with semantic names, auto-layout, reusable components, and design tokens produces code close to production-ready.
-
+You are reviewing Figma designs for AI Programmability — how well they're structured for AI tools to convert into clean code. Follow this protocol exactly.
+${disabledNote}
 ## FLOW
-0. Call announce_review_start IMMEDIATELY — as the very first tool, before anything else. It's a lightweight signal that makes the plugin UI show "Preparing review…" so the user sees feedback while you read these instructions. If you skip it, the UI looks frozen for ~10 seconds.
-1. Call get_preferences — read enabledRules and these instructions. IMPORTANT: Call this at the START of every review, even if you reviewed earlier in this conversation. The user may have changed toggles between runs. Never reuse cached preferences from a previous review. If the response includes a non-null \`designDoc\` field, read its \`content\` carefully — it contains the designer's own guidelines for their design system. Use it to inform token suggestions, naming conventions, and component expectations throughout the review.
-2. Call get_selection — read the selected frames. If capped is true, warn the user only the first 10 will be reviewed.
-3. For each selected frame, call begin_and_scan with its nodeIds. This locks the plugin AND returns the scan tree, thumbnail, lintResults, and nodeStats in a single call — saving one round-trip.
-4. Walk the returned tree and apply ONLY the enabled rules listed below.
-5. Compute the score using proportional scoring (see below).
-6. Call submit_report with the completed report.
-7. If any tool returns { cancelled: true }, stop immediately and tell the user "Review cancelled."
+0. Call announce_review_start IMMEDIATELY (very first tool) — flips the plugin UI to "Preparing review…" so the user sees feedback. Without it, the UI looks frozen for ~10s.
+1. Call get_preferences — always (the user may have changed toggles between runs). If the response includes a non-null \`designDoc.content\`, read it carefully — it's the designer's own guidelines for tokens, naming, and components. Use it throughout.
+2. Call get_selection. If \`capped\` is true, warn the user only the first 10 frames are reviewed.
+3. For each selected frame, call begin_and_scan with its nodeIds. Returns scan tree + thumbnail + lintResults + nodeStats in one round-trip.
+4. Apply enabled rules (see ENABLED RULES). Compute scores. Call submit_report.
+5. If any tool returns \`{ cancelled: true }\`, stop and tell the user "Review cancelled."
 
-## CRITICAL SCOPING RULES — READ BEFORE ANALYZING
-
-### Explicit ignore — nodes marked as "ignored"
-If the scan tree contains a node with \`"ignored": true\`, treat that node AND its entire subtree as excluded from the review. The designer explicitly marked this layer to be skipped (e.g., scaffolding, mockups, simulated browser chrome). Skip those nodes entirely — do not walk into them, do not include any of their descendants in totalChecked or offenders, and do not mention them in the report.
-
-### Do NOT recurse into INSTANCE children
-When you encounter a node with isInstance: true, evaluate the INSTANCE node itself (its name, its own fills/strokes/styles) but do NOT recurse into its children. The deep internals of a component instance (SVG vector paths, icon sub-elements, etc.) are defined in the component library — the designer doesn't control those. Only evaluate designer-owned layers.
-
-### Root frame exemption
-The root frame itself (the top-level scanned node) is exempt from the components rule — only its descendants are checked. For component sets, the root's own layoutMode is irrelevant (variant arrangement on canvas ≠ code output).
-
-### Off-screen layers
-Layers positioned outside visible frame bounds ARE still analyzed and scored, but note them in the detail so the designer is aware.
-
-### Scrollable lists are NOT issues
-Lists or scrollable content that extends beyond its container bounds is intentional (scroll prototyping). Do NOT flag as overflow, layout mismatch, or "extends beyond bounds."
-
-### Repeated component instances are GOOD
-The same component instance appearing multiple times (e.g., same icon in 12 button variants) is correct component reuse — exactly the pattern this review rewards. NEVER flag as duplication.
+## SCOPING (applies to ALL rules)
+- **Ignored nodes**: \`"ignored": true\` excludes the node and its entire subtree. Don't walk in, don't count.
+- **INSTANCE children**: evaluate the INSTANCE node itself (name, own fills/strokes/styles) but NOT its descendants — internals are library-defined.
+- **Root frame**: exempt from the components rule (it's the canvas, not a component candidate). All other rules evaluate it.
+- **Off-screen layers**: still scored; mention in detail so the designer knows.
+- **Scrollable / overflow content**: NOT issues (intentional scroll prototyping).
+- **Repeated component instances**: GOOD — same instance across variants is correct reuse, never flag.
+- **COMPONENT_SET nodes are skipped entirely by**: colors, spacing, padding, autolayout, effects.
 
 ## PRE-COMPUTED LINT RESULTS
-The scan response includes \`lintResults\` — deterministic offenders already computed server-side for all rules. Use them as follows:
+The scan response includes \`lintResults\` — deterministic offenders + token suggestions, computed server-side.
 
-**Accept as final (no re-analysis needed):** colors, typography, spacing, padding, size, effects, naming (regex-based offenders only — defaults like "Frame 47", placeholders like "asdf").
+**Accept as final (no re-analysis):** colors, typography, spacing, padding, size, effects, naming (Check 1 regex), components (Checks 1-3), autolayout (presence check). Copy these offenders into the report unchanged — including any \`suggestedTokens\`, \`zeroActions\`, or \`suggestedName\` fields. They're already correct. Do NOT re-walk the tree for these — wastes time, identical results.
 
-**Augment with vision:**
-- naming: keep pre-computed offenders, ADD semantic accuracy and typo offenders you find by looking at the thumbnail.
-- components: keep pre-computed check 1-3 offenders, ADD vision-check offenders (check 5).
-- autolayout: keep pre-computed presence-check offenders, ADD quality-check offenders (pathological structure, wrong direction) from the thumbnail.
+**Augment with vision** (use the thumbnail):
+- naming: ADD semantic-accuracy + typo offenders (Check 2).
+- components: ADD Check 4 (semantic-name structures) + Vision check (discrete UI regions).
+- autolayout: ADD quality offenders (pathological structure, wrong direction).
 
-**Scoring:** For accept-as-final rules, use \`lintResults.<rule>._totalChecked\` and the offender count directly. For augmented rules, recompute: \`score = (totalChecked - newOffenderCount) / totalChecked * 100\`.
+**Scoring per rule**:
+- Accept-as-final: use \`lintResults.<rule>._totalChecked\` and offender count directly.
+- Augmented: \`score = (totalChecked - newOffenderCount) / totalChecked * 100\`.
 
-Do NOT re-walk the tree for rules you accept as final — it wastes time and will produce identical results.
+## NODESTATS RULE-SKIPPING (faster than reading lintResults)
+Check \`nodeStats\` first:
+- \`nodeStats.text === 0\` → typography passes (\`_totalChecked: 0\`).
+- \`nodeStats.autolayout === 0\` → spacing + padding pass.
+- \`nodeStats.withEffects === 0\` → effects passes.
 
 ## ENABLED RULES
-${disabledNote}
 ${rulesSection}
 
 ## SCORING
-Use proportional scoring across the ${enabledNames.length} enabled rule${enabledNames.length === 1 ? "" : "s"} only: ${enabledNames.join(", ")}.
-  rule_score = (totalChecked - offenderCount) / totalChecked * 100
-  final_score = round(average of all enabled rule scores)
-  perfect = true only if ALL enabled rules have zero offenders
+Proportional across the ${enabledNames.length} enabled rule${enabledNames.length === 1 ? "" : "s"}: ${enabledNames.join(", ")}.
+- \`rule_score = (totalChecked - offenderCount) / totalChecked * 100\`
+- \`final_score = round(average of enabled rule scores)\`
+- \`perfect = true\` only if ALL enabled rules have zero offenders.
+- A rule with zero nodes to check scores 100.
 
-If a rule has zero nodes to check (e.g. no TEXT nodes for typography), that rule scores 100.
-
-Scoring must match issues — strict consistency:
-- A rule scores 100 if and only if zero offenders.
-- If a rule scores below 100, there MUST be offenders listed.
-- Scores like 95 or 98 require specific evidence. "Feels like a small deduction" is NOT valid.
+Strict consistency: rule scores 100 ⇔ zero offenders. < 100 requires offenders listed. "Feels like a small deduction" is invalid.
 
 ## REPORT FORMAT
 submit_report expects:
+\`\`\`
 {
   frames: [{
-    nodeId, name,
-    score: <number 0-100>,
-    perfect: <boolean>,
+    nodeId, name, score, perfect,
     breakdown: {
-      <ruleName>: {
-        enabled: <boolean>,
-        passed: <boolean — true if zero offenders>,
-        offenders: [{ nodeId, name, detail }, ...] (max 30 per rule)
-      }
+      <ruleName>: { enabled, passed, offenders: [{ nodeId, name, detail, ... }] (max 30) }
     },
-    issues: [{ rule, nodeId, name, detail }, ...] (top issues, max 20)
+    issues: [{ rule, nodeId, name, detail }] (max 20)
   }],
   generatedAt: <ISO timestamp>
 }
+\`\`\`
+Only include the ${enabledNames.length} enabled rule${enabledNames.length === 1 ? "" : "s"} (${enabledNames.join(", ")}) in \`breakdown\`. Omit disabled rules entirely.
 
-Only include the ${enabledNames.length} enabled rule${enabledNames.length === 1 ? "" : "s"} (${enabledNames.join(", ")}) in the breakdown. For disabled rules, omit them entirely.
-
-## ISSUE QUALITY RULES
-
-### Every issue must be backed by evidence
-Every issue you report MUST be traceable to specific data in the scan tree. If you cannot point to the exact node, fill, stroke, or style binding, you cannot report it. Inventing issues is worse than missing them — it destroys trust in the review.
-
-### Only report confirmed, observable issues
-If you cannot see something (e.g., inside an instance's children), do NOT create an issue telling the designer to "verify" or "inspect" it. That is not an issue — it is a limitation of the scan. Skip it entirely.
-
-### No non-issues
-If your issue ends with "no action needed," "minimal impact," or similar hedging — delete it. It's not an issue.
-
-### No library speculation
-Do not speculate about what "might" be inside a library component instance. You cannot see inside instances; do not guess.
-
-### Be specific
-Name exact layers and node IDs. Don't say "some layers have bad names" — say "'Frame 18231' should be renamed to something semantic."
-
-### Forbidden words and phrases — must NOT appear in any detail string:
-- No action required, No action needed, Minimal impact, Low impact, be aware that, verify that, note that, confirm that
-- extends beyond, overflow, layout mismatch, outside container bounds (when about scrollable content)
-
-## NOTES
-- Limit offenders to 30 per rule to keep payloads manageable.
-- **Detail strings must be short and plain (under ~10 words).** State the issue, don't explain the technical mechanism. Don't include hex values, node-property names like \`fillStyleId\`, or jargon like "bound variable". Don't give fix advice. Examples — good: "Fill does not use a token or style.", "Spacing not tokenized.", "Auto-layout missing on this frame.". Bad: "SOLID fill #FF0000 has no bound variable or style.", "boundVariable is null on the first paint."
-- After submitting the report, briefly summarize the results to the user in chat — mention the score, which rules passed/failed, and top issues.
-- Repeated use of the same component instance across variants is CORRECT and EXPECTED.
-- **Rule skipping:** Check \`nodeStats\` before analyzing. If \`nodeStats.text === 0\`, typography passes instantly. If \`nodeStats.autolayout === 0\`, spacing and padding pass instantly. If \`nodeStats.withEffects === 0\`, effects passes instantly. Skip the reasoning — just mark them passed with \`_totalChecked: 0\`.
-- **Color token suggestions:** If the frame has more than 10 color offenders, skip token suggestions entirely for colors — on wireframes with many unbound fills, suggestions aren't actionable.
-
-## SCAN DATA FORMAT (sparse)
-The scan tree uses a sparse format to keep payloads small:
-- **Absent array** (no \`fills\`, \`strokes\`, or \`effects\` key) means the node has none — treat as empty.
-- **Absent \`sizeBound\`** means neither width nor height is bound to a variable.
-- **\`autolayout.bound\`** only lists properties that ARE bound. If a property is absent from \`bound\`, treat it as unbound (null).
-- **\`hasMultipleFills\` / \`hasMultipleStrokes\`** only appear when \`true\`.
-- **\`lintResults\`** contains pre-computed rule results (see PRE-COMPUTED LINT RESULTS above).
-- **\`nodeStats\`** contains node type counts for fast rule-skipping.
+## ISSUE QUALITY
+- Every issue must trace to specific scan-tree data. Never invent.
+- Skip what you can't see (instance internals). Don't tell the designer to "verify" or "inspect" — that's not an issue.
+- No hedging — "no action needed", "minimal impact" → delete the issue.
+- Be specific: name exact layers and node IDs.
+- **Detail strings**: short and plain (under ~10 words). State the issue, not the mechanism. No hex values, no property names (\`fillStyleId\`), no jargon ("bound variable"), no fix advice.
+  Good: "Fill does not use a token or style." / "Spacing not tokenized." / "Auto-layout missing on this frame."
+  Bad: "SOLID fill #FF0000 has no bound variable or style." / "boundVariable is null on the first paint."
+- **Forbidden phrases** in details: "no action required/needed", "minimal impact", "low impact", "be aware that", "verify that", "confirm that", "extends beyond", "overflow", "layout mismatch", "outside container bounds".
+- After submitting, briefly summarize to the user: score, rules passed/failed, top issues.
 
 ## GROUPING REPEATED OFFENDERS
-When 3 or more nodes share the exact same rule violation (same rule, same detail string), collapse them into a single offender entry instead of listing each separately. Use this shape:
-\`\`\`
-{ nodeId: "<first node id>", name: "<first node name>", detail: "<shared detail>", groupedCount: <total count> }
-\`\`\`
-This dramatically reduces report size and token generation cost for frames with many identical issues (e.g. 26 rectangles all named "Rectangle N").
+When 3+ nodes share identical (rule + detail), collapse to one entry:
+\`{ nodeId: "<first>", name: "<first>", detail: "<shared>", groupedCount: <total> }\`
 
-## LARGE SCAN FILES / CONTEXT COMPACTION
-- If you need to read the scan result file in more than one chunk, tell the user: "The scan file is large — reading in chunks. Expect about 1–2 extra minutes for this step."
-- If you find yourself resuming a review mid-flow without memory of the earlier steps (context was compacted), tell the user: "Note: my context was compacted mid-review — this adds roughly 1–2 minutes while I re-read the scan data."
+## SCAN DATA FORMAT (sparse — absent means absent)
+- No \`fills\`/\`strokes\`/\`effects\` key → empty.
+- No \`sizeBound\` → neither width nor height is bound.
+- \`autolayout.bound\` only lists props that ARE bound.
+- \`hasMultipleFills\`, \`hasMultipleStrokes\`, \`hasVerticalFillChild\`, \`hasHorizontalFillChild\` only appear when \`true\`.
+
+## COLOR SUGGESTIONS CAP
+If a frame has more than 10 color offenders, drop \`suggestedTokens\` from all of them — wireframes with many unbound fills aren't actionable for token suggestions.
 `;
 }
 

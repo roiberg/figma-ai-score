@@ -741,6 +741,13 @@
         display: block;
         margin-bottom: 2px;
       }
+      .locked-eta {
+        display: block;
+        font-size: 11px;
+        color: #7a6500;
+        opacity: 0.75;
+        margin-bottom: 4px;
+      }
       .locked-banner .kbd {
         display: inline-block;
         padding: 0 5px;
@@ -3115,8 +3122,11 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         stopWrap.style.display = "block";
         lockedBanner.style.display = "block";
         const n = data.names.length;
+        const mins = Math.max(1, Math.ceil(n * 0.5));
+        const eta = `About ${mins} minute${mins === 1 ? "" : "s"}`;
         lockedBannerText.innerHTML =
           `<strong><span class="reviewing-dot"></span>Reviewing ${n} frame${n === 1 ? "" : "s"}</strong>` +
+          `<span class="locked-eta">${eta}</span>` +
           data.names.map(esc).join(", ");
       }
       function hideLocked() {

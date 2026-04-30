@@ -17,7 +17,7 @@ const WS_PORT = Number(process.env.BRIDGE_PORT || 3055);
 // Macs where /etc/hosts orders ::1 ahead of 127.0.0.1.
 const WS_HOSTS = ["127.0.0.1", "::1"];
 
-const CONNECT_TIMEOUT_MS = 3_000;   // grace for plugin to reconnect
+const CONNECT_TIMEOUT_MS = 6_000;   // grace for plugin to reconnect (plugin retries every 2s; 6s = 3 full cycles)
 const CALL_TIMEOUT_MS    = 55_000;  // upper bound for any reasonable plugin response
 const BIND_RETRY_MAX     = 5;       // EADDRINUSE backoff
 const BIND_RETRY_BASE_MS = 200;

@@ -199,7 +199,7 @@ Use \`designSystem.numberVariables\`. For each offender:
   autolayout: `### auto layout
 Every eligible container node should be using auto-layout. Eligible types: FRAME, GROUP, COMPONENT, COMPONENT_SET, INSTANCE. A container without auto-layout is an offender — the layout becomes brittle in code-generation contexts because positions are absolute, and changes to one element don't ripple through siblings.
 
-This rule does NOT skip device chrome, COMPONENT_SET, or the INSTANCE node itself. The user has an explicit "ignore" mechanism in the plugin UI for case-by-case exclusions; rules don't bake in those exclusions. Skips:
+Skip COMPONENT_SET nodes entirely — their layout mode is canvas-only variant arrangement, not code output. Skips:
 - **Root frame** is exempt. Device canvases (iPhone, desktop, tablet artboards) are device-shaped containers, not layout decisions — their children carry the layout. Recurse into the root's children normally.
 - Nodes the user has explicitly marked ignored (\`node.ignored === true\`).
 - INSTANCE *children* (library internals — designer can't change them on the instance side). The instance node itself IS evaluated.
@@ -219,7 +219,7 @@ Detail format for offenders:
 No token suggestions for autolayout offenders — this rule isn't about token bindings.`,
 
   effects: `### effects
-Every visible effect (in the effects array) must come from an effectStyleId (non-null on the node). If a node has visible effects but no effectStyleId, it is an offender. Don't recurse into INSTANCE children (library internals); don't evaluate user-ignored nodes. COMPONENT_SET, root, and INSTANCE nodes themselves are all evaluated normally; the user has the explicit ignore mechanism for case-by-case exclusions.`,
+Every visible effect (in the effects array) must come from an effectStyleId (non-null on the node). If a node has visible effects but no effectStyleId, it is an offender. Don't recurse into INSTANCE children (library internals); don't evaluate user-ignored nodes. Skip COMPONENT_SET nodes entirely — canvas-only variant containers that don't render in code.`,
 
   naming: `### naming (smart)
 Every designer-owned node should have a semantic, descriptive name that accurately reflects what the layer is. Run the two checks below on every designer-owned node, INCLUDING the root frame (a selected frame named "Frame 1" is itself a naming problem). Don't recurse into INSTANCE children (library internals). Don't evaluate user-ignored nodes (\`node.ignored === true\`).
@@ -228,7 +228,7 @@ Every designer-owned node should have a semantic, descriptive name that accurate
 A node is an offender if its name matches any of:
   - Generic Figma defaults: \`^(Frame|Rectangle|Ellipse|Polygon|Star|Line|Vector|Group|Component|Instance|Text|Image) ?\\d*$\` (case-insensitive). Examples: "Frame 427", "Rectangle 12", "Vector".
   - Very short non-descriptive names: single character, purely numeric, fewer than 2 letters.
-  - Placeholder names: "untitled", "new frame", "copy", "asdf", "test", "temp".
+  - Placeholder names: "untitled", "new frame", "copy", "copy 2" (copy + number), "asdf", "test", "temp", "foo", "bar", "baz", "placeholder", "thing", "stuff", "element", "new", "item".
 
 **Check 2 — Semantic accuracy (uses the thumbnail).**
 Look at the thumbnail. For each designer-owned layer, judge whether its name actually describes what the layer visually represents. Flag names that are:
@@ -358,7 +358,6 @@ Name exact layers and node IDs. Don't say "some layers have bad names" — say "
 - **Detail strings must be short and plain (under ~10 words).** State the issue, don't explain the technical mechanism. Don't include hex values, node-property names like \`fillStyleId\`, or jargon like "bound variable". Don't give fix advice. Examples — good: "Fill does not use a token or style.", "Spacing not tokenized.", "Auto-layout missing on this frame.". Bad: "SOLID fill #FF0000 has no bound variable or style.", "boundVariable is null on the first paint."
 - After submitting the report, briefly summarize the results to the user in chat — mention the score, which rules passed/failed, and top issues.
 - If the scan data is too large for your context, use a sub-agent to process it in chunks. Instruct it to read the entire file and return only the rule results.
-- Component set root layout is NEVER an issue. When the root is a COMPONENT_SET, its layoutMode is for variant arrangement on the canvas, not code output.
 - Repeated use of the same component instance across variants is CORRECT and EXPECTED.
 `;
 }
@@ -1365,6 +1364,11 @@ function lintAutolayoutSimple(root) {
       return;
     }
     if (eligibleTypes.has(node.type)) {
+      // COMPONENT_SET layout is canvas-only variant arrangement — not code output.
+      if (node.type === "COMPONENT_SET") {
+        if (node.children) for (const c of node.children) recurse(c, false);
+        return;
+      }
       totalChecked++;
       // Auto-layout means `node.autolayout` is truthy in our extracted shape.
       if (!node.autolayout) {
@@ -1394,6 +1398,8 @@ function lintEffects(root) {
   const offenders = [];
   let totalChecked = 0;
   walkDesignerNodes(root, (node) => {
+    // COMPONENT_SET is a canvas-only variant container — never renders in code.
+    if (node.type === "COMPONENT_SET") return;
     const visible = (node.effects || []).filter(e => e.visible !== false);
     if (visible.length === 0) return;
     totalChecked++;
@@ -1416,7 +1422,7 @@ function lintEffects(root) {
 
 // ── naming rule (naive — regex for defaults, short/placeholder names) ──
 const NAMING_DEFAULT_RE = /^(frame|rectangle|ellipse|polygon|star|line|vector|group|component|instance|text|image)\s*\d*$/i;
-const NAMING_PLACEHOLDER_RE = /^(untitled|new\s+frame|copy|copy\s+\d+|asdf|test|temp|foo|bar|baz|placeholder)$/i;
+const NAMING_PLACEHOLDER_RE = /^(untitled|new\s+frame|copy|copy\s+\d+|asdf|test|temp|foo|bar|baz|placeholder|thing|stuff|element|new|item)$/i;
 function lintNaming(root) {
   const offenders = [];
   let totalChecked = 0;

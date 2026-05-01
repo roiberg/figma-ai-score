@@ -344,6 +344,7 @@ figma.ui.onmessage = async (msg) => {
       try {
         const m = await figma.clientStorage.getAsync("figma-ai-score.mode");
         if (m === "ai" || m === "simple") reviewMode = m;
+        figma.ui.postMessage({ type: "saved-mode", mode: reviewMode });
       } catch (e) {}
       // Seed the UI with the persisted "Don't show the connect-success
       // card" flag — set per-user via figma.clientStorage so it travels

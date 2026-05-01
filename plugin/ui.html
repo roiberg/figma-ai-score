@@ -2945,6 +2945,7 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
           return;
         }
         if (msg.type === "suggestion-check-result") { lastSuggestionAt = msg.lastAt || 0; return; }
+        if (msg.type === "saved-mode") { applyMode(msg.mode); return; }
         if (msg.type === "prefs") renderPrefs(msg.data);
         else if (msg.type === "selection") renderSelection(msg.data, msg.total, msg.capped, msg.maxSelection, msg.thumbnail);
         else if (msg.type === "review-starting") { if (msg.switchMode) applyMode(msg.switchMode); showPreparing(msg.names || []); }

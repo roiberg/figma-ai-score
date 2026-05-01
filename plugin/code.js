@@ -114,7 +114,7 @@ ${disabledNote}
 ## FLOW
 0. Call announce_review_start IMMEDIATELY (very first tool) — flips the plugin UI to "Preparing review…" so the user sees feedback. Without it, the UI looks frozen for ~10s.
 1. Call get_preferences — always (the user may have changed toggles between runs). If the response includes a non-null \`designDoc.content\`, read it carefully — it's the designer's own guidelines for tokens, naming, and components. Use it throughout.
-2. Call get_selection. If \`capped\` is true, warn the user only the first 10 frames are reviewed.
+2. Use the \`selection\` field returned by announce_review_start — it contains the same data as get_selection. Only call get_selection separately if announce_review_start failed. If \`capped\` is true, warn the user only the first 10 frames are reviewed.
 3. For each selected frame, call begin_and_scan with its nodeIds. Returns scan tree + thumbnail + lintResults + nodeStats in one round-trip.
 4. Apply enabled rules (see ENABLED RULES). Compute scores. Call submit_report.
 5. If any tool returns \`{ cancelled: true }\`, stop and tell the user "Review cancelled."
@@ -713,10 +713,27 @@ async function handleRpc(method, params) {
       // "Preparing review…" state so the UI doesn't feel frozen.
       // Also switch to Smart tab so the user sees the review in the right place
       // regardless of which tab was active when Claude started.
+      // Read the current selection here so the UI can show frame names immediately
+      // (without waiting for a separate get_selection call).
       reviewMode = "ai";
       try { await figma.clientStorage.setAsync("figma-ai-score.mode", "ai"); } catch (e) {}
-      figma.ui.postMessage({ type: "review-starting", switchMode: "ai" });
-      return { ok: true };
+      const selSummary = selectionSummary();
+      figma.ui.postMessage({
+        type: "review-starting",
+        switchMode: "ai",
+        names: selSummary.frames.map(f => f.name)
+      });
+      return {
+        ok: true,
+        selection: {
+          frames: selSummary.frames,
+          total: selSummary.total,
+          capped: selSummary.capped,
+          maxSelection: currentMaxSelection(),
+          fileName: figma.root.name,
+          pageName: figma.currentPage.name
+        }
+      };
     }
     case "begin_review": {
       const ids = Array.isArray(params.nodeIds) ? params.nodeIds : [];

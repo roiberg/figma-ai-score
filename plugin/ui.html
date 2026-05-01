@@ -2856,7 +2856,7 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
         if (msg.type === "suggestion-check-result") { lastSuggestionAt = msg.lastAt || 0; return; }
         if (msg.type === "prefs") renderPrefs(msg.data);
         else if (msg.type === "selection") renderSelection(msg.data, msg.total, msg.capped, msg.maxSelection, msg.thumbnail);
-        else if (msg.type === "review-starting") { if (msg.switchMode) applyMode(msg.switchMode); showPreparing(); }
+        else if (msg.type === "review-starting") { if (msg.switchMode) applyMode(msg.switchMode); showPreparing(msg.names || []); }
         else if (msg.type === "locked") showLocked(msg.data);
         else if (msg.type === "unlocked") hideLocked();
         else if (msg.type === "report") renderReport(msg.data);
@@ -3115,14 +3115,17 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
       // Early "getting ready" state before begin_review has nodeIds.
       // Fires on announce_review_start so the UI doesn't look frozen
       // while Claude reads the instructions string (~10s).
-      function showPreparing() {
+      function showPreparing(names) {
         document.body.classList.add("reviewing");
         reviewPanel.style.display = "";
         reviewPanel.style.borderBottom = "1px solid var(--border)";
         stopWrap.style.display = "block";
         lockedBanner.style.display = "block";
+        const nameStr = (names && names.length)
+          ? `<br>${names.map(esc).join(", ")}`
+          : "";
         lockedBannerText.innerHTML =
-          `<strong><span class="reviewing-dot"></span>Preparing review…</strong>`;
+          `<strong><span class="reviewing-dot"></span>Preparing review…</strong>${nameStr}`;
       }
       function showLocked(data) {
         document.body.classList.add("reviewing");

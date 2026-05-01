@@ -700,6 +700,7 @@ async function handleRpc(method, params) {
       };
     }
     case "get_preferences": {
+      figma.ui.postMessage({ type: "ai-progress", message: "Reading preferences…" });
       let designDoc = null;
       try {
         designDoc = await figma.clientStorage.getAsync("figma-ai-score.design-doc") || null;
@@ -778,6 +779,13 @@ async function handleRpc(method, params) {
         return n ? n.name : "(missing)";
       });
       figma.ui.postMessage({ type: "locked", data: { nodeIds: ids, names } });
+      // Automatic progress message — fires regardless of whether the AI
+      // calls announce_progress manually.
+      const frameLabel = names[0] || "frame";
+      const indexLabel = (typeof params.frameIndex === "number" && typeof params.frameCount === "number")
+        ? ` (${params.frameIndex} of ${params.frameCount})`
+        : "";
+      figma.ui.postMessage({ type: "ai-progress", message: `Analyzing ${frameLabel}${indexLabel}…` });
       // Also post a scan-progress message so the banner shows which frame
       // is currently being scanned (with index/count if the caller provides them).
       figma.ui.postMessage({
@@ -909,6 +917,7 @@ async function handleRpc(method, params) {
       return { ok: true, found: nodes.length };
     }
     case "submit_report": {
+      figma.ui.postMessage({ type: "ai-progress", message: "Submitting report…" });
       figma.ui.postMessage({ type: "report", data: params.report });
       locked = false;
       lockedIds = [];

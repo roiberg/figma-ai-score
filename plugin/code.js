@@ -928,11 +928,20 @@ function computeNodeStats(tree) {
   return stats;
 }
 
-// Fast shallow node counter — just counts, no data extraction.
-// Used on selection change for instant ETA without the cost of extractNode.
+// Fast node counter for ETA estimation — iterative (no call-stack risk) with
+// an early exit at 1800 nodes. The ETA formula hits its 10-minute ceiling at
+// ~1660 nodes, so counting beyond that is wasted work and risks freezing Figma
+// on frames with thousands of children (e.g. a master artboard with 50 screens).
+const SHALLOW_COUNT_CAP = 1800;
 function shallowCountNodes(node) {
-  let n = 1;
-  if (node.children) for (const c of node.children) n += shallowCountNodes(c);
+  let n = 0;
+  const stack = [node];
+  while (stack.length > 0) {
+    if (n >= SHALLOW_COUNT_CAP) return n;
+    const cur = stack.pop();
+    n++;
+    if (cur.children) for (const c of cur.children) stack.push(c);
+  }
   return n;
 }
 

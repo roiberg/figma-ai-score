@@ -1070,21 +1070,24 @@
         color: var(--accent-text);
         outline: none;
       }
-      /* Accept all button — lives in the report header */
+      /* Accept all button — injected after frame name by renderReport() */
       #accept-all-btn {
         display: none; /* shown via JS when suggestions exist */
-        font-size: 11px;
-        font-weight: 600;
-        padding: 3px 9px;
-        background: var(--green-bg);
-        border: 1px solid #7ecf96;
-        color: var(--green);
-        border-radius: 4px;
+        width: fit-content;
+        margin: 8px auto 12px;
+        padding: 4px 12px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+        background: var(--bg-secondary);
+        border: 1px solid #c7c7c7;
+        color: var(--text);
+        border-radius: var(--radius-sm);
         cursor: pointer;
         white-space: nowrap;
       }
-      #accept-all-btn:hover:not(:disabled) { background: #d2f0db; outline: none; }
-      #accept-all-btn:disabled { opacity: 0.6; cursor: default; }
+      #accept-all-btn:hover:not(:disabled) { background: var(--bg-tertiary); border-color: #999; outline: none; }
+      #accept-all-btn:disabled { opacity: 0.35; cursor: default; }
       #accept-all-btn.bulk-done {
         background: var(--green-bg);
         border-color: #7ecf96;
@@ -2034,7 +2037,6 @@
           <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 8px;">
             <div class="section-title" style="margin:0">Report</div>
             <div style="display:flex; gap:6px; align-items:center;">
-              <button id="accept-all-btn">Accept all</button>
               <button id="clear" class="export-btn" disabled>Clear</button>
               <button id="export" class="export-btn" disabled>
                 <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8m0 0l-3-3m3 3l3-3"/><path d="M3 11v2h10v-2"/></svg>
@@ -2225,7 +2227,17 @@
       const reportEl = document.getElementById("report");
       const exportBtn    = document.getElementById("export");
       const clearBtn     = document.getElementById("clear");
-      const acceptAllBtn = document.getElementById("accept-all-btn");
+      // Accept-all button is created here so it isn't part of the static layout
+      // and won't be destroyed when reportEl.innerHTML is reset. renderReport()
+      // detaches + reinserts it after .frame-name on every render.
+      const acceptAllBtn = (() => {
+        const btn = document.createElement("button");
+        btn.id = "accept-all-btn";
+        btn.textContent = "Accept all suggestions";
+        // Park it off-screen until renderReport() picks it up
+        document.body.appendChild(btn);
+        return btn;
+      })();
 
       // ── Accept-all bulk action ─────────────────────────────────────────
       // Counts how many actions were dispatched in the current bulk run.
@@ -2246,9 +2258,9 @@
         if (pending.length === 0) {
           acceptAllBtn.style.display = "none";
         } else {
-          acceptAllBtn.style.display = "";
+          acceptAllBtn.style.display = "block"; // block + margin:auto = centered
           acceptAllBtn.disabled = false;
-          acceptAllBtn.textContent = `Accept all (${pending.length})`;
+          acceptAllBtn.textContent = `Accept all suggestions (${pending.length})`;
         }
       }
 
@@ -3451,6 +3463,11 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         exportBtn.disabled = !report;
         clearBtn.disabled = !report;
         hideLocked();
+        // Detach the accept-all button BEFORE resetting innerHTML so it isn't
+        // destroyed (it's a real DOM node with a live event listener).
+        if (acceptAllBtn.parentNode === reportEl) {
+          reportEl.parentNode.insertBefore(acceptAllBtn, reportEl);
+        }
         if (!report || !report.frames || report.frames.length === 0) {
           reportEl.innerHTML = '<div class="empty-state">Empty report</div>';
           return;
@@ -3559,6 +3576,12 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
 
         // Restore scroll position so re-renders don't jump back to the top.
         if (scrollArea) scrollArea.scrollTop = savedScrollTop;
+        // Inject accept-all button after the first frame name so it sits between
+        // the score circle and the breakdown rows.
+        const firstFrameName = reportEl.querySelector('.frame-name');
+        if (firstFrameName) {
+          firstFrameName.insertAdjacentElement('afterend', acceptAllBtn);
+        }
         // Show/hide the Accept all button depending on whether suggestions exist.
         _bulkExpected = 0;
         acceptAllBtn.classList.remove("bulk-done");

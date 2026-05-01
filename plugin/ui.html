@@ -740,19 +740,15 @@
       .locked-banner strong {
         display: block;
         margin-bottom: 2px;
-      }
-      .locked-eta {
-        display: block;
-        font-size: 11px;
-        color: #7a6500;
-        opacity: 0.75;
-        margin-bottom: 4px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
       .progress-fun {
         font-style: italic;
-        opacity: 0.55;
+        opacity: 0.65;
         margin-top: 5px;
-        font-size: 10.5px;
+        font-size: 11px;
         display: none;
       }
       .locked-banner .kbd {
@@ -3205,32 +3201,32 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
       }
       function showPreparing(names) {
         _showReviewBannerShell();
-        const nameStr = (names && names.length)
-          ? `<br>${names.map(esc).join(", ")}`
-          : "";
+        const title = (names && names.length)
+          ? `Reviewing ${names.map(esc).join(", ")}`
+          : "Preparing review…";
         setRealProgress(
-          `<strong><span class="reviewing-dot"></span>Preparing review…</strong>${nameStr}`
+          `<strong><span class="reviewing-dot"></span>${title}</strong>`
         );
       }
       function showScanProgress(frameName, frameIndex, frameCount) {
         _showReviewBannerShell();
-        const indexStr = (frameIndex != null && frameCount != null)
-          ? ` ${frameIndex} of ${frameCount}`
+        const countStr = (frameIndex != null && frameCount != null && frameCount > 1)
+          ? ` (${frameIndex} of ${frameCount})`
           : "";
-        const nameStr = frameName ? `<br>${esc(frameName)}` : "";
+        const title = frameName
+          ? `Scanning ${esc(frameName)}${countStr}`
+          : `Scanning frame${countStr}`;
         setRealProgress(
-          `<strong><span class="reviewing-dot"></span>Scanning frame${indexStr}</strong>${nameStr}`
+          `<strong><span class="reviewing-dot"></span>${title}</strong>`
         );
       }
       function showLocked(data) {
         _showReviewBannerShell();
-        const n = data.names.length;
-        const mins = Math.max(1, Math.ceil(n * 0.5));
-        const eta = `About ${mins} minute${mins === 1 ? "" : "s"}`;
+        const title = data.names && data.names.length
+          ? `Reviewing ${data.names.map(esc).join(", ")}`
+          : "Reviewing…";
         setRealProgress(
-          `<strong><span class="reviewing-dot"></span>Reviewing ${n} frame${n === 1 ? "" : "s"}</strong>` +
-          `<span class="locked-eta">${eta}</span>` +
-          data.names.map(esc).join(", ")
+          `<strong><span class="reviewing-dot"></span>${title}</strong>`
         );
       }
       function hideLocked() {

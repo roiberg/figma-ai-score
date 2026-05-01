@@ -115,9 +115,12 @@ ${disabledNote}
 0. Call announce_review_start IMMEDIATELY (very first tool) — flips the plugin UI to "Preparing review…" so the user sees feedback. Without it, the UI looks frozen for ~10s.
 1. Call get_preferences — always (the user may have changed toggles between runs). If the response includes a non-null \`designDoc.content\`, read it carefully — it's the designer's own guidelines for tokens, naming, and components. Use it throughout.
 2. Use the \`selection\` field returned by announce_review_start — it contains the same data as get_selection. Only call get_selection separately if announce_review_start failed. If \`capped\` is true, warn the user only the first 10 frames are reviewed.
-3. For each selected frame, call begin_and_scan with its nodeIds. Returns scan tree + thumbnail + lintResults + nodeStats in one round-trip.
-4. Apply enabled rules (see ENABLED RULES). Compute scores. Call submit_report.
-5. If any tool returns \`{ cancelled: true }\`, stop and tell the user "Review cancelled."
+3. Call announce_progress --message "Reading preferences…" before calling get_preferences, then call get_preferences.
+4. For each selected frame (index i of N), call begin_and_scan with its nodeIds plus --frame-index i --frame-count N. Returns scan tree + thumbnail + lintResults + nodeStats in one round-trip.
+5. After each scan completes, call announce_progress --message "Analyzing <frame name>…" while you apply rules. Before submitting, call announce_progress --message "Submitting report…".
+6. Apply enabled rules (see ENABLED RULES). Compute scores. Call submit_report.
+7. If any tool returns \`{ cancelled: true }\`, stop and tell the user "Review cancelled."
+8. Call announce_progress freely whenever you're about to spend time on something — it updates the plugin banner in real time.
 
 ## SCOPING (applies to ALL rules)
 - **Ignored nodes**: \`"ignored": true\` excludes the node and its entire subtree. Don't walk in, don't count.
@@ -707,6 +710,14 @@ async function handleRpc(method, params) {
     case "is_cancelled": {
       return { cancelled };
     }
+    case "announce_progress": {
+      // Mid-review progress update from the AI — shown in the plugin banner
+      // as a real (bold) status line. The AI calls this whenever it's about
+      // to spend time on a step that has no automatic signal.
+      const msg = typeof params.message === "string" ? params.message : "";
+      if (msg) figma.ui.postMessage({ type: "ai-progress", message: msg });
+      return { ok: true };
+    }
     case "announce_review_start": {
       // Early signal — Claude is about to work on a review but hasn't
       // processed the big instructions string yet. Show a generic
@@ -763,6 +774,14 @@ async function handleRpc(method, params) {
         return n ? n.name : "(missing)";
       });
       figma.ui.postMessage({ type: "locked", data: { nodeIds: ids, names } });
+      // Also post a scan-progress message so the banner shows which frame
+      // is currently being scanned (with index/count if the caller provides them).
+      figma.ui.postMessage({
+        type: "scan-progress",
+        frameName: names[0] || null,
+        frameIndex: typeof params.frameIndex === "number" ? params.frameIndex : null,
+        frameCount: typeof params.frameCount === "number" ? params.frameCount : null,
+      });
 
       // Scan phase (mirrors request_scan for the first node)
       const scanNodeId = ids[0];

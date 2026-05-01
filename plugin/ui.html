@@ -748,6 +748,13 @@
         opacity: 0.75;
         margin-bottom: 4px;
       }
+      .progress-fun {
+        font-style: italic;
+        opacity: 0.55;
+        margin-top: 5px;
+        font-size: 10.5px;
+        display: none;
+      }
       .locked-banner .kbd {
         display: inline-block;
         padding: 0 5px;
@@ -1797,7 +1804,10 @@
         <div class="col-scroll scroll-area">
           <div class="panel" id="review-panel" style="display:none">
             <div id="locked-banner" class="locked-banner">
-              <div id="locked-banner-text"></div>
+              <div id="locked-banner-text">
+                <div id="progress-real-line"></div>
+                <div id="progress-fun-line" class="progress-fun"></div>
+              </div>
               <div id="stop-wrap" class="stop-wrap">
                 <button id="stop" class="danger" style="width:100%">Stop review</button>
               </div>
@@ -2062,9 +2072,75 @@
       selectionEl.addEventListener("scroll", hideChipTooltip);
       const lockedBanner = document.getElementById("locked-banner");
       const lockedBannerText = document.getElementById("locked-banner-text");
+      const progressRealLine = document.getElementById("progress-real-line");
+      const progressFunLine = document.getElementById("progress-fun-line");
       const reviewPanel = document.getElementById("review-panel");
       const stopWrap = document.getElementById("stop-wrap");
       const stopBtn = document.getElementById("stop");
+
+      // ── Fun sentence rotator ────────────────────────────────────────────
+      // Appears after 4.5 s of silence (no real progress message).
+      // Rotates every 4–25 s. Cleared immediately on any real message.
+      const FUN_SENTENCES = [
+        "Doing things you wouldn't even believe",
+        "Counting pixels with unusual precision",
+        "Reading between the layers",
+        "Consulting the design spirits",
+        "Drawing on knowledge from a million designs",
+        "Calculating the exact shade of your problems",
+        "Cross-referencing your spacing with universal constants",
+        "Summoning pattern recognition",
+        "Judging your naming choices, gently",
+        "Traversing the node tree at the speed of thought",
+        "Converting design debt into legible feedback",
+        "Running forensic analysis on your auto layout",
+        "Noticing things your eye has long stopped seeing",
+        "Thinking very hard about your components",
+        "Interrogating each layer individually",
+        "Measuring things a human would never bother to measure",
+        "Finding the inconsistency you forgot was there",
+        "Using a scalpel for precision",
+        "Doing AI stuff",
+        "Processing at a pace that would take you three coffees",
+        "Checking if your frames are as smart as they look",
+        "Discovering what lives inside a deeply nested group",
+        "Mapping your design to the language of machines",
+        "Following the token trail",
+        "Peering into the shadow effects",
+        "Untangling your component hierarchy",
+        "Asking hard questions about your padding choices",
+        "Running checks no human would think to run",
+        "Classifying layers with quiet intensity",
+        "Getting to the bottom of your auto layout",
+      ];
+      let _funTimer = null;
+      let _silenceTimer = null;
+      const SILENCE_BEFORE_FUN_MS = 4500;
+
+      function _stopFunTicker() {
+        if (_funTimer)    { clearTimeout(_funTimer);    _funTimer    = null; }
+        if (_silenceTimer){ clearTimeout(_silenceTimer); _silenceTimer = null; }
+        progressFunLine.style.display = "none";
+        progressFunLine.textContent = "";
+      }
+      function _showNextFun() {
+        const s = FUN_SENTENCES[Math.floor(Math.random() * FUN_SENTENCES.length)];
+        progressFunLine.textContent = s;
+        progressFunLine.style.display = "";
+        const delay = 4000 + Math.random() * 21000; // 4–25 s
+        _funTimer = setTimeout(_showNextFun, delay);
+      }
+      function _startFunTicker() {
+        _showNextFun();
+      }
+      // Call this on every real progress update.
+      // Clears any fun sentence and arms the silence timer.
+      function setRealProgress(html) {
+        progressRealLine.innerHTML = html;
+        _stopFunTicker();
+        _silenceTimer = setTimeout(_startFunTicker, SILENCE_BEFORE_FUN_MS);
+      }
+      // ───────────────────────────────────────────────────────────────────
       const reportEl = document.getElementById("report");
       const exportBtn = document.getElementById("export");
       const clearBtn = document.getElementById("clear");
@@ -2857,6 +2933,11 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
         if (msg.type === "prefs") renderPrefs(msg.data);
         else if (msg.type === "selection") renderSelection(msg.data, msg.total, msg.capped, msg.maxSelection, msg.thumbnail);
         else if (msg.type === "review-starting") { if (msg.switchMode) applyMode(msg.switchMode); showPreparing(msg.names || []); }
+        else if (msg.type === "scan-progress") showScanProgress(msg.frameName, msg.frameIndex, msg.frameCount);
+        else if (msg.type === "ai-progress") {
+          _showReviewBannerShell();
+          setRealProgress(`<strong><span class="reviewing-dot"></span>${esc(msg.message)}</strong>`);
+        }
         else if (msg.type === "locked") showLocked(msg.data);
         else if (msg.type === "unlocked") hideLocked();
         else if (msg.type === "report") renderReport(msg.data);
@@ -3115,33 +3196,45 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
       // Early "getting ready" state before begin_review has nodeIds.
       // Fires on announce_review_start so the UI doesn't look frozen
       // while Claude reads the instructions string (~10s).
-      function showPreparing(names) {
+      function _showReviewBannerShell() {
         document.body.classList.add("reviewing");
         reviewPanel.style.display = "";
         reviewPanel.style.borderBottom = "1px solid var(--border)";
         stopWrap.style.display = "block";
         lockedBanner.style.display = "block";
+      }
+      function showPreparing(names) {
+        _showReviewBannerShell();
         const nameStr = (names && names.length)
           ? `<br>${names.map(esc).join(", ")}`
           : "";
-        lockedBannerText.innerHTML =
-          `<strong><span class="reviewing-dot"></span>Preparing review…</strong>${nameStr}`;
+        setRealProgress(
+          `<strong><span class="reviewing-dot"></span>Preparing review…</strong>${nameStr}`
+        );
+      }
+      function showScanProgress(frameName, frameIndex, frameCount) {
+        _showReviewBannerShell();
+        const indexStr = (frameIndex != null && frameCount != null)
+          ? ` ${frameIndex} of ${frameCount}`
+          : "";
+        const nameStr = frameName ? `<br>${esc(frameName)}` : "";
+        setRealProgress(
+          `<strong><span class="reviewing-dot"></span>Scanning frame${indexStr}</strong>${nameStr}`
+        );
       }
       function showLocked(data) {
-        document.body.classList.add("reviewing");
-        reviewPanel.style.display = "";
-        reviewPanel.style.borderBottom = "1px solid var(--border)";
-        stopWrap.style.display = "block";
-        lockedBanner.style.display = "block";
+        _showReviewBannerShell();
         const n = data.names.length;
         const mins = Math.max(1, Math.ceil(n * 0.5));
         const eta = `About ${mins} minute${mins === 1 ? "" : "s"}`;
-        lockedBannerText.innerHTML =
+        setRealProgress(
           `<strong><span class="reviewing-dot"></span>Reviewing ${n} frame${n === 1 ? "" : "s"}</strong>` +
           `<span class="locked-eta">${eta}</span>` +
-          data.names.map(esc).join(", ");
+          data.names.map(esc).join(", ")
+        );
       }
       function hideLocked() {
+        _stopFunTicker();
         document.body.classList.remove("reviewing");
         stopWrap.style.display = "none";
         lockedBanner.style.display = "none";

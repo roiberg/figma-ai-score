@@ -28,6 +28,7 @@ const VERSION = "0.6.4";
 // names (announce_review_start, etc.) — we keep that wire format unchanged.
 const SUBCOMMAND_TO_METHOD = {
   "announce-review-start": "announce_review_start",
+  "announce-progress":     "announce_progress",
   "get-preferences":       "get_preferences",
   "get-selection":         "get_selection",
   "begin-review":          "begin_review",
@@ -99,11 +100,14 @@ Usage:
 
 Subcommands (all return JSON on stdout):
   announce-review-start                   Tell the plugin a review is starting (call this FIRST).
+  announce-progress --message "..."       Post a progress update to the plugin banner.
   get-preferences                         Returns enabledRules + the full review instructions.
   get-selection                           Returns the live selection from the plugin.
   begin-review --node-ids id1,id2,...     Lock the plugin into review state.
                   | --node-ids-file <path|->
   begin-and-scan --node-ids id1,id2,...   Lock + scan in one call (saves a round-trip).
+                  [--frame-index N]       Optional 1-based index of this frame in the review.
+                  [--frame-count N]       Optional total number of frames being reviewed.
                   | --node-ids-file <path|->
   request-scan --node-id <id>             Returns the scan tree + a thumbnailPath (PNG).
   highlight-nodes --node-ids id1,id2,...  Flash the given nodes in Figma.
@@ -139,8 +143,15 @@ or '--help' to succeed.
 
 async function buildParams(subcommand, flags) {
   switch (subcommand) {
+    case "announce-progress": {
+      if (typeof flags["message"] !== "string" || !flags["message"].trim()) {
+        const err = new Error("Missing --message for announce-progress.");
+        err.code = "BAD_ARGS";
+        throw err;
+      }
+      return { message: flags["message"] };
+    }
     case "begin-review":
-    case "begin-and-scan":
     case "highlight-nodes": {
       let nodeIds = [];
       if (typeof flags["node-ids"] === "string") {
@@ -156,6 +167,25 @@ async function buildParams(subcommand, flags) {
         throw err;
       }
       return { nodeIds };
+    }
+    case "begin-and-scan": {
+      let nodeIds = [];
+      if (typeof flags["node-ids"] === "string") {
+        nodeIds = flags["node-ids"].split(",").map(s => s.trim()).filter(Boolean);
+      } else if (typeof flags["node-ids-file"] === "string") {
+        const path = flags["node-ids-file"];
+        const txt = path === "-" ? await readStdinAsync() : readFileSync(path, "utf8");
+        nodeIds = txt.split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
+      }
+      if (!nodeIds.length) {
+        const err = new Error(`Missing --node-ids for begin-and-scan.`);
+        err.code = "BAD_ARGS";
+        throw err;
+      }
+      const params = { nodeIds };
+      if (flags["frame-index"] !== undefined) params.frameIndex = parseInt(flags["frame-index"], 10);
+      if (flags["frame-count"] !== undefined) params.frameCount = parseInt(flags["frame-count"], 10);
+      return params;
     }
     case "request-scan": {
       if (typeof flags["node-id"] !== "string") {

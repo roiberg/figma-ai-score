@@ -58,7 +58,11 @@ Enumerate every distinct visual region in the thumbnail (banners, search bars, f
 Be specific in the detail: reference what you see in the screenshot AND the node that should have been a component.`,
 
   colors: `### colors
-Pre-computed (offenders + \`suggestedTokens\`). Pass through unchanged.`,
+Pre-computed. Copy each offender unchanged with one exception: token selection.
+
+When an offender has \`_allTokenCandidates\`, that list contains every token that exactly matches the fill/stroke color. Use it (together with \`suggestedTokens\` which holds a pre-ranked shortlist) to pick the **single most semantically appropriate token** for this node — consider the node's name, its role in the layout, and standard token naming conventions (e.g. "Surface" for screen backgrounds, "on-*" for text/icons drawn on a colored surface, "primary" for key actions). Replace \`suggestedTokens\` with an array containing only your chosen token, and drop \`_allTokenCandidates\` from the output.
+
+If there is no \`_allTokenCandidates\` field, pass \`suggestedTokens\` through unchanged.`,
 
   typography: `### typography
 Pre-computed. Pass through unchanged.`,
@@ -1075,16 +1079,18 @@ function lintColors(root, ds) {
           name: node.name,
           detail: `Fill does not use a token or style.`
         };
-        // Suggest token(s) when there are exact matches. When multiple tokens
-        // share the same color value, surface all of them so the user can pick —
-        // returning nothing would be worse than offering the full candidate list.
+        // Suggest token(s) for exact color matches. When multiple tokens share
+        // the same value, rank by semantic fit and show the top 3 — Simple mode
+        // displays these as pick buttons. All candidates are stored in
+        // _allTokenCandidates so AI mode can make a more informed single choice.
         if (hasDs && !node.hasMultipleFills) {
-          const matches = findTokensByColor(ds, f.color, { allMatches: true });
-          if (matches && matches.length > 0) {
-            o.suggestedTokens = matches.map(m => Object.assign({}, m, {
-              slot: "fill",
-              reason: "Exact match."
-            }));
+          const all = findTokensByColor(ds, f.color);
+          if (all.length > 0) {
+            const top = rankColorCandidates(all, node.name);
+            o.suggestedTokens = top.map(m => Object.assign({}, m, { slot: "fill", reason: "Exact match." }));
+            if (all.length > top.length) {
+              o._allTokenCandidates = all.map(m => Object.assign({}, m, { slot: "fill" }));
+            }
           }
         }
         offenders.push(o);
@@ -1100,12 +1106,13 @@ function lintColors(root, ds) {
           detail: `Stroke does not use a token or style.`
         };
         if (hasDs && !node.hasMultipleStrokes) {
-          const matches = findTokensByColor(ds, s.color, { allMatches: true });
-          if (matches && matches.length > 0) {
-            o.suggestedTokens = matches.map(m => Object.assign({}, m, {
-              slot: "stroke",
-              reason: "Exact match."
-            }));
+          const all = findTokensByColor(ds, s.color);
+          if (all.length > 0) {
+            const top = rankColorCandidates(all, node.name);
+            o.suggestedTokens = top.map(m => Object.assign({}, m, { slot: "stroke", reason: "Exact match." }));
+            if (all.length > top.length) {
+              o._allTokenCandidates = all.map(m => Object.assign({}, m, { slot: "stroke" }));
+            }
           }
         }
         offenders.push(o);
@@ -2197,9 +2204,8 @@ async function getDesignSystem() {
 
 // Find tokens (variable preferred over style when both match).
 // Returns { kind: "variable"|"style", id, name, color, isPrimitive? } or null.
-// If `allMatches` is true, returns an array of all matches instead.
-function findTokensByColor(ds, hex, opts) {
-  opts = opts || {};
+// Returns an array of all tokens whose resolved color matches `hex`.
+function findTokensByColor(ds, hex) {
   const norm = (c) => (c || "").toLowerCase();
   const target = norm(hex);
   const varMatches = (ds.variables || [])
@@ -2208,13 +2214,37 @@ function findTokensByColor(ds, hex, opts) {
   const styleMatches = (ds.paintStyles || [])
     .filter(s => norm(s.color) === target)
     .map(s => ({ kind: "style", id: s.id, name: s.name, color: s.color }));
-  if (opts.allMatches) return [...varMatches, ...styleMatches];
-  // Prefer variable over style when both match (user's call).
-  if (varMatches.length === 1 && styleMatches.length === 0) return varMatches[0];
-  if (varMatches.length === 0 && styleMatches.length === 1) return styleMatches[0];
-  // Variable AND style both exactly one each → prefer variable.
-  if (varMatches.length === 1 && styleMatches.length === 1) return varMatches[0];
-  return null; // 0 matches, or ambiguous
+  return [...varMatches, ...styleMatches];
+}
+
+// Rank color token candidates by semantic fit for a given node name.
+// Returns the top `max` candidates (default 3) so the UI stays readable.
+// Scoring:
+//   +10 per token-name word that appears in the node name
+//   +5  if the collection is named "main" (primary design system tokens)
+//   +2  if marked as a primitive token
+//   -1  per path segment (prefer simpler / shorter token names)
+function rankColorCandidates(candidates, nodeName, max) {
+  if (!candidates || candidates.length === 0) return [];
+  max = max || 3;
+  if (candidates.length <= max) return candidates;
+  const nodeWords = new Set(
+    (nodeName || "").toLowerCase().split(/[\s\-_\/]+/).filter(w => w.length > 2)
+  );
+  function score(t) {
+    let s = 0;
+    const parts = (t.name || "").toLowerCase().split(/[\s\-_\/]+/);
+    for (const w of parts) if (nodeWords.has(w)) s += 10;
+    if ((t.collectionName || t.name || "").toLowerCase().startsWith("main")) s += 5;
+    if (t.isPrimitive) s += 2;
+    s -= parts.length; // prefer shorter names
+    return s;
+  }
+  return candidates
+    .map(t => ({ t, s: score(t) }))
+    .sort((a, b) => b.s - a.s)
+    .slice(0, max)
+    .map(x => x.t);
 }
 
 // Heuristic filter: which FLOAT variables are "appropriate" for a given

@@ -3243,17 +3243,18 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
           _silenceTimer = setTimeout(_startFunTicker, SILENCE_BEFORE_FUN_MS);
         }
       }
+      function etaLabel(n) {
+        if (!n) return "Calculating duration…";
+        if (n === 1) return "About 30 seconds";
+        const mins = Math.ceil(n * 0.5);
+        return `About ${mins} minute${mins === 1 ? "" : "s"}`;
+      }
       function showPreparing(names) {
         _showReviewBannerShell();
         const title = (names && names.length)
           ? `Reviewing ${names.join(", ")}`
           : "Preparing review…";
-        const n = names ? names.length : 0;
-        const mins = Math.max(1, Math.ceil(n * 0.5));
-        const eta = n > 0
-          ? `About ${mins} minute${mins === 1 ? "" : "s"}`
-          : "Calculating duration…";
-        setRealProgress(title, eta);
+        setRealProgress(title, etaLabel(names ? names.length : 0));
       }
       function showScanProgress(frameName, frameIndex, frameCount) {
         _showReviewBannerShell();
@@ -3271,9 +3272,7 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
           ? `Reviewing ${data.names.join(", ")}`
           : "Reviewing…";
         const n = data.names ? data.names.length : 0;
-        const mins = Math.max(1, Math.ceil(n * 0.5));
-        const eta = n > 0 ? `About ${mins} minute${mins === 1 ? "" : "s"}` : null;
-        setRealProgress(title, eta);
+        setRealProgress(title, etaLabel(n));
       }
       function hideLocked() {
         _stopFunTicker();

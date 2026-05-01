@@ -2410,7 +2410,10 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
         naming:     { simple: "layer naming",    ai: "layer naming"    }
       };
 
-      function applyMode(mode) {
+      // save=true only when the user explicitly picks a mode.
+      // Init and saved-mode restores pass save=false to avoid overwriting
+      // clientStorage before the persisted value has been read back.
+      function applyMode(mode, save) {
         document.body.classList.toggle("mode-simple", mode === "simple");
         document.body.classList.toggle("mode-ai", mode === "ai");
         if (modeToggle) modeToggle.setAttribute("data-mode", mode);
@@ -2439,16 +2442,18 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
         window.__currentMode = mode;
         refreshConnectionUi();
         if (mode === "ai") maybeShowConnectSuccess();
-        try { localStorage.setItem("review-mode", mode); } catch (e) {}
-        parent.postMessage({ pluginMessage: { type: "set-mode", mode } }, "*");
+        if (save) {
+          try { localStorage.setItem("review-mode", mode); } catch (e) {}
+          parent.postMessage({ pluginMessage: { type: "set-mode", mode } }, "*");
+        }
       }
 
-      let savedMode = "simple";
-      try { savedMode = localStorage.getItem("review-mode") || "simple"; } catch (e) {}
-      applyMode(savedMode);
+      // Initial render with a temporary default — will be overridden by
+      // saved-mode from the sandbox (clientStorage) momentarily.
+      applyMode("simple", false);
 
       modeOptions.forEach(btn => {
-        btn.addEventListener("click", () => applyMode(btn.dataset.mode));
+        btn.addEventListener("click", () => applyMode(btn.dataset.mode, true));
       });
 
       // Simple-review run button — fires the deterministic linter in the sandbox
@@ -2945,10 +2950,10 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
           return;
         }
         if (msg.type === "suggestion-check-result") { lastSuggestionAt = msg.lastAt || 0; return; }
-        if (msg.type === "saved-mode") { applyMode(msg.mode); return; }
+        if (msg.type === "saved-mode") { applyMode(msg.mode, false); return; }
         if (msg.type === "prefs") renderPrefs(msg.data);
         else if (msg.type === "selection") renderSelection(msg.data, msg.total, msg.capped, msg.maxSelection, msg.thumbnail);
-        else if (msg.type === "review-starting") { if (msg.switchMode) applyMode(msg.switchMode); showPreparing(msg.names || []); }
+        else if (msg.type === "review-starting") { if (msg.switchMode) applyMode(msg.switchMode, true); showPreparing(msg.names || []); }
         else if (msg.type === "scan-progress") showScanProgress(msg.frameName, msg.frameIndex, msg.frameCount);
         else if (msg.type === "ai-progress") {
           _showReviewBannerShell();

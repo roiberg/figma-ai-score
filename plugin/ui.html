@@ -1817,7 +1817,7 @@
                   <span id="banner-dot" class="reviewing-dot"></span><span id="banner-title">Starting review…</span>
                 </div>
                 <div id="banner-eta" class="locked-eta">Calculating duration…</div>
-                <div id="banner-progress-line">Hello I am here</div>
+                <div id="banner-progress-line">Starting…</div>
               </div>
               <div id="progress-fun-line" class="progress-fun"></div>
               <div id="stop-wrap" class="stop-wrap">
@@ -2163,12 +2163,7 @@
       // Resets the silence timer so fun sentences don't appear right after
       // a real update. Call this from announce-progress and on banner open.
       function setProgressMessage(message) {
-        if (message) {
-          bannerProgressLine.textContent = message;
-          bannerProgressLine.style.display = "";
-        } else {
-          bannerProgressLine.style.display = "none";
-        }
+        bannerProgressLine.textContent = message || "Starting…";
         _stopFunTicker();
         _silenceTimer = setTimeout(_startFunTicker, SILENCE_BEFORE_FUN_MS);
       }
@@ -3279,8 +3274,7 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
       }
       function hideLocked() {
         _stopFunTicker();
-        bannerProgressLine.style.display = "none";
-        bannerProgressLine.textContent = "";
+        bannerProgressLine.textContent = "Starting…";
         document.body.classList.remove("reviewing");
         stopWrap.style.display = "none";
         lockedBanner.style.display = "none";

@@ -2130,6 +2130,7 @@
       ];
       let _funTimer = null;
       let _silenceTimer = null;
+      let _analyzingStage = false; // fun sentences only show during the analyzing stage
       const SILENCE_BEFORE_FUN_MS = 4500;
 
       function _stopFunTicker() {
@@ -2165,7 +2166,9 @@
       function setProgressMessage(message) {
         bannerProgressLine.textContent = message || "Starting…";
         _stopFunTicker();
-        _silenceTimer = setTimeout(_startFunTicker, SILENCE_BEFORE_FUN_MS);
+        if (_analyzingStage) {
+          _silenceTimer = setTimeout(_startFunTicker, SILENCE_BEFORE_FUN_MS);
+        }
       }
       // ───────────────────────────────────────────────────────────────────
       const reportEl = document.getElementById("report");
@@ -2975,6 +2978,7 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
           bannerEta.textContent = msg.eta || "Estimating duration…";
           bannerEta.style.display = "";
         }
+        else if (msg.type === "analyzing-done") { _analyzingStage = false; _stopFunTicker(); }
         else if (msg.type === "locked") showLocked(msg.data);
         else if (msg.type === "unlocked") hideLocked();
         else if (msg.type === "report") renderReport(msg.data);
@@ -3239,10 +3243,6 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         reviewPanel.style.borderBottom = "1px solid var(--border)";
         stopWrap.style.display = "block";
         lockedBanner.style.display = "block";
-        // Arm the fun ticker — fires after silence if no announce-progress arrives.
-        if (!_silenceTimer && !_funTimer) {
-          _silenceTimer = setTimeout(_startFunTicker, SILENCE_BEFORE_FUN_MS);
-        }
       }
       function etaLabel(n) {
         if (!n) return "Calculating duration…";
@@ -3258,6 +3258,7 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         setRealProgress(title, "Estimating duration…");
       }
       function showScanProgress(frameName, frameIndex, frameCount) {
+        _analyzingStage = true;
         _showReviewBannerShell();
         const countStr = (frameIndex != null && frameCount != null && frameCount > 1)
           ? ` (${frameIndex} of ${frameCount})`
@@ -3266,6 +3267,10 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
           ? `Scanning ${frameName}${countStr}`
           : `Scanning frame${countStr}`;
         setRealProgress(title, null);
+        // Arm the fun ticker for the analyzing stage
+        if (!_silenceTimer && !_funTimer) {
+          _silenceTimer = setTimeout(_startFunTicker, SILENCE_BEFORE_FUN_MS);
+        }
       }
       function showLocked(data) {
         _showReviewBannerShell();
@@ -3275,6 +3280,7 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         setRealProgress(title, "Estimating duration…");
       }
       function hideLocked() {
+        _analyzingStage = false;
         _stopFunTicker();
         bannerProgressLine.textContent = "Starting…";
         document.body.classList.remove("reviewing");

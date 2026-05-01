@@ -785,7 +785,7 @@ async function handleRpc(method, params) {
       const indexLabel = (typeof params.frameIndex === "number" && typeof params.frameCount === "number")
         ? ` (${params.frameIndex} of ${params.frameCount})`
         : "";
-      figma.ui.postMessage({ type: "ai-progress", message: `Analyzing ${frameLabel}${indexLabel}…` });
+      figma.ui.postMessage({ type: "ai-progress", message: "Analyzing." });
       // Also post a scan-progress message so the banner shows which frame
       // is currently being scanned (with index/count if the caller provides them).
       figma.ui.postMessage({
@@ -842,7 +842,7 @@ async function handleRpc(method, params) {
       try {
         const scanNode = figma.getNodeById(params.nodeId);
         const scanName = scanNode ? scanNode.name : "frame";
-        figma.ui.postMessage({ type: "ai-progress", message: `Analyzing ${scanName}…` });
+        figma.ui.postMessage({ type: "ai-progress", message: "Analyzing." });
       } catch (e) {}
       // Resolve the node, preferring async (works in dynamic-page mode).
       let node = null;
@@ -927,6 +927,7 @@ async function handleRpc(method, params) {
     }
     case "submit_report": {
       figma.ui.postMessage({ type: "ai-progress", message: "Submitting report…" });
+      figma.ui.postMessage({ type: "analyzing-done" });
       figma.ui.postMessage({ type: "report", data: params.report });
       locked = false;
       lockedIds = [];

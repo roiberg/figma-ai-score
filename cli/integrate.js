@@ -76,19 +76,20 @@ function reviewProtocolBody() {
 
 ## Review steps
 
-1. **First action: \`figma-ai-score announce-review-start\`** (no args; returns instantly). This flips the plugin UI into "Preparing review…" so the user sees feedback. Without it the plugin looks frozen for ~10s while you read the instructions.
-2. Run \`figma-ai-score get-preferences\`. The JSON response contains \`enabledRules\` and an \`instructions\` field with the complete review protocol. Read those instructions fully and follow them exactly. They tell you which rules to apply and how to score.
-3. Run \`figma-ai-score get-selection\` to learn what frames the user wants reviewed. If \`capped\` is true, warn the user only the first \`maxSelection\` are scored.
-4. Run \`figma-ai-score begin-review --node-ids id1,id2,…\`.
-5. For each frame, run \`figma-ai-score request-scan --node-id <id>\`. The response includes a \`thumbnailPath\` — see "Vision-based rules" below.
-6. Walk the tree, apply ONLY the enabled rules, compute scores per the instructions.
-7. Write the final report to a temp file (use the \`Write\` tool), then run \`figma-ai-score submit-report --report-file <path>\`. Inline JSON via flags is not supported — the report is too large for shell-quoting.
+1. **\`figma-ai-score announce-review-start\`** — FIRST, always. Returns instantly and flips the plugin UI to "Preparing…". The response includes \`selection\` (current frames) — use it instead of calling \`get-selection\` separately.
+2. **\`figma-ai-score announce-progress --message "Reading preferences…"\`** — call immediately after step 1. Updates the plugin banner so the user sees progress.
+3. **\`figma-ai-score get-preferences\`** — read \`enabledRules\` and the full \`instructions\` field. Follow the instructions exactly.
+4. For each frame (i of N): **\`figma-ai-score announce-progress --message "Analyzing <frame name>…"\`** then **\`figma-ai-score begin-and-scan --node-ids <id> --frame-index i --frame-count N\`**. Returns scan tree, lintResults, nodeStats, and \`thumbnailPath\`.
+5. After analyzing all frames: **\`figma-ai-score announce-progress --message "Submitting report…"\`**.
+6. Write the final report JSON to a temp file (use the \`Write\` tool), then **\`figma-ai-score submit-report --report-file <path>\`**.
+
+Call \`announce-progress\` freely whenever you're about to spend time thinking — it updates the plugin banner in real time.
 
 If any subcommand returns \`{ "cancelled": true }\` in its JSON output, stop the review immediately and tell the user "Review cancelled."
 
 ## Vision-based rules
 
-\`request-scan\` writes a JPEG thumbnail of the frame to a system temp dir (path varies; macOS is \`/var/folders/.../figma-ai-score-<pid>/<nodeId>.jpg\`) and returns its absolute path as \`thumbnailPath\`. When AI-mode rules call for visual judgment (the \`naming\` semantic-accuracy check, the \`components\` vision check, \`autolayout\` quality, etc.), use your tool's image-reading capability on that path. Do NOT try to interpret the path string itself — open the file.
+\`begin-and-scan\` writes a JPEG thumbnail of the frame to a system temp dir (path varies; macOS is \`/var/folders/.../figma-ai-score-<pid>/<nodeId>.jpg\`) and returns its absolute path as \`thumbnailPath\`. When AI-mode rules call for visual judgment (the \`naming\` semantic-accuracy check, the \`components\` vision check, \`autolayout\` quality, etc.), use your tool's image-reading capability on that path. Do NOT try to interpret the path string itself — open the file.
 
 ## Output format
 
@@ -152,11 +153,11 @@ function claudeMdBlock(version) {
 A Figma plugin + CLI that reviews designs for AI programmability. The CLI is \`figma-ai-score\` on PATH; all subcommands return JSON on stdout, and on error JSON is written to stderr with a non-zero exit code.
 
 Subcommands:
-- \`figma-ai-score announce-review-start\` — call FIRST whenever the user asks for a review (UI feedback).
+- \`figma-ai-score announce-review-start\` — call FIRST whenever the user asks for a review. Returns \`{ ok, selection }\` so you can skip a separate get-selection call.
+- \`figma-ai-score announce-progress --message "..."\` — post a real progress update to the plugin banner. Call this freely whenever you're about to spend time thinking.
 - \`figma-ai-score get-preferences\` — returns enabledRules + a long \`instructions\` field with the full review protocol. Always call this and follow what it says.
-- \`figma-ai-score get-selection\` — returns the live Figma selection.
-- \`figma-ai-score begin-review --node-ids id1,id2,…\` — locks the plugin into review state.
-- \`figma-ai-score request-scan --node-id <id>\` — returns the scan tree + a \`thumbnailPath\` (JPEG file). Use \`Read\` on that path for AI-mode visual rules.
+- \`figma-ai-score get-selection\` — returns the live Figma selection. Skip if you already have it from announce-review-start.
+- \`figma-ai-score begin-and-scan --node-ids id1,id2,… [--frame-index N] [--frame-count N]\` — lock + scan in one call. Returns scan tree + \`thumbnailPath\` (JPEG file). Use \`Read\` on that path for AI-mode visual rules.
 - \`figma-ai-score highlight-nodes --node-ids id1,id2,…\` — flashes nodes in Figma.
 - \`figma-ai-score submit-report --report-file <path>\` — delivers the final report. Write the JSON to a temp file with \`Write\`, then call this.
 - \`figma-ai-score is-cancelled\` — returns \`{ cancelled: bool }\`. Other subcommands also short-circuit with \`{ cancelled: true }\` once cancel is set.

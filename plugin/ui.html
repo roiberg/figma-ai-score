@@ -2958,7 +2958,7 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
           } else if (ws && ws.readyState === WebSocket.CONNECTING) {
             // Socket is mid-reconnect — wait for it to open, then flush.
             // This prevents silent drops when a brief WS blip occurs while
-            // the sandbox is processing a long-running RPC (e.g. request_scan).
+            // the sandbox is processing a long-running RPC (e.g. begin_and_scan).
             ws.addEventListener("open", () => { try { ws.send(payload); } catch (e) {} }, { once: true });
           }
           // If CLOSING/CLOSED the bridge already rejected the pending call; drop.
@@ -3234,21 +3234,16 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         }
       });
 
-      // Early "getting ready" state before begin_review has nodeIds.
-      // Fires on announce_review_start so the UI doesn't look frozen
-      // while Claude reads the instructions string (~10s).
+      // Early "getting ready" state. Fires on announce_review_start so the UI
+      // doesn't look frozen while the AI reads the instructions string (~10s).
+      // Also called before each frame's begin_and_scan to ensure the banner
+      // is visible.
       function _showReviewBannerShell() {
         document.body.classList.add("reviewing");
         reviewPanel.style.display = "";
         reviewPanel.style.borderBottom = "1px solid var(--border)";
         stopWrap.style.display = "block";
         lockedBanner.style.display = "block";
-      }
-      function etaLabel(n) {
-        if (!n) return "Calculating duration…";
-        if (n === 1) return "About 30 seconds";
-        const mins = Math.ceil(n * 0.5);
-        return `About ${mins} minute${mins === 1 ? "" : "s"}`;
       }
       function showPreparing(names) {
         _showReviewBannerShell();

@@ -27,7 +27,7 @@ let locked = false;
 let lockedIds = [];
 // `cancelled` lives here in the plugin sandbox because CLI invocations are
 // short-lived; only the plugin can carry the flag across the multi-call
-// review flow. Cleared by announce_review_start / begin_review; short-
+// review flow. Cleared by announce_review_start / begin_and_scan; short-
 // circuits subsequent RPCs with { cancelled: true } until cleared.
 let cancelled = false;
 const CANCEL_EXEMPT_METHODS = new Set([
@@ -36,7 +36,7 @@ const CANCEL_EXEMPT_METHODS = new Set([
 ]);
 const CANCEL_CLEARING_METHODS = new Set([
   // A new review cycle clears any stale cancel flag.
-  "announce_review_start", "begin_review", "begin_and_scan"
+  "announce_review_start", "begin_and_scan"
 ]);
 
 // ── Full review protocol. Returned by get_preferences so any Claude ──
@@ -117,7 +117,7 @@ ${disabledNote}
 1. get_preferences → read \`instructions\` fully (you are reading them now). If \`designDoc.content\` is non-null, use it throughout.
 2. For each frame at index i (1-based) of N total frames:
    a. **announce_progress --message "Analyzing <frame name> (i of N)…"** — MANDATORY before every scan.
-   b. begin_and_scan --node-ids <id> --frame-index i --frame-count N — use this, NOT request_scan or begin_review (deprecated).
+   b. begin_and_scan --node-ids <id> --frame-index i --frame-count N
    c. Apply enabled rules to the scan result. Compute score.
 3. **announce_progress --message "Submitting report…"** — MANDATORY before submitting.
 4. Write report JSON to a temp file, call submit_report --report-file <path>.
@@ -338,7 +338,7 @@ figma.ui.onmessage = async (msg) => {
     if (msg.type === "set-cancelled") {
       // The UI's Stop button (and any future cancel UX) sets this flag.
       // Subsequent CLI RPCs short-circuit with { cancelled: true } until
-      // the next announce_review_start / begin_review clears it.
+      // the next announce_review_start / begin_and_scan clears it.
       cancelled = !!msg.value;
       return;
     }
@@ -751,25 +751,8 @@ async function handleRpc(method, params) {
         }
       };
     }
-    case "begin_review": {
-      const ids = Array.isArray(params.nodeIds) ? params.nodeIds : [];
-      locked = true;
-      lockedIds = ids;
-      const names = ids.map(id => {
-        const n = figma.getNodeById(id);
-        return n ? n.name : "(missing)";
-      });
-      figma.ui.postMessage({ type: "locked", data: { nodeIds: ids, names } });
-      return { ok: true, count: ids.length };
-    }
-    case "end_review": {
-      locked = false;
-      lockedIds = [];
-      figma.ui.postMessage({ type: "unlocked" });
-      return { ok: true };
-    }
     case "begin_and_scan": {
-      // Lock phase (mirrors begin_review)
+      // Lock phase
       const ids = Array.isArray(params.nodeIds) ? params.nodeIds : [];
       cancelled = false;
       locked = true;
@@ -779,15 +762,11 @@ async function handleRpc(method, params) {
         return n ? n.name : "(missing)";
       });
       figma.ui.postMessage({ type: "locked", data: { nodeIds: ids, names } });
-      // Automatic progress message — fires regardless of whether the AI
-      // calls announce_progress manually.
-      const frameLabel = names[0] || "frame";
-      const indexLabel = (typeof params.frameIndex === "number" && typeof params.frameCount === "number")
-        ? ` (${params.frameIndex} of ${params.frameCount})`
-        : "";
+      // Auto-fire banner messages — works regardless of whether the AI
+      // calls announce_progress. ai-progress sets the progress line text;
+      // scan-progress sets the bold title (frame name + index) and arms
+      // the fun-sentence ticker in the UI.
       figma.ui.postMessage({ type: "ai-progress", message: "Analyzing." });
-      // Also post a scan-progress message so the banner shows which frame
-      // is currently being scanned (with index/count if the caller provides them).
       figma.ui.postMessage({
         type: "scan-progress",
         frameName: names[0] || null,
@@ -795,7 +774,7 @@ async function handleRpc(method, params) {
         frameCount: typeof params.frameCount === "number" ? params.frameCount : null,
       });
 
-      // Scan phase (mirrors request_scan for the first node)
+      // Scan phase: extract tree, export thumbnail, lint.
       const scanNodeId = ids[0];
       if (!scanNodeId) return { locked: true, ok: true, count: ids.length };
       let node = null;
@@ -825,82 +804,6 @@ async function handleRpc(method, params) {
       figma.ui.postMessage({ type: "eta-update", eta: estimateEta(nodeStats.total) });
       return {
         locked: true,
-        fileName: figma.root.name,
-        pageName: figma.currentPage.name,
-        root: { id: node.id, name: node.name, type: node.type },
-        tree,
-        thumbnail,
-        thumbError,
-        designSystem,
-        lintResults,
-        nodeStats,
-      };
-    }
-    case "request_scan": {
-      // Auto-fire the same banner messages as begin_and_scan so the banner
-      // works correctly even when the AI uses the deprecated request_scan path.
-      try {
-        const scanNode = figma.getNodeById(params.nodeId);
-        const scanName = scanNode ? scanNode.name : "frame";
-        figma.ui.postMessage({ type: "ai-progress", message: "Analyzing." });
-        figma.ui.postMessage({
-          type: "scan-progress",
-          frameName: scanName,
-          frameIndex: typeof params.frameIndex === "number" ? params.frameIndex : null,
-          frameCount: typeof params.frameCount === "number" ? params.frameCount : null,
-        });
-      } catch (e) {}
-      // Resolve the node, preferring async (works in dynamic-page mode).
-      let node = null;
-      try {
-        if (typeof figma.getNodeByIdAsync === "function") {
-          node = await figma.getNodeByIdAsync(params.nodeId);
-        }
-      } catch (e) { /* fall through */ }
-      if (!node) node = figma.getNodeById(params.nodeId);
-      // Final fallback: iterate the current page's selection for a live SceneNode
-      // with the matching id. This is guaranteed to give us a proper node object.
-      if (!node || typeof node.exportAsync !== "function") {
-        try {
-          const sel = figma.currentPage.selection;
-          for (const s of sel) {
-            if (s && s.id === params.nodeId && typeof s.exportAsync === "function") {
-              node = s;
-              break;
-            }
-          }
-        } catch (e) {}
-      }
-      if (!node) throw new Error("node not found: " + params.nodeId);
-      const tree = extractNode(node);
-      let thumbnail = null;
-      let thumbError = null;
-      try {
-        if (typeof node.exportAsync === "function") {
-          const bytes = await node.exportAsync({
-            format: "JPG",
-            constraint: { type: "WIDTH", value: 384 }
-          });
-          thumbnail = bytesToBase64(bytes);
-        } else {
-          thumbError = "node.exportAsync is not a function (type=" + node.type + ")";
-        }
-      } catch (e) {
-        thumbError = String(e && e.message || e);
-      }
-      let designSystem = null;
-      try { designSystem = await getDesignSystem(); } catch (e) {}
-      if (designSystem && Array.isArray(designSystem.variables) && designSystem.variables.length) {
-        const frameHexes = extractFrameHexColors(tree);
-        designSystem.variables = designSystem.variables.filter(v => v.color && frameHexes.has(v.color));
-      }
-      let lintResults = null;
-      try {
-        lintResults = lintFrame(tree, prefs, designSystem, { keepInternalFields: true });
-      } catch (e) {}
-      const nodeStats = computeNodeStats(tree);
-      figma.ui.postMessage({ type: "eta-update", eta: estimateEta(nodeStats.total) });
-      return {
         fileName: figma.root.name,
         pageName: figma.currentPage.name,
         root: { id: node.id, name: node.name, type: node.type },

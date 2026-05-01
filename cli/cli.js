@@ -31,9 +31,7 @@ const SUBCOMMAND_TO_METHOD = {
   "announce-progress":     "announce_progress",
   "get-preferences":       "get_preferences",
   "get-selection":         "get_selection",
-  "begin-review":          "begin_review",
   "begin-and-scan":        "begin_and_scan",
-  "request-scan":          "request_scan",
   "highlight-nodes":       "highlight_nodes",
   "submit-report":         "submit_report",
   "is-cancelled":          "is_cancelled",
@@ -103,13 +101,10 @@ Subcommands (all return JSON on stdout):
   announce-progress --message "..."       Post a progress update to the plugin banner.
   get-preferences                         Returns enabledRules + the full review instructions.
   get-selection                           Returns the live selection from the plugin.
-  begin-review --node-ids id1,id2,...     Lock the plugin into review state.
-                  | --node-ids-file <path|->
-  begin-and-scan --node-ids id1,id2,...   Lock + scan in one call (saves a round-trip).
+  begin-and-scan --node-ids id1,id2,...   Lock + scan in one call.
                   [--frame-index N]       Optional 1-based index of this frame in the review.
                   [--frame-count N]       Optional total number of frames being reviewed.
                   | --node-ids-file <path|->
-  request-scan --node-id <id>             Returns the scan tree + a thumbnailPath (PNG).
   highlight-nodes --node-ids id1,id2,...  Flash the given nodes in Figma.
   submit-report --report-file <path|->    Deliver the final report (use - for stdin).
   is-cancelled                            Returns { cancelled: bool }.
@@ -151,7 +146,6 @@ async function buildParams(subcommand, flags) {
       }
       return { message: flags["message"] };
     }
-    case "begin-review":
     case "highlight-nodes": {
       let nodeIds = [];
       if (typeof flags["node-ids"] === "string") {
@@ -187,14 +181,6 @@ async function buildParams(subcommand, flags) {
       if (flags["frame-count"] !== undefined) params.frameCount = parseInt(flags["frame-count"], 10);
       return params;
     }
-    case "request-scan": {
-      if (typeof flags["node-id"] !== "string") {
-        const err = new Error("Missing --node-id for request-scan.");
-        err.code = "BAD_ARGS";
-        throw err;
-      }
-      return { nodeId: flags["node-id"] };
-    }
     case "submit-report": {
       if (typeof flags["report-file"] !== "string") {
         const err = new Error("Missing --report-file for submit-report (use - for stdin).");
@@ -218,7 +204,7 @@ async function buildParams(subcommand, flags) {
 }
 
 // ────────────────────────────────────────────────────────────
-// Thumbnail unpack — request_scan returns a base64 PNG; we
+// Thumbnail unpack — begin_and_scan returns a base64 JPEG; we
 // write it to a temp file so the host AI can use its native
 // image-reading capability (Read in Claude Code, etc.).
 // ────────────────────────────────────────────────────────────
@@ -444,7 +430,7 @@ async function main() {
   }
   bridge.close();
 
-  if (subcommand === "request-scan" || subcommand === "begin-and-scan") {
+  if (subcommand === "begin-and-scan") {
     result = unpackThumbnail(result, params);
   }
 

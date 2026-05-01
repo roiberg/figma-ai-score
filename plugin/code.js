@@ -921,9 +921,9 @@ function computeNodeStats(tree) {
 function estimateEta(totalNodes) {
   if (!totalNodes) return null;
   const seconds = Math.min(20 + Math.round(totalNodes * 0.35), 600);
-  if (seconds < 60) return "About 30 seconds";
+  if (seconds < 60) return "About 30 seconds left";
   const mins = Math.ceil(seconds / 60);
-  return `About ${mins} minute${mins === 1 ? "" : "s"}`;
+  return `About ${mins} minute${mins === 1 ? "" : "s"} left`;
 }
 
 // ── components rule (4 checks) ──

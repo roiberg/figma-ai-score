@@ -3223,6 +3223,10 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         reviewPanel.style.borderBottom = "1px solid var(--border)";
         stopWrap.style.display = "block";
         lockedBanner.style.display = "block";
+        // TEST: force a visible real message to confirm the banner renders
+        bannerTitle.textContent = "TEST — real message working";
+        bannerEta.textContent = "TEST ETA";
+        bannerEta.style.display = "";
       }
       function showPreparing(names) {
         _showReviewBannerShell();

@@ -2163,7 +2163,9 @@
       // Resets the silence timer so fun sentences don't appear right after
       // a real update. Call this from announce-progress and on banner open.
       function setProgressMessage(message) {
+        console.log("[ai-score ui] setProgressMessage:", message, "element:", bannerProgressLine);
         bannerProgressLine.textContent = message || "Starting…";
+        console.log("[ai-score ui] textContent now:", bannerProgressLine.textContent);
         _stopFunTicker();
         _silenceTimer = setTimeout(_startFunTicker, SILENCE_BEFORE_FUN_MS);
       }
@@ -2968,6 +2970,7 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
         else if (msg.type === "review-starting") { if (msg.switchMode) applyMode(msg.switchMode, true); showPreparing(msg.names || []); }
         else if (msg.type === "scan-progress") showScanProgress(msg.frameName, msg.frameIndex, msg.frameCount);
         else if (msg.type === "ai-progress") {
+          console.log("[ai-score ui] received ai-progress:", msg.message);
           _showReviewBannerShell();
           setProgressMessage(msg.message);
         }

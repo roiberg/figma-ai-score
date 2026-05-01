@@ -700,6 +700,7 @@ async function handleRpc(method, params) {
       };
     }
     case "get_preferences": {
+      console.log("[ai-score sandbox] posting ai-progress: Reading preferences");
       figma.ui.postMessage({ type: "ai-progress", message: "Reading preferences…" });
       let designDoc = null;
       try {

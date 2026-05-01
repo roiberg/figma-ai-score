@@ -2134,14 +2134,12 @@
       const SILENCE_BEFORE_FUN_MS = 4500;
 
       function _stopFunTicker() {
-        console.log("[fun] _stopFunTicker called from:", new Error().stack.split("\n")[2]);
         if (_funTimer)    { clearTimeout(_funTimer);    _funTimer    = null; }
         if (_silenceTimer){ clearTimeout(_silenceTimer); _silenceTimer = null; }
         progressFunLine.style.display = "none";
         progressFunLine.textContent = "";
       }
       function _showNextFun() {
-        console.log("[fun] _showNextFun — showing sentence");
         const s = FUN_SENTENCES[Math.floor(Math.random() * FUN_SENTENCES.length)];
         progressFunLine.textContent = s;
         progressFunLine.style.display = "block";
@@ -2149,7 +2147,6 @@
         _funTimer = setTimeout(_showNextFun, delay);
       }
       function _startFunTicker() {
-        console.log("[fun] _startFunTicker fired — analyzingStage:", _analyzingStage);
         _showNextFun();
       }
       // Updates the bold title and ETA line only. Does not affect the
@@ -2978,7 +2975,6 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
           setProgressMessage(msg.message);
         }
         else if (msg.type === "eta-update") {
-          console.log("[fun] eta-update received:", msg.eta);
           bannerEta.textContent = msg.eta || "Estimating duration…";
           bannerEta.style.display = "";
         }
@@ -3262,7 +3258,6 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         setRealProgress(title, "Estimating duration…");
       }
       function showScanProgress(frameName, frameIndex, frameCount) {
-        console.log("[fun] showScanProgress — arming ticker, _silenceTimer:", _silenceTimer, "_funTimer:", _funTimer);
         _analyzingStage = true;
         _showReviewBannerShell();
         const countStr = (frameIndex != null && frameCount != null && frameCount > 1)

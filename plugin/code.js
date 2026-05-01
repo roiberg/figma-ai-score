@@ -837,12 +837,18 @@ async function handleRpc(method, params) {
       };
     }
     case "request_scan": {
-      // Auto-fire progress message so the banner updates even when the AI
-      // uses request_scan instead of begin_and_scan.
+      // Auto-fire the same banner messages as begin_and_scan so the banner
+      // works correctly even when the AI uses the deprecated request_scan path.
       try {
         const scanNode = figma.getNodeById(params.nodeId);
         const scanName = scanNode ? scanNode.name : "frame";
         figma.ui.postMessage({ type: "ai-progress", message: "Analyzing." });
+        figma.ui.postMessage({
+          type: "scan-progress",
+          frameName: scanName,
+          frameIndex: typeof params.frameIndex === "number" ? params.frameIndex : null,
+          frameCount: typeof params.frameCount === "number" ? params.frameCount : null,
+        });
       } catch (e) {}
       // Resolve the node, preferring async (works in dynamic-page mode).
       let node = null;
@@ -870,28 +876,20 @@ async function handleRpc(method, params) {
       let thumbnail = null;
       let thumbError = null;
       try {
-        console.log("[figma-ai-score] v2 request_scan. node type:", node.type, "has exportAsync:", typeof node.exportAsync);
         if (typeof node.exportAsync === "function") {
           const bytes = await node.exportAsync({
             format: "JPG",
             constraint: { type: "WIDTH", value: 384 }
           });
           thumbnail = bytesToBase64(bytes);
-          console.log("[figma-ai-score] thumbnail exported:", bytes.length, "bytes,", thumbnail.length, "base64 chars");
         } else {
-          thumbError = "node.exportAsync is not a function (type=" + node.type + ", keys=" + Object.keys(node || {}).slice(0, 20).join(",") + ")";
+          thumbError = "node.exportAsync is not a function (type=" + node.type + ")";
         }
       } catch (e) {
         thumbError = String(e && e.message || e);
-        console.error("[figma-ai-score] thumbnail export failed:", e);
       }
-      // DS catalog — used by Claude in Smart mode to suggest color tokens.
-      // Simple mode doesn't come through here (it lints locally), it fetches
-      // its own via the run-lint handler.
       let designSystem = null;
-      try { designSystem = await getDesignSystem(); } catch (e) {
-        console.warn("[figma-ai-score] getDesignSystem failed:", e && e.message);
-      }
+      try { designSystem = await getDesignSystem(); } catch (e) {}
       if (designSystem && Array.isArray(designSystem.variables) && designSystem.variables.length) {
         const frameHexes = extractFrameHexColors(tree);
         designSystem.variables = designSystem.variables.filter(v => v.color && frameHexes.has(v.color));
@@ -899,9 +897,9 @@ async function handleRpc(method, params) {
       let lintResults = null;
       try {
         lintResults = lintFrame(tree, prefs, designSystem, { keepInternalFields: true });
-      } catch (e) {
-        console.warn("[figma-ai-score] lintFrame in request_scan failed:", e && e.message);
-      }
+      } catch (e) {}
+      const nodeStats = computeNodeStats(tree);
+      figma.ui.postMessage({ type: "eta-update", eta: estimateEta(nodeStats.total) });
       return {
         fileName: figma.root.name,
         pageName: figma.currentPage.name,
@@ -911,7 +909,7 @@ async function handleRpc(method, params) {
         thumbError,
         designSystem,
         lintResults,
-        nodeStats: computeNodeStats(tree),
+        nodeStats,
       };
     }
     case "highlight_nodes": {

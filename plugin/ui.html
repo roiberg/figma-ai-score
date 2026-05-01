@@ -2126,7 +2126,7 @@
       function _showNextFun() {
         const s = FUN_SENTENCES[Math.floor(Math.random() * FUN_SENTENCES.length)];
         progressFunLine.textContent = s;
-        progressFunLine.style.display = "";
+        progressFunLine.style.display = "block";
         const delay = 4000 + Math.random() * 21000; // 4–25 s
         _funTimer = setTimeout(_showNextFun, delay);
       }

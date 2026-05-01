@@ -36,7 +36,10 @@ const SUPPORTED_TOOLS = new Set([
  */
 export const CLAUDE_PERMISSION_ENTRIES = [
   "Bash(figma-ai-score:*)",
+  // macOS: /var/folders is a symlink → /private/var/folders. Claude Code
+  // resolves symlinks before checking permissions, so both forms are needed.
   "Read(/var/folders/**/figma-ai-score-*/**)",
+  "Read(/private/var/folders/**/figma-ai-score-*/**)",
   "Read(/tmp/figma-ai-score-*)",
   "Write(/tmp/figma-ai-score-*)",
 ];

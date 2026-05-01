@@ -3284,8 +3284,8 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
           ? ` (${frameIndex} of ${frameCount})`
           : "";
         const title = frameName
-          ? `Scanning ${frameName}${countStr}`
-          : `Scanning frame${countStr}`;
+          ? `Reviewing ${frameName}${countStr}`
+          : `Reviewing frame${countStr}`;
         setRealProgress(title); // leave ETA unchanged — eta-update will fill it in shortly
         // Arm the fun ticker for the analyzing stage
         if (!_silenceTimer && !_funTimer) {

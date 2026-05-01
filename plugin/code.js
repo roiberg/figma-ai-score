@@ -672,6 +672,57 @@ figma.ui.onmessage = async (msg) => {
       }
       return;
     }
+    if (msg.type === "create-component") {
+      try {
+        const offenderNode = figma.getNodeById(msg.nodeId);
+        const frameNode    = figma.getNodeById(msg.frameNodeId);
+        if (!offenderNode || !frameNode) {
+          figma.ui.postMessage({ type: "create-component-result", ok: false, nodeId: msg.nodeId, error: "Node not found" });
+          return;
+        }
+        const variants     = findVariantCandidates(offenderNode);
+        const isVariantSet = variants.length > 1;
+        const baseName     = offenderNode.name.split("/")[0].trim();
+        // Measure the total canvas width the new item will occupy
+        const INNER_GAP    = 24;
+        const neededWidth  = isVariantSet
+          ? variants.reduce((s, n) => s + n.width, 0) + INNER_GAP * (variants.length - 1) + 80
+          : offenderNode.width;
+        // Make room next to the reviewed frame and get the placement position
+        const pos = makeRoomNextToFrame(frameNode, neededWidth);
+        if (isVariantSet) {
+          // Create one component per variant, place them temporarily
+          const components = [];
+          let cx = pos.x;
+          for (const v of variants) {
+            const comp = nodeToComponent(v);
+            comp.name  = variantNameForNode(v, baseName);
+            comp.x     = cx;
+            comp.y     = pos.y;
+            figma.currentPage.appendChild(comp);
+            components.push(comp);
+            cx += v.width + INNER_GAP;
+          }
+          // Combine into a component set; Figma handles internal layout
+          const set  = figma.combineAsVariants(components, figma.currentPage);
+          set.name   = baseName;
+          set.x      = pos.x;
+          set.y      = pos.y;
+          figma.viewport.scrollAndZoomIntoView([set]);
+          figma.ui.postMessage({ type: "create-component-result", ok: true, nodeId: msg.nodeId, variantCount: variants.length });
+        } else {
+          const comp = nodeToComponent(offenderNode);
+          comp.x     = pos.x;
+          comp.y     = pos.y;
+          figma.currentPage.appendChild(comp);
+          figma.viewport.scrollAndZoomIntoView([comp]);
+          figma.ui.postMessage({ type: "create-component-result", ok: true, nodeId: msg.nodeId, variantCount: 0 });
+        }
+      } catch (e) {
+        figma.ui.postMessage({ type: "create-component-result", ok: false, nodeId: msg.nodeId, error: String(e && e.message || e) });
+      }
+      return;
+    }
     if (msg.type === "export-image") {
       try {
         const bytes = await buildExportPng(msg.report);
@@ -924,6 +975,138 @@ function extractFrameHexColors(tree) {
     }
   });
   return hexes;
+}
+
+// ── Create-component helpers ───────────────────────────────────────────────
+
+// State/variant words used to detect sibling variants by name similarity.
+const VARIANT_STATE_WORDS = new Set([
+  "default","hover","active","disabled","pressed","focus","focused",
+  "selected","loading","error","success","warning","on","off",
+  "primary","secondary","tertiary","outlined","filled","text","ghost",
+  "small","medium","large","xl","xs","sm","md","lg",
+  "dark","light","checked","unchecked","open","closed","expanded","collapsed",
+]);
+
+// Return the set of variant siblings for `node`. A "variant" is:
+//   (a) a sibling with the same base name (before the first "/"), OR
+//   (b) a sibling with the same name stem (removing state words) and similar size.
+// Returns [node] when no variants are found.
+function findVariantCandidates(node) {
+  const parent = node.parent;
+  if (!parent || parent.type === "PAGE") return [node];
+  const eligibleTypes = new Set(["FRAME","GROUP","COMPONENT","RECTANGLE","ELLIPSE"]);
+  const siblings = (parent.children || []).filter(n => eligibleTypes.has(n.type));
+  if (siblings.length < 2) return [node];
+
+  const nodeName = node.name;
+  const baseSlash = nodeName.split("/")[0].trim().toLowerCase();
+
+  // Words in the name that are NOT state/variant words form the "stem"
+  function stem(name) {
+    return name.toLowerCase().split(/[\s\-_\/]+/)
+      .filter(w => w.length > 0 && !VARIANT_STATE_WORDS.has(w))
+      .join(" ");
+  }
+  const nodeStem = stem(nodeName);
+  const sameSize = (a, b) =>
+    Math.abs(a.width  - b.width)  <= Math.max(a.width  * 0.15, 4) &&
+    Math.abs(a.height - b.height) <= Math.max(a.height * 0.15, 4);
+
+  const found = siblings.filter(n => {
+    if (n.id === node.id) return true; // always include the node itself
+    const nBase = n.name.split("/")[0].trim().toLowerCase();
+    // (a) Same slash-base name → strong signal
+    if (nBase === baseSlash) return true;
+    // (b) Same non-state stem + similar size → weaker but useful
+    const nStem = stem(n.name);
+    if (nStem && nStem === nodeStem && sameSize(node, n)) return true;
+    return false;
+  });
+
+  // Deduplicate while preserving order, put the original node first
+  const seen = new Set();
+  const result = [node];
+  seen.add(node.id);
+  for (const n of found) {
+    if (!seen.has(n.id)) { seen.add(n.id); result.push(n); }
+  }
+  return result.length > 1 ? result : [node];
+}
+
+// Derive a "Property=Value" component name for combineAsVariants.
+// "Button"           → "Variant=Default"
+// "Button/Hover"     → "Variant=Hover"
+// "Button/Size=L/State=Hover" → "Size=L, State=Hover"
+function variantNameForNode(node, baseName) {
+  const raw = node.name;
+  const after = raw.slice(baseName.length).replace(/^\//, "").trim();
+  if (!after) return "Variant=Default";
+  if (after.includes("=")) return after.replace(/\//g, ", "); // already structured
+  return "Variant=" + after;
+}
+
+// Copy visual + layout properties from a source FrameNode into a destination.
+const FRAME_COPY_PROPS = [
+  "fills","strokes","effects","opacity","blendMode","clipsContent",
+  "cornerRadius","topLeftRadius","topRightRadius","bottomLeftRadius","bottomRightRadius",
+  "strokeWeight","strokeAlign",
+  "paddingLeft","paddingRight","paddingTop","paddingBottom","itemSpacing",
+  "layoutMode","primaryAxisAlignItems","counterAxisAlignItems",
+  "primaryAxisSizingMode","counterAxisSizingMode",
+  "layoutWrap","counterAxisSpacing",
+];
+function copyFrameProps(src, dst) {
+  for (const p of FRAME_COPY_PROPS) {
+    try {
+      const v = src[p];
+      if (v === undefined) continue;
+      // Arrays (fills / strokes / effects) must be cloned, not shared
+      dst[p] = Array.isArray(v) ? v.map(x => Object.assign({}, x)) : v;
+    } catch (e) { /* skip read-only or unsupported props */ }
+  }
+  // Force fixed sizing so the component doesn't shrink to 0
+  try { dst.primaryAxisSizingMode   = "FIXED"; } catch (e) {}
+  try { dst.counterAxisSizingMode   = "FIXED"; } catch (e) {}
+}
+
+// Convert a raw node into a new COMPONENT with the same visual content.
+function nodeToComponent(sourceNode) {
+  const comp = figma.createComponent();
+  comp.name = sourceNode.name;
+  try { comp.resize(sourceNode.width, sourceNode.height); } catch (e) {}
+  copyFrameProps(sourceNode, comp);
+  for (const child of (sourceNode.children || [])) {
+    try { comp.appendChild(child.clone()); } catch (e) {}
+  }
+  return comp;
+}
+
+// Ensure there is at least GAP + neededWidth + GAP of clear space to the right
+// of `frameNode` by shifting same-level siblings to the right if necessary.
+// Returns the { x, y } position where the new item should be placed.
+function makeRoomNextToFrame(frameNode, neededWidth) {
+  const GAP       = 200;
+  const frameRight = frameNode.x + frameNode.width;
+  const container = frameNode.parent || figma.currentPage;
+  const siblings  = (container.children || []).filter(n => n.id !== frameNode.id);
+
+  // Nodes whose left edge is at or to the right of the frame
+  const rightOf = siblings.filter(n => n.x >= frameRight - 10);
+  if (rightOf.length === 0) {
+    return { x: frameRight + GAP, y: frameNode.y };
+  }
+
+  const closestX  = Math.min(...rightOf.map(n => n.x));
+  const available = closestX - frameRight;
+  const needed    = GAP + neededWidth + GAP;
+
+  if (available < needed) {
+    const shift = needed - available;
+    for (const n of rightOf) n.x += shift;
+  }
+
+  return { x: frameRight + GAP, y: frameNode.y };
 }
 
 function computeNodeStats(tree) {

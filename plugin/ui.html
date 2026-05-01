@@ -1053,6 +1053,23 @@
         outline: none;
       }
       button.apply-rename-btn:disabled { opacity: 0.5; cursor: default; }
+      button.apply-rename-btn.apply-done {
+        background: var(--green-bg);
+        border-color: #7ecf96;
+        color: var(--green);
+        cursor: default;
+      }
+      button.create-component-btn {
+        background: var(--accent-light);
+        border-color: #c4b0f7;
+        color: var(--accent-text);
+      }
+      button.create-component-btn:hover:not(:disabled) {
+        background: #e5d9fe;
+        border-color: var(--accent);
+        color: var(--accent-text);
+        outline: none;
+      }
       .token-btn-value {
         font-weight: 400;
         opacity: 0.85;
@@ -3009,6 +3026,21 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
         else if (msg.type === "locked") showLocked(msg.data);
         else if (msg.type === "unlocked") hideLocked();
         else if (msg.type === "report") renderReport(msg.data);
+        else if (msg.type === "create-component-result") {
+          const btn = reportEl.querySelector(`[data-create-component="${CSS.escape(msg.nodeId)}"]`);
+          if (btn) {
+            if (msg.ok) {
+              btn.textContent = msg.variantCount > 1
+                ? `${msg.variantCount} variants created ✓`
+                : "Component created ✓";
+              btn.classList.add("apply-done");
+              btn.classList.remove("create-component-btn");
+            } else {
+              btn.disabled    = false;
+              btn.textContent = "Create component";
+            }
+          }
+        }
       };
 
       parent.postMessage({ pluginMessage: { type: "ui-ready" } }, "*");
@@ -3376,6 +3408,9 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
               const offendersHtml = hasOffenders
                 ? '<div class="breakdown-offenders">' + offenders.map(o => {
                     const applyParts = [];
+                    if (rule === "components") {
+                      applyParts.push(`<button class="apply-rename-btn create-component-btn" data-create-component="${esc(o.nodeId)}" data-frame-id="${esc(f.nodeId)}">Create component</button>`);
+                    }
                     if (rule === "naming" && o.suggestedName) {
                       applyParts.push(`<button class="apply-rename-btn" data-apply-rename="${esc(o.nodeId)}" data-new-name="${esc(o.suggestedName)}" title="Rename layer to '${esc(o.suggestedName)}'">Rename to "${esc(o.suggestedName)}"</button>`);
                     }
@@ -3491,6 +3526,16 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
             }, "*");
             return;
           }
+        }
+        const createComp = ev.target.closest(".create-component-btn");
+        if (createComp) {
+          ev.stopPropagation();
+          const nodeId     = createComp.getAttribute("data-create-component");
+          const frameNodeId = createComp.getAttribute("data-frame-id");
+          createComp.disabled   = true;
+          createComp.textContent = "Creating…";
+          parent.postMessage({ pluginMessage: { type: "create-component", nodeId, frameNodeId } }, "*");
+          return;
         }
         const bullseye = ev.target.closest(".bullseye-btn");
         if (bullseye) {

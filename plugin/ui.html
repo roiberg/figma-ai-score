@@ -1580,7 +1580,8 @@
       body.reviewing #mode-panel,
       body.reviewing #rules-panel,
       body.reviewing #simple-run-wrap,
-      body.reviewing #ai-prompt-wrap {
+      body.reviewing #ai-prompt-wrap,
+      body.reviewing #pre-review-eta {
         opacity: 0.4;
         pointer-events: none;
         user-select: none;
@@ -1648,6 +1649,14 @@
         border-color: #7c3aed;
         color: #fff;
         outline: none;
+      }
+
+      /* ── Pre-review ETA ── */
+      #pre-review-eta {
+        font-size: 11px;
+        color: var(--text-tertiary);
+        margin-bottom: 8px;
+        display: none;
       }
 
       /* ── Stop wrap ── */
@@ -1960,6 +1969,7 @@
         </div>
 
         <div class="sticky-bottom" id="start-review-panel">
+          <div id="pre-review-eta"></div>
           <!-- Simple mode: direct-run button -->
           <div id="simple-run-wrap" class="simple-run-wrap">
             <button id="run-simple-review" class="run-simple-btn">
@@ -2131,6 +2141,8 @@
       let _funTimer = null;
       let _silenceTimer = null;
       let _analyzingStage = false; // fun sentences only show during the analyzing stage
+      let _lastSelectionEta = null; // ETA computed at selection time, carried into the banner
+      const preReviewEtaEl = document.getElementById("pre-review-eta");
       const SILENCE_BEFORE_FUN_MS = 4500;
 
       function _stopFunTicker() {
@@ -2967,7 +2979,20 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
         if (msg.type === "suggestion-check-result") { lastSuggestionAt = msg.lastAt || 0; return; }
         if (msg.type === "saved-mode") { applyMode(msg.mode, false); return; }
         if (msg.type === "prefs") renderPrefs(msg.data);
-        else if (msg.type === "selection") renderSelection(msg.data, msg.total, msg.capped, msg.maxSelection, msg.thumbnail);
+        else if (msg.type === "selection") {
+          renderSelection(msg.data, msg.total, msg.capped, msg.maxSelection, msg.thumbnail);
+          _lastSelectionEta = msg.eta || null;
+          if (preReviewEtaEl) {
+            const hasFrames = msg.data && msg.data.length > 0;
+            if (hasFrames && msg.eta) {
+              // Strip "About " prefix — "Duration estimation: 30 seconds" reads cleaner
+              preReviewEtaEl.textContent = "Duration estimation: " + msg.eta.replace(/^About /, "");
+              preReviewEtaEl.style.display = "";
+            } else {
+              preReviewEtaEl.style.display = "none";
+            }
+          }
+        }
         else if (msg.type === "review-starting") { if (msg.switchMode) applyMode(msg.switchMode, true); showPreparing(msg.names || []); }
         else if (msg.type === "scan-progress") showScanProgress(msg.frameName, msg.frameIndex, msg.frameCount);
         else if (msg.type === "ai-progress") {
@@ -3250,7 +3275,7 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         const title = (names && names.length)
           ? `Reviewing ${names.join(", ")}`
           : "Preparing review…";
-        setRealProgress(title, "Estimating duration…");
+        setRealProgress(title, _lastSelectionEta || "Estimating duration…");
       }
       function showScanProgress(frameName, frameIndex, frameCount) {
         _analyzingStage = true;
@@ -3272,7 +3297,7 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         const title = data.names && data.names.length
           ? `Reviewing ${data.names.join(", ")}`
           : "Reviewing…";
-        setRealProgress(title, "Estimating duration…");
+        setRealProgress(title, _lastSelectionEta || "Estimating duration…");
       }
       function hideLocked() {
         _analyzingStage = false;

@@ -315,6 +315,15 @@ async function pushSelection() {
     }
   }
 
+  // Compute ETA immediately from a shallow node count so the UI can show
+  // "Duration estimation: …" before any review starts.
+  let eta = null;
+  if (capped.length > 0) {
+    let totalNodes = 0;
+    for (const n of capped) totalNodes += shallowCountNodes(n);
+    eta = estimateEta(totalNodes);
+  }
+
   figma.ui.postMessage({
     type: "selection",
     data: frames,
@@ -324,6 +333,7 @@ async function pushSelection() {
     fileName: figma.root.name,
     pageName: figma.currentPage.name,
     thumbnail,
+    eta,
   });
 }
 figma.on("selectionchange", pushSelection);
@@ -916,14 +926,27 @@ function computeNodeStats(tree) {
   return stats;
 }
 
-// Estimate review duration in seconds based on total node count.
-// Formula: base 20s + 0.35s per node, capped at 10 minutes.
+// Fast shallow node counter — just counts, no data extraction.
+// Used on selection change for instant ETA without the cost of extractNode.
+function shallowCountNodes(node) {
+  let n = 1;
+  if (node.children) for (const c of node.children) n += shallowCountNodes(c);
+  return n;
+}
+
+// Estimate review duration from total node count.
+// Formula: base 20s + 0.35s per node, capped at 10 min.
+// Always ceiling-rounds to the nearest 30-second boundary so we never
+// under-promise (e.g. 45 raw seconds → "About 1 minute").
 function estimateEta(totalNodes) {
   if (!totalNodes) return null;
-  const seconds = Math.min(20 + Math.round(totalNodes * 0.35), 600);
-  if (seconds < 60) return "About 30 seconds left";
-  const mins = Math.ceil(seconds / 60);
-  return `About ${mins} minute${mins === 1 ? "" : "s"} left`;
+  const raw = Math.min(20 + Math.round(totalNodes * 0.35), 600);
+  const secs = Math.ceil(raw / 30) * 30; // minimum 30, always a multiple of 30
+  if (secs < 60) return "About 30 seconds";
+  const mins = secs / 60;
+  return Number.isInteger(mins)
+    ? `About ${mins} minute${mins === 1 ? "" : "s"}`
+    : `About ${mins} minutes`;
 }
 
 // ── components rule (4 checks) ──

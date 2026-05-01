@@ -60,7 +60,12 @@ Be specific in the detail: reference what you see in the screenshot AND the node
   colors: `### colors
 Pre-computed. Copy each offender unchanged with one exception: token selection.
 
-When an offender has \`_allTokenCandidates\`, that list contains every token that exactly matches the fill/stroke color. Use it (together with \`suggestedTokens\` which holds a pre-ranked shortlist) to pick the **single most semantically appropriate token** for this node — consider the node's name, its role in the layout, and standard token naming conventions (e.g. "Surface" for screen backgrounds, "on-*" for text/icons drawn on a colored surface, "primary" for key actions). Replace \`suggestedTokens\` with an array containing only your chosen token, and drop \`_allTokenCandidates\` from the output.
+When an offender has \`_allTokenCandidates\`, that list contains every token that exactly matches the fill/stroke color. Use it (together with \`suggestedTokens\` which holds a pre-ranked shortlist) to pick the **single most semantically appropriate token** for this node. Use all available context to decide:
+- **The thumbnail** (`thumbnailPath`) — look at the screenshot to understand the node's visual role (full-screen background → Surface, icon/text on a dark fill → on-primary, etc.)
+- **The node name** — hints at intent
+- **Standard token naming conventions** — "Surface" for screen backgrounds, "on-*" for content drawn on a colored surface, "primary"/"secondary" for key actions and their content
+
+Replace \`suggestedTokens\` with an array containing only your chosen token, and drop \`_allTokenCandidates\` from the output.
 
 If there is no \`_allTokenCandidates\` field, pass \`suggestedTokens\` through unchanged.`,
 

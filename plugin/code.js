@@ -103,7 +103,7 @@ Pre-computed offenders cover Check 1 (regex defaults + placeholders). ADD from t
 
 Don't flag style choices (lowercase, hyphen, underscore) or valid-but-unusual names.
 
-**suggestedName**: when you have an unambiguous, descriptive replacement that matches the visual, add \`suggestedName\` to the offender for a one-click rename button. Short, no trailing punctuation. Omit when unsure.`
+**suggestedName**: always add \`suggestedName\` to every naming offender — even when uncertain, make your best guess based on the thumbnail and the layer's content. Short, no trailing punctuation. There is no "omit when unsure" — a best guess is always more useful than nothing.`
 };
 
 function buildInstructions(enabledRules) {

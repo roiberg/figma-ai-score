@@ -744,6 +744,13 @@
         overflow: hidden;
         text-overflow: ellipsis;
       }
+      .locked-eta {
+        display: block;
+        font-size: 11px;
+        color: #7a6500;
+        opacity: 0.75;
+        margin-bottom: 2px;
+      }
       .progress-fun {
         font-style: italic;
         opacity: 0.65;
@@ -1800,10 +1807,8 @@
         <div class="col-scroll scroll-area">
           <div class="panel" id="review-panel" style="display:none">
             <div id="locked-banner" class="locked-banner">
-              <div id="locked-banner-text">
-                <div id="progress-real-line"></div>
-                <div id="progress-fun-line" class="progress-fun"></div>
-              </div>
+              <div id="locked-banner-text"></div>
+              <div id="progress-fun-line" class="progress-fun"></div>
               <div id="stop-wrap" class="stop-wrap">
                 <button id="stop" class="danger" style="width:100%">Stop review</button>
               </div>
@@ -2068,7 +2073,6 @@
       selectionEl.addEventListener("scroll", hideChipTooltip);
       const lockedBanner = document.getElementById("locked-banner");
       const lockedBannerText = document.getElementById("locked-banner-text");
-      const progressRealLine = document.getElementById("progress-real-line");
       const progressFunLine = document.getElementById("progress-fun-line");
       const reviewPanel = document.getElementById("review-panel");
       const stopWrap = document.getElementById("stop-wrap");
@@ -2133,7 +2137,7 @@
       // Call this on every real progress update.
       // Clears any fun sentence and arms the silence timer.
       function setRealProgress(html) {
-        progressRealLine.innerHTML = html;
+        lockedBannerText.innerHTML = html;
         _stopFunTicker();
         _silenceTimer = setTimeout(_startFunTicker, SILENCE_BEFORE_FUN_MS);
       }
@@ -3226,8 +3230,11 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         const title = data.names && data.names.length
           ? `Reviewing ${data.names.map(esc).join(", ")}`
           : "Reviewing…";
+        const n = data.names ? data.names.length : 0;
+        const mins = Math.max(1, Math.ceil(n * 0.5));
+        const eta = n > 0 ? `<span class="locked-eta">About ${mins} minute${mins === 1 ? "" : "s"}</span>` : "";
         setRealProgress(
-          `<strong><span class="reviewing-dot"></span>${title}</strong>`
+          `<strong><span class="reviewing-dot"></span>${title}</strong>${eta}`
         );
       }
       function hideLocked() {

@@ -752,6 +752,10 @@
         opacity: 0.75;
         margin-bottom: 2px;
       }
+      #banner-progress-line {
+        margin-top: 4px;
+        font-size: 11px;
+      }
       .progress-fun {
         font-style: italic;
         opacity: 0.65;
@@ -1813,6 +1817,7 @@
                   <span id="banner-dot" class="reviewing-dot"></span><span id="banner-title">Starting review…</span>
                 </div>
                 <div id="banner-eta" class="locked-eta">Calculating duration…</div>
+                <div id="banner-progress-line" style="display:none"></div>
               </div>
               <div id="progress-fun-line" class="progress-fun"></div>
               <div id="stop-wrap" class="stop-wrap">
@@ -2081,6 +2086,7 @@
       const lockedBannerText = document.getElementById("locked-banner-text");
       const bannerTitle = document.getElementById("banner-title");
       const bannerEta = document.getElementById("banner-eta");
+      const bannerProgressLine = document.getElementById("banner-progress-line");
       const progressFunLine = document.getElementById("progress-fun-line");
       const reviewPanel = document.getElementById("review-panel");
       const stopWrap = document.getElementById("stop-wrap");
@@ -2142,8 +2148,8 @@
       function _startFunTicker() {
         _showNextFun();
       }
-      // Call this on every real progress update.
-      // Clears any fun sentence and arms the silence timer.
+      // Updates the bold title and ETA line only. Does not affect the
+      // progress message line or the fun ticker.
       function setRealProgress(title, eta) {
         bannerTitle.textContent = title;
         if (eta) {
@@ -2151,6 +2157,17 @@
           bannerEta.style.display = "";
         } else {
           bannerEta.style.display = "none";
+        }
+      }
+      // Updates the AI progress line (below ETA, above fun sentences).
+      // Resets the silence timer so fun sentences don't appear right after
+      // a real update. Call this from announce-progress and on banner open.
+      function setProgressMessage(message) {
+        if (message) {
+          bannerProgressLine.textContent = message;
+          bannerProgressLine.style.display = "";
+        } else {
+          bannerProgressLine.style.display = "none";
         }
         _stopFunTicker();
         _silenceTimer = setTimeout(_startFunTicker, SILENCE_BEFORE_FUN_MS);
@@ -2957,7 +2974,7 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
         else if (msg.type === "scan-progress") showScanProgress(msg.frameName, msg.frameIndex, msg.frameCount);
         else if (msg.type === "ai-progress") {
           _showReviewBannerShell();
-          setRealProgress(msg.message, null);
+          setProgressMessage(msg.message);
         }
         else if (msg.type === "locked") showLocked(msg.data);
         else if (msg.type === "unlocked") hideLocked();
@@ -3223,7 +3240,10 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         reviewPanel.style.borderBottom = "1px solid var(--border)";
         stopWrap.style.display = "block";
         lockedBanner.style.display = "block";
-
+        // Arm the fun ticker — fires after silence if no announce-progress arrives.
+        if (!_silenceTimer && !_funTimer) {
+          _silenceTimer = setTimeout(_startFunTicker, SILENCE_BEFORE_FUN_MS);
+        }
       }
       function showPreparing(names) {
         _showReviewBannerShell();
@@ -3259,6 +3279,8 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
       }
       function hideLocked() {
         _stopFunTicker();
+        bannerProgressLine.style.display = "none";
+        bannerProgressLine.textContent = "";
         document.body.classList.remove("reviewing");
         stopWrap.style.display = "none";
         lockedBanner.style.display = "none";

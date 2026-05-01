@@ -1816,7 +1816,7 @@
                 <div id="banner-title-row">
                   <span id="banner-dot" class="reviewing-dot"></span><span id="banner-title">Starting review…</span>
                 </div>
-                <div id="banner-eta" class="locked-eta">Calculating duration…</div>
+                <div id="banner-eta" class="locked-eta">Estimating duration…</div>
                 <div id="banner-progress-line">Starting…</div>
               </div>
               <div id="progress-fun-line" class="progress-fun"></div>
@@ -2163,9 +2163,7 @@
       // Resets the silence timer so fun sentences don't appear right after
       // a real update. Call this from announce-progress and on banner open.
       function setProgressMessage(message) {
-        console.log("[ai-score ui] setProgressMessage:", message, "element:", bannerProgressLine);
         bannerProgressLine.textContent = message || "Starting…";
-        console.log("[ai-score ui] textContent now:", bannerProgressLine.textContent);
         _stopFunTicker();
         _silenceTimer = setTimeout(_startFunTicker, SILENCE_BEFORE_FUN_MS);
       }
@@ -2970,9 +2968,12 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
         else if (msg.type === "review-starting") { if (msg.switchMode) applyMode(msg.switchMode, true); showPreparing(msg.names || []); }
         else if (msg.type === "scan-progress") showScanProgress(msg.frameName, msg.frameIndex, msg.frameCount);
         else if (msg.type === "ai-progress") {
-          console.log("[ai-score ui] received ai-progress:", msg.message);
           _showReviewBannerShell();
           setProgressMessage(msg.message);
+        }
+        else if (msg.type === "eta-update") {
+          bannerEta.textContent = msg.eta || "Estimating duration…";
+          bannerEta.style.display = "";
         }
         else if (msg.type === "locked") showLocked(msg.data);
         else if (msg.type === "unlocked") hideLocked();
@@ -3254,7 +3255,7 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         const title = (names && names.length)
           ? `Reviewing ${names.join(", ")}`
           : "Preparing review…";
-        setRealProgress(title, etaLabel(names ? names.length : 0));
+        setRealProgress(title, "Estimating duration…");
       }
       function showScanProgress(frameName, frameIndex, frameCount) {
         _showReviewBannerShell();
@@ -3271,8 +3272,7 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         const title = data.names && data.names.length
           ? `Reviewing ${data.names.join(", ")}`
           : "Reviewing…";
-        const n = data.names ? data.names.length : 0;
-        setRealProgress(title, etaLabel(n));
+        setRealProgress(title, "Estimating duration…");
       }
       function hideLocked() {
         _stopFunTicker();

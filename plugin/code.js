@@ -700,7 +700,6 @@ async function handleRpc(method, params) {
       };
     }
     case "get_preferences": {
-      console.log("[ai-score sandbox] posting ai-progress: Reading preferences");
       figma.ui.postMessage({ type: "ai-progress", message: "Reading preferences…" });
       let designDoc = null;
       try {
@@ -822,6 +821,8 @@ async function handleRpc(method, params) {
       }
       let lintResults = null;
       try { lintResults = lintFrame(tree, prefs, designSystem, { keepInternalFields: true }); } catch (e) {}
+      const nodeStats = computeNodeStats(tree);
+      figma.ui.postMessage({ type: "eta-update", eta: estimateEta(nodeStats.total) });
       return {
         locked: true,
         fileName: figma.root.name,
@@ -832,7 +833,7 @@ async function handleRpc(method, params) {
         thumbError,
         designSystem,
         lintResults,
-        nodeStats: computeNodeStats(tree),
+        nodeStats,
       };
     }
     case "request_scan": {
@@ -1011,6 +1012,16 @@ function computeNodeStats(tree) {
     if (node.effects && node.effects.length > 0) stats.withEffects++;
   });
   return stats;
+}
+
+// Estimate review duration in seconds based on total node count.
+// Formula: base 20s + 0.35s per node, capped at 10 minutes.
+function estimateEta(totalNodes) {
+  if (!totalNodes) return null;
+  const seconds = Math.min(20 + Math.round(totalNodes * 0.35), 600);
+  if (seconds < 60) return "About 30 seconds";
+  const mins = Math.ceil(seconds / 60);
+  return `About ${mins} minute${mins === 1 ? "" : "s"}`;
 }
 
 // ── components rule (4 checks) ──

@@ -2151,24 +2151,24 @@
       }
       // Updates the bold title and ETA line only. Does not affect the
       // progress message line or the fun ticker.
+      // Pass eta to update it; omit (or pass undefined) to leave it unchanged.
       function setRealProgress(title, eta) {
         bannerTitle.textContent = title;
-        if (eta) {
-          bannerEta.textContent = eta;
-          bannerEta.style.display = "";
-        } else {
-          bannerEta.style.display = "none";
+        if (eta !== undefined) {
+          if (eta) {
+            bannerEta.textContent = eta;
+            bannerEta.style.display = "";
+          } else {
+            bannerEta.style.display = "none";
+          }
         }
       }
       // Updates the AI progress line (below ETA, above fun sentences).
-      // Resets the silence timer so fun sentences don't appear right after
-      // a real update. Call this from announce-progress and on banner open.
+      // Does NOT touch the fun ticker — real messages and fun sentences coexist
+      // in their own rows. The ticker starts in showScanProgress and stops on
+      // analyzing-done / hideLocked.
       function setProgressMessage(message) {
         bannerProgressLine.textContent = message || "Starting…";
-        _stopFunTicker();
-        if (_analyzingStage) {
-          _silenceTimer = setTimeout(_startFunTicker, SILENCE_BEFORE_FUN_MS);
-        }
       }
       // ───────────────────────────────────────────────────────────────────
       const reportEl = document.getElementById("report");
@@ -3266,7 +3266,7 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         const title = frameName
           ? `Scanning ${frameName}${countStr}`
           : `Scanning frame${countStr}`;
-        setRealProgress(title, null);
+        setRealProgress(title); // leave ETA unchanged — eta-update will fill it in shortly
         // Arm the fun ticker for the analyzing stage
         if (!_silenceTimer && !_funTimer) {
           _silenceTimer = setTimeout(_startFunTicker, SILENCE_BEFORE_FUN_MS);

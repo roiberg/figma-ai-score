@@ -932,7 +932,7 @@ function computeNodeStats(tree) {
 // an early exit at 1800 nodes. The ETA formula hits its 10-minute ceiling at
 // ~1660 nodes, so counting beyond that is wasted work and risks freezing Figma
 // on frames with thousands of children (e.g. a master artboard with 50 screens).
-const SHALLOW_COUNT_CAP = 1800;
+const SHALLOW_COUNT_CAP = 1000;
 function shallowCountNodes(node) {
   let n = 0;
   const stack = [node];

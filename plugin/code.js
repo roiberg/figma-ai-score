@@ -1075,15 +1075,16 @@ function lintColors(root, ds) {
           name: node.name,
           detail: `Fill does not use a token or style.`
         };
-        // Suggest a token only when unambiguous: single fill on the node
-        // AND exactly one matching token in the DS.
+        // Suggest token(s) when there are exact matches. When multiple tokens
+        // share the same color value, surface all of them so the user can pick —
+        // returning nothing would be worse than offering the full candidate list.
         if (hasDs && !node.hasMultipleFills) {
-          const match = findTokensByColor(ds, f.color);
-          if (match) {
-            o.suggestedTokens = [Object.assign({}, match, {
+          const matches = findTokensByColor(ds, f.color, { allMatches: true });
+          if (matches && matches.length > 0) {
+            o.suggestedTokens = matches.map(m => Object.assign({}, m, {
               slot: "fill",
               reason: "Exact match."
-            })];
+            }));
           }
         }
         offenders.push(o);
@@ -1099,12 +1100,12 @@ function lintColors(root, ds) {
           detail: `Stroke does not use a token or style.`
         };
         if (hasDs && !node.hasMultipleStrokes) {
-          const match = findTokensByColor(ds, s.color);
-          if (match) {
-            o.suggestedTokens = [Object.assign({}, match, {
+          const matches = findTokensByColor(ds, s.color, { allMatches: true });
+          if (matches && matches.length > 0) {
+            o.suggestedTokens = matches.map(m => Object.assign({}, m, {
               slot: "stroke",
               reason: "Exact match."
-            })];
+            }));
           }
         }
         offenders.push(o);

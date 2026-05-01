@@ -2231,7 +2231,7 @@ function findTokensByColor(ds, hex) {
 //   -1  per path segment (prefer simpler / shorter token names)
 function rankColorCandidates(candidates, nodeName, max) {
   if (!candidates || candidates.length === 0) return [];
-  max = max || 3;
+  max = max || 1;
   if (candidates.length <= max) return candidates;
   const nodeWords = new Set(
     (nodeName || "").toLowerCase().split(/[\s\-_\/]+/).filter(w => w.length > 2)

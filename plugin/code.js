@@ -644,18 +644,6 @@ figma.ui.onmessage = async (msg) => {
       }
       return;
     }
-    if (msg.type === "hover-node") {
-      // Hover highlight: select the node so Figma shows its handles in the
-      // canvas, but don't scroll/zoom — too disruptive for a passive hover.
-      // Gated: skip during an active review so we don't clobber the locked state.
-      if (locked) return;
-      try {
-        const node = await figma.getNodeByIdAsync(msg.nodeId);
-        if (!node) return;
-        figma.currentPage.selection = [node];
-      } catch (e) {}
-      return;
-    }
     if (msg.type === "select-node") {
       try {
         const node = await figma.getNodeByIdAsync(msg.nodeId);

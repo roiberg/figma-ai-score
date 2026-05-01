@@ -1013,7 +1013,6 @@
         transition: max-height 0.22s ease, opacity 0.18s ease, padding 0.22s ease;
       }
       .offender-row:last-child { border-bottom: none; }
-      .offender-row:hover { background: var(--bg-secondary); cursor: default; }
       .offender-row.removing {
         max-height: 0;
         opacity: 0;
@@ -3506,25 +3505,6 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         if (!row) return;
         const item = row.parentElement;
         item.classList.toggle("is-open");
-      });
-
-      // Hover-highlight: select the hovered offender's node in the Figma canvas
-      // so its handles light up without scrolling/zooming.
-      // Debounced at 150 ms so rapid mouse movement doesn't spam the sandbox.
-      let _hoverTimer = null;
-      reportEl.addEventListener("mouseover", (ev) => {
-        const row = ev.target.closest(".offender-row");
-        if (!row) return;
-        const nodeId = row.getAttribute("data-offender-node");
-        if (!nodeId) return;
-        clearTimeout(_hoverTimer);
-        _hoverTimer = setTimeout(() => {
-          parent.postMessage({ pluginMessage: { type: "hover-node", nodeId } }, "*");
-        }, 150);
-      });
-      reportEl.addEventListener("mouseleave", () => {
-        clearTimeout(_hoverTimer);
-        _hoverTimer = null;
       });
 
       // Surgically remove one offender row and patch the affected rule chip +

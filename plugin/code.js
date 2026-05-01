@@ -334,7 +334,10 @@ async function pushSelection() {
     await new Promise(r => setTimeout(r, 0));
     let totalNodes = 0;
     for (const n of capped) totalNodes += shallowCountNodes(n);
-    const eta = estimateEta(totalNodes);
+    // If we hit the cap the formula would be meaningless — use the fixed label.
+    const eta = totalNodes >= SHALLOW_COUNT_CAP
+      ? "More than 5 minutes"
+      : estimateEta(totalNodes);
     if (eta) figma.ui.postMessage({ type: "selection-eta", eta });
   }
 }
@@ -929,10 +932,9 @@ function computeNodeStats(tree) {
 }
 
 // Fast node counter for ETA estimation — iterative (no call-stack risk) with
-// an early exit at 1800 nodes. The ETA formula hits its 10-minute ceiling at
-// ~1660 nodes, so counting beyond that is wasted work and risks freezing Figma
-// on frames with thousands of children (e.g. a master artboard with 50 screens).
-const SHALLOW_COUNT_CAP = 1000;
+// an early exit at 800 nodes. The ETA formula hits 5 minutes at exactly 800
+// nodes; counting beyond that risks freezing Figma on huge master artboards.
+const SHALLOW_COUNT_CAP = 800;
 function shallowCountNodes(node) {
   let n = 0;
   const stack = [node];
@@ -946,15 +948,17 @@ function shallowCountNodes(node) {
 }
 
 // Estimate review duration from total node count.
-// Formula: base 20s + 0.35s per node, capped at 10 min.
+// Formula: base 20s + 0.35s per node.
 // Always ceiling-rounds to the nearest 30-second boundary so we never
 // under-promise (e.g. 45 raw seconds → "About 1 minute").
+// Anything ≥ 5 minutes is shown as "More than 5 minutes".
 function estimateEta(totalNodes) {
   if (!totalNodes) return null;
-  const raw = Math.min(20 + Math.round(totalNodes * 0.35), 600);
+  const raw = 20 + Math.round(totalNodes * 0.35);
   const secs = Math.ceil(raw / 30) * 30; // minimum 30, always a multiple of 30
   if (secs < 60) return "About 30 seconds";
   const mins = secs / 60;
+  if (mins >= 5) return "More than 5 minutes";
   return Number.isInteger(mins)
     ? `About ${mins} minute${mins === 1 ? "" : "s"}`
     : `About ${mins} minutes`;

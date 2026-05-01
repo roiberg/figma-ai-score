@@ -1070,6 +1070,27 @@
         color: var(--accent-text);
         outline: none;
       }
+      /* Accept all button — lives in the report header */
+      #accept-all-btn {
+        display: none; /* shown via JS when suggestions exist */
+        font-size: 11px;
+        font-weight: 600;
+        padding: 3px 9px;
+        background: var(--green-bg);
+        border: 1px solid #7ecf96;
+        color: var(--green);
+        border-radius: 4px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      #accept-all-btn:hover:not(:disabled) { background: #d2f0db; outline: none; }
+      #accept-all-btn:disabled { opacity: 0.6; cursor: default; }
+      #accept-all-btn.bulk-done {
+        background: var(--green-bg);
+        border-color: #7ecf96;
+        color: var(--green);
+        cursor: default;
+      }
       .token-btn-value {
         font-weight: 400;
         opacity: 0.85;
@@ -2012,7 +2033,8 @@
         <div class="panel">
           <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 8px;">
             <div class="section-title" style="margin:0">Report</div>
-            <div style="display:flex; gap:6px;">
+            <div style="display:flex; gap:6px; align-items:center;">
+              <button id="accept-all-btn">Accept all</button>
               <button id="clear" class="export-btn" disabled>Clear</button>
               <button id="export" class="export-btn" disabled>
                 <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8m0 0l-3-3m3 3l3-3"/><path d="M3 11v2h10v-2"/></svg>
@@ -2201,8 +2223,60 @@
       }
       // ───────────────────────────────────────────────────────────────────
       const reportEl = document.getElementById("report");
-      const exportBtn = document.getElementById("export");
-      const clearBtn = document.getElementById("clear");
+      const exportBtn    = document.getElementById("export");
+      const clearBtn     = document.getElementById("clear");
+      const acceptAllBtn = document.getElementById("accept-all-btn");
+
+      // ── Accept-all bulk action ─────────────────────────────────────────
+      // Counts how many actions were dispatched in the current bulk run.
+      // Each result handler calls onBulkActionComplete() once.
+      let _bulkExpected = 0;
+
+      function pendingSuggestionButtons() {
+        return Array.from(reportEl.querySelectorAll(
+          ".apply-rename-btn:not(:disabled):not(.apply-done), " +
+          ".create-component-btn:not(:disabled):not(.apply-done)"
+        ));
+      }
+
+      function updateAcceptAllBtn() {
+        if (!acceptAllBtn) return;
+        if (acceptAllBtn.classList.contains("bulk-done")) return; // stay done
+        const pending = pendingSuggestionButtons();
+        if (pending.length === 0) {
+          acceptAllBtn.style.display = "none";
+        } else {
+          acceptAllBtn.style.display = "";
+          acceptAllBtn.disabled = false;
+          acceptAllBtn.textContent = `Accept all (${pending.length})`;
+        }
+      }
+
+      function onBulkActionComplete() {
+        if (_bulkExpected <= 0) return;
+        _bulkExpected--;
+        if (_bulkExpected === 0) {
+          acceptAllBtn.disabled = true;
+          acceptAllBtn.textContent = "All applied ✓";
+          acceptAllBtn.classList.add("bulk-done");
+          // Hide after 3 s so it doesn't linger forever
+          setTimeout(() => {
+            acceptAllBtn.classList.remove("bulk-done");
+            acceptAllBtn.style.display = "none";
+          }, 3000);
+        }
+      }
+
+      acceptAllBtn.addEventListener("click", () => {
+        const pending = pendingSuggestionButtons();
+        if (pending.length === 0) return;
+        _bulkExpected = pending.length;
+        acceptAllBtn.disabled = true;
+        acceptAllBtn.textContent = `Applying ${pending.length}…`;
+        // Simulate a click on each pending button — their existing handlers
+        // dispatch the right pluginMessage and update state individually.
+        for (const btn of pending) btn.click();
+      });
 
       const setupBanner = document.getElementById("setup-banner");
       function setupCopyButton(btn, text) {
@@ -3027,6 +3101,7 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
         else if (msg.type === "unlocked") hideLocked();
         else if (msg.type === "report") renderReport(msg.data);
         else if (msg.type === "create-component-result") {
+          onBulkActionComplete();
           const btn = reportEl.querySelector(`[data-create-component="${CSS.escape(msg.nodeId)}"]`);
           if (btn) {
             if (msg.ok) {
@@ -3484,6 +3559,10 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
 
         // Restore scroll position so re-renders don't jump back to the top.
         if (scrollArea) scrollArea.scrollTop = savedScrollTop;
+        // Show/hide the Accept all button depending on whether suggestions exist.
+        _bulkExpected = 0;
+        acceptAllBtn.classList.remove("bulk-done");
+        updateAcceptAllBtn();
       }
 
       reportEl.addEventListener("click", (ev) => {
@@ -3764,16 +3843,19 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
       window.addEventListener("message", (ev) => {
         const msg = ev.data && ev.data.pluginMessage;
         if (!msg) return;
-        if (msg.type === "rename-done") handleRenameDone(msg.nodeId, msg.newName);
-        if (msg.type === "apply-token-done") handleTokenApplied(msg.nodeId, msg.slot);
+        if (msg.type === "rename-done") { handleRenameDone(msg.nodeId, msg.newName); onBulkActionComplete(); }
+        if (msg.type === "rename-failed") { onBulkActionComplete(); }
+        if (msg.type === "apply-token-done") { handleTokenApplied(msg.nodeId, msg.slot); onBulkActionComplete(); }
         if (msg.type === "apply-token-failed") {
+          onBulkActionComplete();
           console.error("[figma-ai-score] token apply failed:", msg.error);
           alert("Couldn't apply the token: " + (msg.error || "unknown error"));
           // Re-render so the disabled/loading button resets from the report.
           if (lastReport) renderReport(lastReport);
         }
-        if (msg.type === "zero-padding-done") handleZeroPaddingDone(msg.nodeId, msg.props);
+        if (msg.type === "zero-padding-done") { handleZeroPaddingDone(msg.nodeId, msg.props); onBulkActionComplete(); }
         if (msg.type === "zero-padding-failed") {
+          onBulkActionComplete();
           console.error("[figma-ai-score] zero-padding failed:", msg.error);
           alert("Couldn't clear padding: " + (msg.error || "unknown error"));
           if (lastReport) renderReport(lastReport);

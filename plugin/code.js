@@ -315,15 +315,7 @@ async function pushSelection() {
     }
   }
 
-  // Compute ETA immediately from a shallow node count so the UI can show
-  // "Duration estimation: …" before any review starts.
-  let eta = null;
-  if (capped.length > 0) {
-    let totalNodes = 0;
-    for (const n of capped) totalNodes += shallowCountNodes(n);
-    eta = estimateEta(totalNodes);
-  }
-
+  // 1. Send selection immediately so the UI snaps without waiting for node counting.
   figma.ui.postMessage({
     type: "selection",
     data: frames,
@@ -333,8 +325,18 @@ async function pushSelection() {
     fileName: figma.root.name,
     pageName: figma.currentPage.name,
     thumbnail,
-    eta,
   });
+
+  // 2. Yield to let Figma process other work, then count nodes and send ETA
+  //    separately. shallowCountNodes does many cross-thread .children accesses
+  //    so keeping it off the hot path prevents UI jank on large selections.
+  if (capped.length > 0) {
+    await new Promise(r => setTimeout(r, 0));
+    let totalNodes = 0;
+    for (const n of capped) totalNodes += shallowCountNodes(n);
+    const eta = estimateEta(totalNodes);
+    if (eta) figma.ui.postMessage({ type: "selection-eta", eta });
+  }
 }
 figma.on("selectionchange", pushSelection);
 figma.on("currentpagechange", pushSelection);

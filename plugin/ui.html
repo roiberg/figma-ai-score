@@ -2981,16 +2981,18 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
         if (msg.type === "prefs") renderPrefs(msg.data);
         else if (msg.type === "selection") {
           renderSelection(msg.data, msg.total, msg.capped, msg.maxSelection, msg.thumbnail);
-          _lastSelectionEta = msg.eta || null;
-          if (preReviewEtaEl) {
-            const hasFrames = msg.data && msg.data.length > 0;
-            if (hasFrames && msg.eta) {
-              // Strip "About " prefix — "Duration estimation: 30 seconds" reads cleaner
-              preReviewEtaEl.textContent = "Duration estimation: " + msg.eta.replace(/^About /, "");
-              preReviewEtaEl.style.display = "";
-            } else {
-              preReviewEtaEl.style.display = "none";
-            }
+          // ETA arrives in a separate follow-up message (selection-eta) so that
+          // the node count traversal doesn't block this immediate UI update.
+          // Clear any stale ETA from a previous selection.
+          _lastSelectionEta = null;
+          if (preReviewEtaEl) preReviewEtaEl.style.display = "none";
+        }
+        else if (msg.type === "selection-eta") {
+          _lastSelectionEta = msg.eta;
+          if (preReviewEtaEl && msg.eta) {
+            // Strip "About " prefix — "Duration estimation: 30 seconds" reads cleaner
+            preReviewEtaEl.textContent = "Duration estimation: " + msg.eta.replace(/^About /, "");
+            preReviewEtaEl.style.display = "";
           }
         }
         else if (msg.type === "review-starting") { if (msg.switchMode) applyMode(msg.switchMode, true); showPreparing(msg.names || []); }

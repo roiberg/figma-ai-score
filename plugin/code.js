@@ -836,6 +836,13 @@ async function handleRpc(method, params) {
       };
     }
     case "request_scan": {
+      // Auto-fire progress message so the banner updates even when the AI
+      // uses request_scan instead of begin_and_scan.
+      try {
+        const scanNode = figma.getNodeById(params.nodeId);
+        const scanName = scanNode ? scanNode.name : "frame";
+        figma.ui.postMessage({ type: "ai-progress", message: `Analyzing ${scanName}…` });
+      } catch (e) {}
       // Resolve the node, preferring async (works in dynamic-page mode).
       let node = null;
       try {

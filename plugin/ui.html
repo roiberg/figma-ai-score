@@ -1046,7 +1046,6 @@
       }
       .offender-info-btn {
         flex-shrink: 0;
-        align-self: center;
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -1269,6 +1268,13 @@
         align-self: center;
         line-height: 1;
       }
+      .offender-row-actions {
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        align-self: center;
+      }
       button.bullseye-btn {
         flex-shrink: 0;
         width: 22px;
@@ -1282,7 +1288,6 @@
         background: transparent;
         color: var(--text-tertiary);
         cursor: pointer;
-        margin-top: 1px;
       }
       button.bullseye-btn:hover:not(:disabled),
       button.bullseye-btn:focus,
@@ -3811,10 +3816,12 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
                         <div class="offender-detail">${esc(o.detail)}</div>
                         ${applyBtn}
                       </div>
-                      ${infoIcon}
-                      <button class="bullseye-btn" data-select-node="${esc(o.nodeId)}" title="Select layer in Figma" aria-label="Select layer">
-                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><circle cx="6" cy="6" r="4.5"/><circle cx="6" cy="6" r="2"/><circle cx="6" cy="6" r="0.7" fill="currentColor" stroke="none"/></svg>
-                      </button>
+                      <div class="offender-row-actions">
+                        ${infoIcon}
+                        <button class="bullseye-btn" data-select-node="${esc(o.nodeId)}" title="Select layer in Figma" aria-label="Select layer">
+                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><circle cx="6" cy="6" r="4.5"/><circle cx="6" cy="6" r="2"/><circle cx="6" cy="6" r="0.7" fill="currentColor" stroke="none"/></svg>
+                        </button>
+                      </div>
                     </div>`;
                   }).join("") + '</div>'
                 : '';

@@ -3208,20 +3208,43 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
         if (startPanel) startPanel.style.display = showMain ? "" : "none";
       }
       let heartbeatTimer = null;
-      // "Replaced" overlay: server closes this socket with reason "replaced"
-      // when another Figma tab opens the plugin and takes over. We stop
-      // auto-reconnecting and show the overlay so the user isn't dropped
-      // into an invisible ping-pong between tabs.
-      const replacedOverlay = document.getElementById("replaced-overlay");
+      const replacedOverlay   = document.getElementById("replaced-overlay");
       const replacedReclaimBtn = document.getElementById("replaced-reclaim");
-      function showReplacedOverlay() { if (replacedOverlay) replacedOverlay.style.display = ""; }
+      function showReplacedOverlay() {
+        if (replacedOverlay) replacedOverlay.style.display = "";
+        // Stop reconnecting — we've yielded to the other tab.
+        clearTimeout(reconnectTimer);
+        if (ws) { try { ws.onclose = null; ws.close(); } catch {} ws = null; }
+        setConnected(false);
+      }
       function hideReplacedOverlay() { if (replacedOverlay) replacedOverlay.style.display = "none"; }
+
+      // ── BroadcastChannel tab-deduplication ──────────────────────────────
+      // With the ephemeral CLI there is no persistent server to mediate
+      // conflicts, so we use BroadcastChannel to detect when another Figma
+      // tab opens the plugin and show the overlay directly — no server round-
+      // trip needed. Falls back gracefully when the API isn't available.
+      const myTabId = Math.random().toString(36).slice(2);
+      let bc = null;
+      try {
+        bc = new BroadcastChannel("figma-ai-score-tabs");
+        bc.onmessage = (ev) => {
+          const m = ev.data;
+          if (!m || m.tabId === myTabId) return;
+          // Another tab just opened or reclaimed — we yield.
+          if (m.type === "tab-opened" || m.type === "tab-reclaim") {
+            showReplacedOverlay();
+          }
+        };
+        // Announce this tab; any existing tab will see it and yield.
+        bc.postMessage({ type: "tab-opened", tabId: myTabId });
+      } catch (e) { /* BroadcastChannel unavailable — server-mediated fallback only */ }
+
       if (replacedReclaimBtn) {
         replacedReclaimBtn.addEventListener("click", () => {
-          // User wants THIS tab to win — reconnect, which will cause the
-          // server to close the other tab's socket with reason "replaced"
-          // and the other tab will display its own overlay.
           hideReplacedOverlay();
+          // Tell every other tab they've been displaced.
+          if (bc) try { bc.postMessage({ type: "tab-reclaim", tabId: myTabId }); } catch {}
           connect();
         });
       }

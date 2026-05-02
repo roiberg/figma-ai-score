@@ -142,7 +142,7 @@ export class Bridge {
           // If a previous plugin was already connected (rare race during a
           // multi-tab scenario), close the old one to avoid ambiguous routing.
           if (this.pluginSocket && this.pluginSocket !== ws) {
-            try { this.pluginSocket.close(1000, "replaced"); } catch {}
+            try { this.pluginSocket.close(4001, "replaced"); } catch {}
           }
           this.pluginSocket = ws;
           try { ws.send(JSON.stringify({ type: "event", name: "hello:ack" })); } catch {}

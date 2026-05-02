@@ -1117,7 +1117,7 @@
       }
       #accept-all-modal-cancel:hover { background: var(--bg-tertiary); border-color: #999; }
 
-      /* Create-component warning modal — same structure as accept-all modal */
+      /* Create-component warning modal */
       #create-component-modal-backdrop {
         display: none;
         position: fixed;
@@ -1128,6 +1128,52 @@
         justify-content: center;
       }
       #create-component-modal-backdrop.open { display: flex; }
+      #create-comp-modal {
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-md);
+        padding: 18px 20px 16px;
+        max-width: 300px;
+        width: calc(100% - 32px);
+      }
+      #create-comp-modal p {
+        margin: 0 0 14px;
+        font-size: 12px;
+        line-height: 1.55;
+        color: var(--text);
+      }
+      #create-comp-modal .modal-actions {
+        display: flex;
+        gap: 8px;
+        justify-content: flex-end;
+      }
+      #create-comp-modal-confirm {
+        padding: 4px 12px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+        background: var(--accent);
+        border: none;
+        color: #fff;
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      #create-comp-modal-confirm:hover { background: var(--accent-text); }
+      #create-comp-modal-cancel {
+        padding: 4px 10px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+        background: var(--bg-secondary);
+        border: 1px solid #c7c7c7;
+        color: var(--text);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      #create-comp-modal-cancel:hover { background: var(--bg-tertiary); border-color: #999; }
 
       /* Accept all button — injected after frame name by renderReport() */
       #accept-all-btn {
@@ -2384,11 +2430,11 @@
       const createCompModalBackdrop = document.createElement("div");
       createCompModalBackdrop.id = "create-component-modal-backdrop";
       createCompModalBackdrop.innerHTML = `
-        <div id="accept-all-modal">
+        <div id="create-comp-modal">
           <p><strong>Create component now?</strong></p>
-          <p>This frame has unresolved suggestions. It's best to resolve all issues first — that way the fixes are baked into the component from the start.</p>
+          <p>This frame has unresolved issues. It's best to resolve all issues first — that way the fixes are baked into the component master.</p>
           <div class="modal-actions">
-            <button id="create-comp-modal-cancel">Fix issues first</button>
+            <button id="create-comp-modal-cancel">Cancel</button>
             <button id="create-comp-modal-confirm">Create anyway</button>
           </div>
         </div>`;

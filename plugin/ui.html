@@ -2152,6 +2152,23 @@
       </div>
     </div>
 
+    <!-- Reviewing overlay — full-screen scrim with centered card -->
+    <div id="locked-banner" class="locked-banner">
+      <div class="locked-banner-card">
+        <div id="locked-banner-text">
+          <div id="banner-title-row">
+            <span id="banner-dot" class="reviewing-dot"></span><span id="banner-title">Starting review…</span>
+          </div>
+          <div id="banner-eta" class="locked-eta" style="display:none"></div>
+          <div id="banner-progress-line">Starting…</div>
+        </div>
+        <div id="progress-fun-line" class="progress-fun"></div>
+        <div id="stop-wrap" class="stop-wrap">
+          <button id="stop" class="danger" style="width:100%">Stop review</button>
+        </div>
+      </div>
+    </div>
+
     <script>
       const BRIDGE_URL = "ws://localhost:3055";
 
@@ -4249,22 +4266,5 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
       }
     </script>
-
-    <!-- Reviewing overlay — full-screen scrim with centered card -->
-    <div id="locked-banner" class="locked-banner">
-      <div class="locked-banner-card">
-        <div id="locked-banner-text">
-          <div id="banner-title-row">
-            <span id="banner-dot" class="reviewing-dot"></span><span id="banner-title">Starting review…</span>
-          </div>
-          <div id="banner-eta" class="locked-eta" style="display:none"></div>
-          <div id="banner-progress-line">Starting…</div>
-        </div>
-        <div id="progress-fun-line" class="progress-fun"></div>
-        <div id="stop-wrap" class="stop-wrap">
-          <button id="stop" class="danger" style="width:100%">Stop review</button>
-        </div>
-      </div>
-    </div>
   </body>
 </html>

@@ -3777,7 +3777,7 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
                       applyParts.push(`<button class="apply-rename-btn create-component-btn" data-create-component="${esc(o.nodeId)}" data-frame-id="${esc(f.nodeId)}">Create component</button>`);
                     }
                     if (rule === "naming" && o.suggestedName) {
-                      applyParts.push(`<button class="apply-rename-btn" data-apply-rename="${esc(o.nodeId)}" data-new-name="${esc(o.suggestedName)}" title="Rename layer to '${esc(o.suggestedName)}'">Rename to "${esc(o.suggestedName)}"</button>`);
+                      applyParts.push(`<button class="apply-rename-btn" data-apply-rename="${esc(o.nodeId)}" data-new-name="${esc(o.suggestedName)}">Rename to "${esc(o.suggestedName)}"</button>`);
                     }
                     if (Array.isArray(o.suggestedTokens) && o.suggestedTokens.length > 0) {
                       const btns = o.suggestedTokens.map(t =>
@@ -3786,7 +3786,7 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
                           `data-token-kind="${esc(t.kind)}" ` +
                           `data-token-id="${esc(t.id)}" ` +
                           `data-token-slot="${esc(t.slot)}" ` +
-                          `title="Bind ${esc(t.slot)} to ${esc(t.name)}">${esc(t.name)}${t.value != null ? ' <span class="token-btn-value">(' + t.value + 'px)</span>' : ''}</button>`
+                          `>${esc(t.name)}${t.value != null ? ' <span class="token-btn-value">(' + t.value + 'px)</span>' : ''}</button>`
                       ).join('<span class="token-suggest-or">or</span>');
                       applyParts.push(`<div class="token-suggest-row"><span class="token-suggest-label">Use</span>${btns}</div>`);
                     }
@@ -3798,7 +3798,7 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
                         `<button class="apply-rename-btn apply-zero-btn"` +
                           ` data-zero-padding="${esc(o.nodeId)}"` +
                           ` data-zero-props="${esc(JSON.stringify(a.props))}"` +
-                          ` title="${esc(a.label)}">${esc(a.label)}</button>`
+                          `>${esc(a.label)}</button>`
                       ).join('');
                       applyParts.push(`<div class="token-suggest-row"><span class="token-suggest-label">Fix</span>${zeroBtns}</div>`);
                     }

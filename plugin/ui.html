@@ -1043,10 +1043,6 @@
         color: var(--text-secondary);
         font-size: 10.5px;
         line-height: 1.45;
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        flex-wrap: wrap;
       }
       .offender-info-btn {
         flex-shrink: 0;
@@ -3772,7 +3768,6 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
                 : '';
               const offendersHtml = hasOffenders
                 ? '<div class="breakdown-offenders">' + offenders.map(o => {
-                    if (!o.tooltip) console.warn('[ai-score] offender missing tooltip:', rule, o.name, o.detail);
                     const applyParts = [];
                     if (rule === "components") {
                       applyParts.push(`<button class="apply-rename-btn create-component-btn" data-create-component="${esc(o.nodeId)}" data-frame-id="${esc(f.nodeId)}">Create component</button>`);
@@ -3812,9 +3807,10 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
                     return `<div class="offender-row" data-offender-node="${esc(o.nodeId)}" data-offender-rule="${esc(rule)}">
                       <div class="offender-body">
                         <div class="offender-name">${esc(o.name)}</div>
-                        <div class="offender-detail">${esc(o.detail)}${infoIcon}</div>
+                        <div class="offender-detail">${esc(o.detail)}</div>
                         ${applyBtn}
                       </div>
+                      ${infoIcon}
                       <button class="bullseye-btn" data-select-node="${esc(o.nodeId)}" title="Select layer in Figma" aria-label="Select layer">
                         <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><circle cx="6" cy="6" r="4.5"/><circle cx="6" cy="6" r="2"/><circle cx="6" cy="6" r="0.7" fill="currentColor" stroke="none"/></svg>
                       </button>

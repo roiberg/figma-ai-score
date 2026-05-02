@@ -804,6 +804,7 @@ figma.ui.onmessage = async (msg) => {
             comp.x     = cx;
             comp.y     = pos.y;
             figma.currentPage.appendChild(comp);
+            await copyBoundVariables(v, comp);
             await autoApplyDimensionalTokens(comp, ds);
             components.push(comp);
             cx += v.width + INNER_GAP;
@@ -824,6 +825,7 @@ figma.ui.onmessage = async (msg) => {
           comp.x     = pos.x;
           comp.y     = pos.y;
           figma.currentPage.appendChild(comp);
+          await copyBoundVariables(offenderNode, comp);
           await autoApplyDimensionalTokens(comp, ds);
           // Replace the original frame with an instance of the new component
           replaceWithInstance(offenderNode, comp);
@@ -1201,6 +1203,29 @@ function copyFrameProps(src, dst) {
   // Force fixed sizing so the component doesn't shrink to 0
   try { dst.primaryAxisSizingMode   = "FIXED"; } catch (e) {}
   try { dst.counterAxisSizingMode   = "FIXED"; } catch (e) {}
+}
+
+// Transfer any already-bound variables (paddingTop, itemSpacing, height, etc.)
+// from a source node directly onto the new component. This preserves bindings
+// applied by autolayout / token suggestions BEFORE "Create component" was
+// clicked, which copyFrameProps misses (it copies raw numeric values only).
+async function copyBoundVariables(src, dst) {
+  const bv = src.boundVariables;
+  if (!bv || typeof bv !== "object") return;
+  const DIMENSIONAL_SLOTS = new Set([
+    "paddingTop", "paddingRight", "paddingBottom", "paddingLeft",
+    "itemSpacing", "width", "height",
+  ]);
+  for (const [slot, alias] of Object.entries(bv)) {
+    if (!DIMENSIONAL_SLOTS.has(slot)) continue;
+    if (!alias || alias.type !== "VARIABLE_ALIAS" || !alias.id) continue;
+    try {
+      const variable = typeof figma.variables.getVariableByIdAsync === "function"
+        ? await figma.variables.getVariableByIdAsync(alias.id)
+        : figma.variables.getVariableById(alias.id);
+      if (variable) dst.setBoundVariable(slot, variable);
+    } catch (e) {}
+  }
 }
 
 // After creating a component, bind dimensional tokens (padding, height,

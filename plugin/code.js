@@ -268,9 +268,8 @@ Only include the ${enabledNames.length} enabled rule${enabledNames.length === 1 
   Example — detail: "Fill does not use a token or style." → tooltip: "This color is hardcoded as a raw value. If the design system color changes, this layer won't update automatically."
 - After submitting, briefly summarize to the user: score, rules passed/failed, top issues.
 
-## GROUPING REPEATED OFFENDERS
-When 3+ nodes share identical (rule + detail), collapse to one entry:
-\`{ nodeId: "<first>", name: "<first>", detail: "<shared>", groupedCount: <total> }\`
+## DO NOT GROUP OFFENDERS
+Each affected node must be its OWN entry in the offenders array, even when many nodes share the same rule + detail (e.g. 7 instances of the same padding issue → 7 entries, not 1). The user needs every nodeId to select / highlight / fix each instance individually. Never collapse with \`groupedCount\` or any similar shorthand — the UI does not render such fields and grouped entries silently drop the other nodes.
 
 ## SCAN DATA FORMAT (sparse — absent means absent)
 - No \`fills\`/\`strokes\`/\`effects\` key → empty.

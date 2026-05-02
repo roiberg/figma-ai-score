@@ -1059,17 +1059,6 @@
         color: var(--green);
         cursor: default;
       }
-      button.create-component-btn {
-        background: var(--accent-light);
-        border-color: #c4b0f7;
-        color: var(--accent-text);
-      }
-      button.create-component-btn:hover:not(:disabled) {
-        background: #e5d9fe;
-        border-color: var(--accent);
-        color: var(--accent-text);
-        outline: none;
-      }
       /* Accept-all confirmation modal */
       #accept-all-modal-backdrop {
         display: none;
@@ -3253,20 +3242,13 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
         else if (msg.type === "unlocked") hideLocked();
         else if (msg.type === "report") renderReport(msg.data);
         else if (msg.type === "create-component-result") {
-          onBulkActionComplete();
-          const btn = reportEl.querySelector(`[data-create-component="${CSS.escape(msg.nodeId)}"]`);
-          if (btn) {
-            if (msg.ok) {
-              btn.textContent = msg.variantCount > 1
-                ? `${msg.variantCount} variants created ✓`
-                : "Component created ✓";
-              btn.classList.add("apply-done");
-              btn.classList.remove("create-component-btn");
-            } else {
-              btn.disabled    = false;
-              btn.textContent = "Create component";
-            }
+          if (msg.ok) {
+            handleCreateComponentDone(msg.nodeId);
+          } else {
+            const btn = reportEl.querySelector(`[data-create-component="${CSS.escape(msg.nodeId)}"]`);
+            if (btn) { btn.disabled = false; btn.textContent = "Create component"; }
           }
+          onBulkActionComplete();
         }
       };
 
@@ -3876,6 +3858,58 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         }
       }
 
+      // Remove an autolayout offender and bump the score.
+      function handleAutolayoutDone(nodeId) {
+        if (!lastReport || !lastReport.frames) return;
+        for (const frame of lastReport.frames) {
+          const al = frame.breakdown && frame.breakdown.autolayout;
+          if (!al || !Array.isArray(al.offenders)) continue;
+          const before = al.offenders.length;
+          const idx = al.offenders.findIndex(o => o.nodeId === nodeId);
+          if (idx === -1) continue;
+          al.offenders.splice(idx, 1);
+          const justEmptied = before > 0 && al.offenders.length === 0;
+          if (justEmptied) al.passed = true;
+          if (frame.issues) frame.issues = frame.issues.filter(i => !(i.nodeId === nodeId && i.rule === "autolayout"));
+          const rules = Object.values(frame.breakdown).filter(r => r.enabled !== false);
+          const ruleShare = rules.length ? 100 / rules.length : 0;
+          const current = frame.score || 0;
+          const next = justEmptied
+            ? current + Math.round(ruleShare * 0.6)
+            : current + Math.max(1, Math.round(ruleShare / (before + 1)));
+          frame.perfect = rules.every(r => r.passed);
+          frame.score = frame.perfect ? 100 : Math.max(current, Math.min(100, next));
+          patchOffenderRemoved(nodeId, "autolayout", frame, al);
+          break;
+        }
+      }
+
+      // Remove a components offender and bump the score.
+      function handleCreateComponentDone(nodeId) {
+        if (!lastReport || !lastReport.frames) return;
+        for (const frame of lastReport.frames) {
+          const comp = frame.breakdown && frame.breakdown.components;
+          if (!comp || !Array.isArray(comp.offenders)) continue;
+          const before = comp.offenders.length;
+          const idx = comp.offenders.findIndex(o => o.nodeId === nodeId);
+          if (idx === -1) continue;
+          comp.offenders.splice(idx, 1);
+          const justEmptied = before > 0 && comp.offenders.length === 0;
+          if (justEmptied) comp.passed = true;
+          if (frame.issues) frame.issues = frame.issues.filter(i => !(i.nodeId === nodeId && i.rule === "components"));
+          const rules = Object.values(frame.breakdown).filter(r => r.enabled !== false);
+          const ruleShare = rules.length ? 100 / rules.length : 0;
+          const current = frame.score || 0;
+          const next = justEmptied
+            ? current + Math.round(ruleShare * 0.6)
+            : current + Math.max(1, Math.round(ruleShare / (before + 1)));
+          frame.perfect = rules.every(r => r.passed);
+          frame.score = frame.perfect ? 100 : Math.max(current, Math.min(100, next));
+          patchOffenderRemoved(nodeId, "components", frame, comp);
+          break;
+        }
+      }
+
       // When a rename succeeds, remove the naming offender + bump the score.
       // We can't perfectly recompute (we don't have totalChecked per rule),
       // so we estimate: every fixed offender nudges the score up by a small
@@ -4052,8 +4086,7 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
           if (lastReport) renderReport(lastReport);
         }
         if (msg.type === "apply-autolayout-done") {
-          const btn = reportEl.querySelector(`[data-apply-autolayout="${CSS.escape(msg.nodeId)}"]`);
-          if (btn) { btn.textContent = "Applied ✓"; btn.classList.add("apply-done"); btn.disabled = true; }
+          handleAutolayoutDone(msg.nodeId);
           onBulkActionComplete();
         }
         if (msg.type === "apply-autolayout-failed") {

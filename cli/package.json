@@ -7,6 +7,9 @@
   "bin": {
     "figma-ai-score": "./cli.js"
   },
+  "scripts": {
+    "dev:link": "mkdir -p \"$HOME/.local/bin\" && ln -sfn \"$PWD/cli.js\" \"$HOME/.local/bin/figma-ai-score\" && chmod +x cli.js && echo \"Linked $HOME/.local/bin/figma-ai-score → $PWD/cli.js\""
+  },
   "dependencies": {
     "ws": "^8.18.0"
   },

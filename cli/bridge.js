@@ -145,6 +145,11 @@ export class Bridge {
             try { this.pluginSocket.close(4001, "replaced"); } catch {}
           }
           this.pluginSocket = ws;
+          // Plugin advertises which RPC methods it supports. Used by call() to
+          // catch CLI/plugin version mismatches up front rather than mid-review.
+          // Older plugins (pre-handshake) don't send this — treat as "unknown,
+          // skip the check" rather than failing them.
+          this.pluginMethods = Array.isArray(msg.methods) ? msg.methods : null;
           try { ws.send(JSON.stringify({ type: "event", name: "hello:ack" })); } catch {}
           if (this._connectResolve) {
             this._connectResolve("connected");
@@ -203,6 +208,16 @@ export class Bridge {
     if (!this.pluginSocket || this.pluginSocket.readyState !== this.pluginSocket.OPEN) {
       const err = new Error("Plugin is not connected.");
       err.code = "PLUGIN_NOT_CONNECTED";
+      throw err;
+    }
+    // Version-handshake check. Pre-handshake plugins (pluginMethods === null)
+    // are skipped — we trust them and let the call go through.
+    if (this.pluginMethods && !this.pluginMethods.includes(method)) {
+      const err = new Error(
+        `This CLI is calling "${method}" but the plugin in Figma does not support it. ` +
+        `The plugin and CLI versions are out of sync — update the CLI to the latest build.`
+      );
+      err.code = "PROTOCOL_MISMATCH";
       throw err;
     }
     const id = this.nextId++;

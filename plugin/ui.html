@@ -3317,7 +3317,26 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
 
         ws.onopen = () => {
           setConnected(true);
-          ws.send(JSON.stringify({ type: "hello", role: "plugin" }));
+          // SUPPORTED_METHODS: must match the cases in code.js's handleRpc switch.
+          // The CLI checks this list before sending an RPC, so a stale CLI on
+          // PATH (calling a removed method) gets a clear PROTOCOL_MISMATCH error
+          // instead of a cryptic "unknown method" mid-review.
+          const SUPPORTED_METHODS = [
+            "get_selection",
+            "get_preferences",
+            "is_cancelled",
+            "announce_progress",
+            "announce_review_start",
+            "begin_and_scan",
+            "highlight_nodes",
+            "submit_report",
+            "dismiss_review",
+          ];
+          ws.send(JSON.stringify({
+            type: "hello",
+            role: "plugin",
+            methods: SUPPORTED_METHODS,
+          }));
           // Client-side keepalive: send a small ping every 15s so the server's
           // idle-timeout never fires on this socket.
           heartbeatTimer = setInterval(() => {

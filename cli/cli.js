@@ -11,6 +11,7 @@
 //   2  PLUGIN_NOT_CONNECTED — open the plugin in Figma
 //   3  TIMEOUT
 //   4  UNKNOWN_SUBCOMMAND
+//   5  PROTOCOL_MISMATCH — CLI/plugin versions out of sync; update the CLI
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -324,11 +325,16 @@ async function checkPluginReachable() {
   const start = Date.now();
   try {
     await bridge.start();
+    // Capture the plugin's advertised method list before closing — the
+    // protocol-compat check below uses it to detect stale CLI ↔ fresh plugin
+    // (or vice versa) mismatches that the WS handshake alone wouldn't catch.
+    const pluginMethods = bridge.pluginMethods;
     bridge.close();
     return {
       name: "plugin-reachable",
       ok: true,
       detail: `handshake in ${Date.now() - start}ms`,
+      pluginMethods,
     };
   } catch (e) {
     bridge.close();
@@ -361,14 +367,62 @@ async function runDoctor() {
   // Plugin-reachable is only meaningful if at least one bind worked. If both
   // binds failed, the bridge can't even stand up, so handshake will fail
   // with the same root cause — skip it to keep the report uncluttered.
+  let reachable = null;
   if (bindV4.ok || bindV6.ok) {
-    checks.push(await checkPluginReachable());
+    reachable = await checkPluginReachable();
+    checks.push(reachable);
   } else {
     checks.push({
       name: "plugin-reachable",
       ok: false,
       detail: "skipped — neither loopback family could bind",
       hint: "Resolve the bind failure(s) above first.",
+    });
+  }
+
+  // Protocol-compat: compare what this CLI calls against what the plugin
+  // advertises. Catches stale CLI / fresh plugin (or the reverse) BEFORE
+  // mid-review — which `plugin-reachable` alone misses (a successful WS
+  // handshake says nothing about whether the RPC vocabulary lines up).
+  if (reachable && reachable.ok) {
+    if (Array.isArray(reachable.pluginMethods)) {
+      const cliMethods = Object.values(SUBCOMMAND_TO_METHOD);
+      const missing   = cliMethods.filter(m => !reachable.pluginMethods.includes(m));
+      // pluginMethods is removed from the user-facing reachable check —
+      // it's an implementation detail, only meaningful here.
+      delete reachable.pluginMethods;
+      if (missing.length === 0) {
+        checks.push({
+          name: "protocol-compat",
+          ok: true,
+          detail: `all ${cliMethods.length} CLI methods supported by plugin`,
+        });
+      } else {
+        checks.push({
+          name: "protocol-compat",
+          ok: false,
+          detail: `plugin missing methods this CLI calls: ${missing.join(", ")}`,
+          hint: "The plugin in Figma is older than this CLI. Reload the plugin in Figma (close and reopen it).",
+        });
+      }
+    } else {
+      delete reachable.pluginMethods;
+      // Plugin connected but didn't send a methods list — it's a pre-handshake
+      // build (older than this CLI). The CLI can still call it, but if a method
+      // has been removed plugin-side, it'll fail mid-RPC.
+      checks.push({
+        name: "protocol-compat",
+        ok: false,
+        detail: "plugin did not advertise its method list (pre-handshake build)",
+        hint: "Update the plugin in Figma to a build that sends `methods` in its hello message.",
+      });
+    }
+  } else {
+    checks.push({
+      name: "protocol-compat",
+      ok: false,
+      detail: "skipped — plugin not reachable",
+      hint: "Resolve the plugin-reachable failure above first.",
     });
   }
 
@@ -432,6 +486,10 @@ async function main() {
     if (e.code === "TIMEOUT") {
       emitErr("TIMEOUT", e.message);
       return 3;
+    }
+    if (e.code === "PROTOCOL_MISMATCH") {
+      emitErr("PROTOCOL_MISMATCH", e.message);
+      return 5;
     }
     emitErr(e.code || "FAILURE", e.message || String(e));
     return 1;

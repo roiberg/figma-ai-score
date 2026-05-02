@@ -261,7 +261,7 @@ Only include the ${enabledNames.length} enabled rule${enabledNames.length === 1 
   Good: "Fill does not use a token or style." / "Spacing not tokenized." / "Auto-layout missing on this frame."
   Bad: "SOLID fill #FF0000 has no bound variable or style." / "boundVariable is null on the first paint."
 - **Forbidden phrases** in details: "no action required/needed", "minimal impact", "low impact", "be aware that", "verify that", "confirm that", "extends beyond", "overflow", "layout mismatch", "outside container bounds".
-- **Tooltip strings**: every offender must include a `tooltip` field — 1–2 plain-English sentences that explain *why* this is an issue and what it means in practice, written for a designer who may not know the technical term. No fix instructions. No jargon.
+- **Tooltip strings**: every offender must include a \`tooltip\` field — 1–2 plain-English sentences that explain *why* this is an issue and what it means in practice, written for a designer who may not know the technical term. No fix instructions. No jargon.
   Example — detail: "Top and bottom padding ignored (fixed height)." → tooltip: "This frame has a fixed height, so Figma ignores any vertical padding you set. The frame won't grow or shrink with its content."
   Example — detail: "Fill does not use a token or style." → tooltip: "This color is hardcoded as a raw value. If the design system color changes, this layer won't update automatically."
 - After submitting, briefly summarize to the user: score, rules passed/failed, top issues.

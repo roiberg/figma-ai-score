@@ -773,6 +773,24 @@ figma.ui.onmessage = async (msg) => {
           : offenderNode.width;
         // Make room next to the reviewed frame and get the placement position
         const pos = makeRoomNextToFrame(frameNode, neededWidth);
+        // Helper: replace a node in-place with an instance of a component.
+        function replaceWithInstance(sourceNode, comp) {
+          try {
+            const parent = sourceNode.parent;
+            if (!parent) return;
+            const idx = Array.from(parent.children).indexOf(sourceNode);
+            const instance = comp.createInstance();
+            instance.x = sourceNode.x;
+            instance.y = sourceNode.y;
+            // Insert instance at the same slot, then remove the original.
+            if (idx >= 0) parent.insertChild(idx, instance);
+            else parent.appendChild(instance);
+            sourceNode.remove();
+          } catch (e) {
+            // Non-critical — component was still created successfully.
+          }
+        }
+
         if (isVariantSet) {
           // Create one component per variant, place them temporarily
           const components = [];
@@ -791,6 +809,10 @@ figma.ui.onmessage = async (msg) => {
           set.name   = baseName;
           set.x      = pos.x;
           set.y      = pos.y;
+          // Replace the offender with an instance of its corresponding variant
+          const offenderIdx = variants.findIndex(v => v.id === offenderNode.id);
+          const masterComp  = components[offenderIdx >= 0 ? offenderIdx : 0];
+          replaceWithInstance(offenderNode, masterComp);
           figma.viewport.scrollAndZoomIntoView([set]);
           figma.ui.postMessage({ type: "create-component-result", ok: true, nodeId: msg.nodeId, variantCount: variants.length });
         } else {
@@ -798,6 +820,8 @@ figma.ui.onmessage = async (msg) => {
           comp.x     = pos.x;
           comp.y     = pos.y;
           figma.currentPage.appendChild(comp);
+          // Replace the original frame with an instance of the new component
+          replaceWithInstance(offenderNode, comp);
           figma.viewport.scrollAndZoomIntoView([comp]);
           figma.ui.postMessage({ type: "create-component-result", ok: true, nodeId: msg.nodeId, variantCount: 0 });
         }

@@ -76,7 +76,11 @@ const CANCEL_CLEARING_METHODS = new Set([
 
 const RULE_DESCRIPTIONS = {
   components: `### components (smart)
-Pre-computed offenders cover Check 1 (orphan raw layers), Check 2 (over-instancing), Check 3 (repeated siblings) — pass through unchanged. ADD these from the thumbnail:
+Pre-computed offenders cover Check 1 (orphan raw layers), Check 2 (over-instancing), Check 3 (repeated siblings) — pass through unchanged.
+
+**Hard rule (applies to every check below): never flag a node that lives inside a COMPONENT_SET.** Its children are variants of one component by definition; shared structure across variants is the correct pattern, not duplication. "Extract a shared component" makes no sense when the siblings ARE the variants. If the root frame you're reviewing IS a COMPONENT_SET, skip ALL checks and return zero component offenders.
+
+ADD these from the thumbnail:
 
 **Check 4 — Semantic-name structures.**
 A raw FRAME/GROUP (NOT INSTANCE/COMPONENT) whose name (case-insensitive, partial match) contains any of: \`nav\`, \`navigation\`, \`header\`, \`footer\`, \`action bar\`, \`app bar\`, \`toolbar\`, \`tab bar\`, \`bottom sheet\`, \`sidebar\`, \`dialog\`, \`modal\`, \`card\`, \`list item\`, \`row\`, \`hero\`, \`banner\`. Skip Check 4 entirely if the root frame is itself a COMPONENT or COMPONENT_SET.
@@ -1473,6 +1477,11 @@ function lintComponents(root) {
   }
   walkDesignerNodes(root, (node) => {
     if (!node.children || node.children.length < 3) return;
+    // Skip COMPONENT_SET — its children are variants of one component by
+    // definition, so identical structure is the correct, intended pattern,
+    // not duplication. Flagging them would tell users to "extract a shared
+    // component" out of the variants of a component, which is nonsense.
+    if (node.type === "COMPONENT_SET") return;
     const groups = new Map();
     for (const c of node.children) {
       if (isExcluded(c)) continue;

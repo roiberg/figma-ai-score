@@ -922,11 +922,17 @@ async function handleRpc(method, params) {
       reviewMode = "ai";
       try { await figma.clientStorage.setAsync("figma-ai-score.mode", "ai"); } catch (e) {}
       const selSummary = selectionSummary();
-      figma.ui.postMessage({
-        type: "review-starting",
-        switchMode: "ai",
-        names: selSummary.frames.map(f => f.name)
-      });
+      // Only show the reviewing overlay when there are frames to work on.
+      // If the selection is empty the AI will bail out immediately and there
+      // is nothing to dismiss — skipping the postMessage means the overlay
+      // never appears, even if the installed CLI doesn't have dismiss-review.
+      if (selSummary.frames.length > 0) {
+        figma.ui.postMessage({
+          type: "review-starting",
+          switchMode: "ai",
+          names: selSummary.frames.map(f => f.name)
+        });
+      }
       return {
         ok: true,
         selection: {

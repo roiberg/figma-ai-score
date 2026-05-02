@@ -1924,7 +1924,7 @@
                 <div id="banner-title-row">
                   <span id="banner-dot" class="reviewing-dot"></span><span id="banner-title">Starting review…</span>
                 </div>
-                <div id="banner-eta" class="locked-eta">Estimating duration…</div>
+                <div id="banner-eta" class="locked-eta" style="display:none"></div>
                 <div id="banner-progress-line">Starting…</div>
               </div>
               <div id="progress-fun-line" class="progress-fun"></div>
@@ -3191,8 +3191,10 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
           setProgressMessage(msg.message);
         }
         else if (msg.type === "eta-update") {
-          bannerEta.textContent = msg.eta || "Estimating duration…";
-          bannerEta.style.display = "";
+          if (msg.eta) {
+            bannerEta.textContent = msg.eta;
+            bannerEta.style.display = "";
+          }
         }
         else if (msg.type === "analyzing-done") { _analyzingStage = false; _stopFunTicker(); }
         else if (msg.type === "locked") showLocked(msg.data);
@@ -3482,7 +3484,7 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         const title = (names && names.length)
           ? `Reviewing ${names.join(", ")}`
           : "Preparing review…";
-        setRealProgress(title, _lastSelectionEta || "Estimating duration…");
+        setRealProgress(title, _lastSelectionEta);
       }
       function showScanProgress(frameName, frameIndex, frameCount) {
         _analyzingStage = true;
@@ -3504,7 +3506,7 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         const title = data.names && data.names.length
           ? `Reviewing ${data.names.join(", ")}`
           : "Reviewing…";
-        setRealProgress(title, _lastSelectionEta || "Estimating duration…");
+        setRealProgress(title, _lastSelectionEta);
       }
       function hideLocked() {
         _analyzingStage = false;

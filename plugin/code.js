@@ -209,6 +209,8 @@ The scan response includes \`lintResults\` — deterministic offenders + token s
 
 **Accept as final (no re-analysis):** colors, typography, spacing, padding, size, effects, naming (Check 1 regex), components (Checks 1-3), autolayout (presence check). Copy these offenders into the report unchanged — including any \`suggestedTokens\`, \`zeroActions\`, or \`suggestedName\` fields. They're already correct. Do NOT re-walk the tree for these — wastes time, identical results.
 
+**Critical — \`suggestedTokens\` format**: the field is an array of OBJECTS, not strings. Each entry has the shape \`{ id, name, kind, slot, value?, reason? }\`. NEVER replace these objects with bare strings (\`["spacing-xl"]\` is wrong — the UI renders \`.name\` and would show "undefined"). Copy the entries verbatim as you received them in \`lintResults\`.
+
 **Augment with vision** (use the thumbnail):
 - naming: ADD semantic-accuracy + typo offenders (Check 2).
 - components: ADD Check 4 (semantic-name structures) + Vision check (discrete UI regions).

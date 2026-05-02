@@ -3802,8 +3802,15 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
                     if (rule === "naming" && o.suggestedName) {
                       applyParts.push(`<button class="apply-rename-btn" data-apply-rename="${esc(o.nodeId)}" data-new-name="${esc(o.suggestedName)}">Rename to "${esc(o.suggestedName)}"</button>`);
                     }
-                    if (Array.isArray(o.suggestedTokens) && o.suggestedTokens.length > 0) {
-                      const btns = o.suggestedTokens.map(t =>
+                    // Defend against malformed suggestedTokens — the AI sometimes
+                    // submits bare strings instead of {id, name, kind, slot}
+                    // objects. Drop anything that isn't a usable object so we
+                    // never render "undefined" buttons.
+                    const validTokens = Array.isArray(o.suggestedTokens)
+                      ? o.suggestedTokens.filter(t => t && typeof t === "object" && t.id && t.name && t.kind && t.slot)
+                      : [];
+                    if (validTokens.length > 0) {
+                      const btns = validTokens.map(t =>
                         `<button class="apply-rename-btn" ` +
                           `data-apply-token="${esc(o.nodeId)}" ` +
                           `data-token-kind="${esc(t.kind)}" ` +

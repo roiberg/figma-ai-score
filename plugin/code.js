@@ -1724,14 +1724,24 @@ function lintPadding(root, ds) {
       if (rightPad > 0) zeroHorizontalProps.push("paddingRight");
     }
 
-    // Props to tokenize: non-zero, un-bound, NOT being offered as zero-action.
+    // Two prop buckets:
+    //  - failedProps: not in zeroSet → the standard "not tokenized" issue.
+    //  - tokenizableZeroProps: IN zeroSet (currently ignored by Figma due to
+    //    fixed-axis sizing) but the value still matches a token. We surface
+    //    BOTH the zero action AND the token-bind so the user can pick:
+    //    • Clear it (if they want to keep fixed sizing), or
+    //    • Bind the token (meaningful if they later flip the axis to hug).
+    //  Either way, raw 16px values shouldn't sit unannounced just because the
+    //  axis is currently fixed.
     const zeroSet = new Set([...zeroVerticalProps, ...zeroHorizontalProps]);
     const failedProps = [];
+    const tokenizableZeroProps = [];
     for (const p of ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"]) {
-      if (zeroSet.has(p)) continue; // handled by zero action
       const val = al[p];
       if (val === 0 || val === null || val === undefined) continue;
-      if (!b[p]) failedProps.push(p);
+      if (b[p]) continue; // already bound to a token
+      if (zeroSet.has(p)) tokenizableZeroProps.push(p);
+      else                failedProps.push(p);
     }
 
     // Count one check per node (not per prop) and one offender per node.
@@ -1776,9 +1786,13 @@ function lintPadding(root, ds) {
       tooltip: _paddingTooltip,
     };
 
-    // One suggestion per failing non-zero-action prop.
-    if (failedProps.length) {
-      const sugs = failedProps.map(p => buildDimensionalSuggestion(ds, "padding", p, al[p])).filter(Boolean);
+    // One suggestion per non-zero, un-bound prop — including ones currently
+    // being ignored by a fixed axis. The user can pick the token alongside
+    // the zero action; the token only "kicks in" if they later flip to hug,
+    // but it's still worth surfacing rather than silently dropping.
+    const allTokenizable = [...failedProps, ...tokenizableZeroProps];
+    if (allTokenizable.length) {
+      const sugs = allTokenizable.map(p => buildDimensionalSuggestion(ds, "padding", p, al[p])).filter(Boolean);
       if (sugs.length) o.suggestedTokens = sugs;
     }
 

@@ -66,6 +66,7 @@
         border-right: 1px solid var(--border);
         display: flex;
         flex-direction: column;
+        position: relative;
       }
       .col-scroll {
         flex: 1;
@@ -725,13 +726,13 @@
         padding: 4px 0;
       }
 
-      /* ── Reviewing overlay ── */
+      /* ── Reviewing overlay — covers only the left panel ── */
       .locked-banner {
         display: none;
-        position: fixed;
+        position: absolute;
         inset: 0;
         z-index: 500;
-        background: rgba(0, 0, 0, 0.45);
+        background: rgba(0, 0, 0, 0.35);
         align-items: center;
         justify-content: center;
       }
@@ -1974,6 +1975,22 @@
 
     <div class="two-col" id="two-col">
       <div class="col col-left">
+        <!-- Reviewing overlay — absolutely positioned inside col-left -->
+        <div id="locked-banner" class="locked-banner">
+          <div class="locked-banner-card">
+            <div id="locked-banner-text">
+              <div id="banner-title-row">
+                <span id="banner-dot" class="reviewing-dot"></span><span id="banner-title">Starting review…</span>
+              </div>
+              <div id="banner-eta" class="locked-eta" style="display:none"></div>
+              <div id="banner-progress-line">Starting…</div>
+            </div>
+            <div id="progress-fun-line" class="progress-fun"></div>
+            <div id="stop-wrap" class="stop-wrap">
+              <button id="stop" class="danger" style="width:100%">Stop review</button>
+            </div>
+          </div>
+        </div>
         <div class="col-scroll scroll-area">
           <div class="panel" id="review-panel" style="display:none"></div>
 
@@ -2148,23 +2165,6 @@
           <div id="report" class="report-area">
             <div class="empty-state">No report yet</div>
           </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Reviewing overlay — full-screen scrim with centered card -->
-    <div id="locked-banner" class="locked-banner">
-      <div class="locked-banner-card">
-        <div id="locked-banner-text">
-          <div id="banner-title-row">
-            <span id="banner-dot" class="reviewing-dot"></span><span id="banner-title">Starting review…</span>
-          </div>
-          <div id="banner-eta" class="locked-eta" style="display:none"></div>
-          <div id="banner-progress-line">Starting…</div>
-        </div>
-        <div id="progress-fun-line" class="progress-fun"></div>
-        <div id="stop-wrap" class="stop-wrap">
-          <button id="stop" class="danger" style="width:100%">Stop review</button>
         </div>
       </div>
     </div>

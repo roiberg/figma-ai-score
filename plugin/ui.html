@@ -1070,6 +1070,64 @@
         color: var(--accent-text);
         outline: none;
       }
+      /* Accept-all confirmation modal */
+      #accept-all-modal-backdrop {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.35);
+        z-index: 400;
+        align-items: center;
+        justify-content: center;
+      }
+      #accept-all-modal-backdrop.open {
+        display: flex;
+      }
+      #accept-all-modal {
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-md);
+        padding: 18px 20px 16px;
+        max-width: 240px;
+        width: calc(100% - 32px);
+      }
+      #accept-all-modal p {
+        margin: 0 0 14px;
+        font-size: 12px;
+        line-height: 1.55;
+        color: var(--text);
+      }
+      #accept-all-modal .modal-actions {
+        display: flex;
+        gap: 8px;
+        justify-content: flex-end;
+      }
+      #accept-all-modal-confirm {
+        padding: 4px 12px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+        background: var(--accent);
+        border: none;
+        color: #fff;
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+      }
+      #accept-all-modal-confirm:hover { background: var(--accent-text); }
+      #accept-all-modal-cancel {
+        padding: 4px 10px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+        background: var(--bg-secondary);
+        border: 1px solid #c7c7c7;
+        color: var(--text);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+      }
+      #accept-all-modal-cancel:hover { background: var(--bg-tertiary); border-color: #999; }
+
       /* Accept all button — injected after frame name by renderReport() */
       #accept-all-btn {
         display: none; /* shown via JS when suggestions exist */
@@ -2279,14 +2337,42 @@
         }
       }
 
+      // Confirmation modal
+      const acceptAllModalBackdrop = document.createElement("div");
+      acceptAllModalBackdrop.id = "accept-all-modal-backdrop";
+      acceptAllModalBackdrop.innerHTML = `
+        <div id="accept-all-modal">
+          <p>We recommend going through each suggestion individually. Are you sure you want to accept all of them?</p>
+          <div class="modal-actions">
+            <button id="accept-all-modal-cancel">Cancel</button>
+            <button id="accept-all-modal-confirm">Accept all</button>
+          </div>
+        </div>`;
+      document.body.appendChild(acceptAllModalBackdrop);
+      const modalConfirmBtn = document.getElementById("accept-all-modal-confirm");
+      const modalCancelBtn  = document.getElementById("accept-all-modal-cancel");
+
+      function closeAcceptAllModal() {
+        acceptAllModalBackdrop.classList.remove("open");
+      }
+
       acceptAllBtn.addEventListener("click", () => {
+        if (pendingSuggestionButtons().length === 0) return;
+        acceptAllModalBackdrop.classList.add("open");
+      });
+
+      modalCancelBtn.addEventListener("click", closeAcceptAllModal);
+      acceptAllModalBackdrop.addEventListener("click", (e) => {
+        if (e.target === acceptAllModalBackdrop) closeAcceptAllModal();
+      });
+
+      modalConfirmBtn.addEventListener("click", () => {
+        closeAcceptAllModal();
         const pending = pendingSuggestionButtons();
         if (pending.length === 0) return;
         _bulkExpected = pending.length;
         acceptAllBtn.disabled = true;
         acceptAllBtn.textContent = `Applying ${pending.length}…`;
-        // Simulate a click on each pending button — their existing handlers
-        // dispatch the right pluginMessage and update state individually.
         for (const btn of pending) btn.click();
       });
 

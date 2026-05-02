@@ -3605,6 +3605,9 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
                       ).join('<span class="token-suggest-or">or</span>');
                       applyParts.push(`<div class="token-suggest-row"><span class="token-suggest-label">Use</span>${btns}</div>`);
                     }
+                    if (rule === "autolayout" && o.autolayoutSuggestion) {
+                      applyParts.push(`<button class="apply-rename-btn apply-autolayout-btn" data-apply-autolayout="${esc(o.nodeId)}" data-autolayout-suggestion="${esc(JSON.stringify(o.autolayoutSuggestion))}">Apply autolayout</button>`);
+                    }
                     if (Array.isArray(o.zeroActions) && o.zeroActions.length > 0) {
                       const zeroBtns = o.zeroActions.map(a =>
                         `<button class="apply-rename-btn apply-zero-btn"` +
@@ -3701,6 +3704,18 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
             applyBtn.textContent = "Applying…";
             parent.postMessage({
               pluginMessage: { type: "apply-token", nodeId: tokenNodeId, kind, tokenId, slot }
+            }, "*");
+            return;
+          }
+          // Autolayout suggestion — applies AI-computed layout params to the node.
+          const autolayoutNodeId = applyBtn.getAttribute("data-apply-autolayout");
+          if (autolayoutNodeId) {
+            let suggestion;
+            try { suggestion = JSON.parse(applyBtn.getAttribute("data-autolayout-suggestion") || "{}"); } catch { return; }
+            applyBtn.disabled = true;
+            applyBtn.textContent = "Applying…";
+            parent.postMessage({
+              pluginMessage: { type: "apply-autolayout", nodeId: autolayoutNodeId, suggestion }
             }, "*");
             return;
           }
@@ -3969,6 +3984,17 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
           onBulkActionComplete();
           console.error("[figma-ai-score] zero-padding failed:", msg.error);
           alert("Couldn't clear padding: " + (msg.error || "unknown error"));
+          if (lastReport) renderReport(lastReport);
+        }
+        if (msg.type === "apply-autolayout-done") {
+          const btn = reportEl.querySelector(`[data-apply-autolayout="${CSS.escape(msg.nodeId)}"]`);
+          if (btn) { btn.textContent = "Applied ✓"; btn.classList.add("apply-done"); btn.disabled = true; }
+          onBulkActionComplete();
+        }
+        if (msg.type === "apply-autolayout-failed") {
+          onBulkActionComplete();
+          console.error("[figma-ai-score] autolayout apply failed:", msg.error);
+          alert("Couldn't apply autolayout: " + (msg.error || "unknown error"));
           if (lastReport) renderReport(lastReport);
         }
         if (msg.type === "export-image-result") {

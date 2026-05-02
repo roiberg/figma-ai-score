@@ -90,7 +90,36 @@ Decorative compositions (illustrations, vector groups not laid out) can be reaso
 
 Detail format:
 - "<type> isn't using auto layout." — deterministic case.
-- "<type> uses auto layout but [vision-derived problem]." — vision case.`,
+- "<type> uses auto layout but [vision-derived problem]." — vision case.
+
+**For every non-autolayout offender, compute an \`autolayoutSuggestion\`** using both the scan tree and the thumbnail:
+
+Math (from scan tree children x/y/width/height):
+- \`direction\`: HORIZONTAL if children vary more in x than y, VERTICAL otherwise.
+- \`gap\`: median gap between consecutive children along the primary axis (round to nearest integer).
+- \`paddingTop/Right/Bottom/Left\`: distance from frame edge to nearest child edge on each side.
+
+Vision (from thumbnail):
+- \`primaryAxisSizingMode\`/\`counterAxisSizingMode\`: FIXED if the frame has a defined size independent of content; AUTO (hug) if it wraps its content.
+- \`primaryAxisAlignItems\`: MIN (start), CENTER, MAX (end), or SPACE_BETWEEN.
+- \`counterAxisAlignItems\`: MIN, CENTER, or MAX.
+- Per-child \`layoutGrow\`: 1 (fill container) if the child visually stretches to fill the frame on the primary axis; 0 otherwise.
+- Per-child \`layoutAlign\`: STRETCH if the child fills the counter axis; INHERIT otherwise.
+
+Output format (add to every non-autolayout offender):
+\`\`\`
+"autolayoutSuggestion": {
+  "direction": "HORIZONTAL" | "VERTICAL",
+  "gap": <number>,
+  "paddingTop": <number>, "paddingRight": <number>, "paddingBottom": <number>, "paddingLeft": <number>,
+  "primaryAxisSizingMode": "FIXED" | "AUTO",
+  "counterAxisSizingMode": "FIXED" | "AUTO",
+  "primaryAxisAlignItems": "MIN" | "CENTER" | "MAX" | "SPACE_BETWEEN",
+  "counterAxisAlignItems": "MIN" | "CENTER" | "MAX",
+  "children": [{ "nodeId": "...", "layoutGrow": 0|1, "layoutAlign": "INHERIT"|"STRETCH" }]
+}
+\`\`\`
+Omit the \`children\` array if all children keep defaults (layoutGrow 0, layoutAlign INHERIT).`,
 
   effects: `### effects
 Pre-computed. Pass through unchanged.`,
@@ -622,6 +651,60 @@ figma.ui.onmessage = async (msg) => {
           type: "apply-token-failed",
           nodeId: msg.nodeId,
           slot: msg.slot,
+          error: (e && e.message) ? e.message : String(e)
+        });
+      }
+      return;
+    }
+    if (msg.type === "apply-autolayout") {
+      try {
+        const { nodeId, suggestion: s } = msg;
+        let node = null;
+        if (typeof figma.getNodeByIdAsync === "function") {
+          try { node = await figma.getNodeByIdAsync(nodeId); } catch (e) {}
+        }
+        if (!node) node = figma.getNodeById(nodeId);
+        if (!node) throw new Error("node not found");
+        const AL_TYPES = new Set(["FRAME", "COMPONENT", "INSTANCE"]);
+        if (!AL_TYPES.has(node.type)) throw new Error("node type cannot have auto layout: " + node.type);
+
+        // Apply direction first — Figma requires this before padding/gap props.
+        node.layoutMode = s.direction === "VERTICAL" ? "VERTICAL" : "HORIZONTAL";
+
+        if (typeof s.gap          === "number") node.itemSpacing          = Math.max(0, Math.round(s.gap));
+        if (typeof s.paddingTop   === "number") node.paddingTop           = Math.max(0, Math.round(s.paddingTop));
+        if (typeof s.paddingRight === "number") node.paddingRight         = Math.max(0, Math.round(s.paddingRight));
+        if (typeof s.paddingBottom === "number") node.paddingBottom       = Math.max(0, Math.round(s.paddingBottom));
+        if (typeof s.paddingLeft  === "number") node.paddingLeft          = Math.max(0, Math.round(s.paddingLeft));
+
+        const VALID_PRIMARY = new Set(["MIN", "CENTER", "MAX", "SPACE_BETWEEN"]);
+        const VALID_COUNTER = new Set(["MIN", "CENTER", "MAX"]);
+        const VALID_SIZING  = new Set(["FIXED", "AUTO"]);
+        if (s.primaryAxisAlignItems && VALID_PRIMARY.has(s.primaryAxisAlignItems)) node.primaryAxisAlignItems = s.primaryAxisAlignItems;
+        if (s.counterAxisAlignItems && VALID_COUNTER.has(s.counterAxisAlignItems)) node.counterAxisAlignItems = s.counterAxisAlignItems;
+        if (s.primaryAxisSizingMode && VALID_SIZING.has(s.primaryAxisSizingMode))  node.primaryAxisSizingMode = s.primaryAxisSizingMode;
+        if (s.counterAxisSizingMode && VALID_SIZING.has(s.counterAxisSizingMode))  node.counterAxisSizingMode = s.counterAxisSizingMode;
+
+        // Per-child overrides
+        if (Array.isArray(s.children)) {
+          for (const spec of s.children) {
+            let child = null;
+            if (typeof figma.getNodeByIdAsync === "function") {
+              try { child = await figma.getNodeByIdAsync(spec.nodeId); } catch (e) {}
+            }
+            if (!child) child = figma.getNodeById(spec.nodeId);
+            if (!child) continue;
+            if (typeof spec.layoutGrow === "number") child.layoutGrow = spec.layoutGrow === 1 ? 1 : 0;
+            const VALID_ALIGN = new Set(["INHERIT", "STRETCH", "CENTER", "MIN", "MAX"]);
+            if (spec.layoutAlign && VALID_ALIGN.has(spec.layoutAlign)) child.layoutAlign = spec.layoutAlign;
+          }
+        }
+
+        figma.ui.postMessage({ type: "apply-autolayout-done", nodeId });
+      } catch (e) {
+        figma.ui.postMessage({
+          type: "apply-autolayout-failed",
+          nodeId: msg.nodeId,
           error: (e && e.message) ? e.message : String(e)
         });
       }
@@ -1849,9 +1932,11 @@ function extractNode(node, depth = 0, maxDepth = 8) {
     out.autolayout = al;
   }
 
-  // Dimensions — used by the size rule.
-  if (typeof node.width === "number") out.width = node.width;
+  // Dimensions + position — width/height for size rule; x/y for autolayout math.
+  if (typeof node.width  === "number") out.width  = node.width;
   if (typeof node.height === "number") out.height = node.height;
+  if (typeof node.x      === "number") out.x      = node.x;
+  if (typeof node.y      === "number") out.y      = node.y;
   // sizeBound: only include when at least one dimension is bound (absent = neither bound).
   const sbW = boundVarId(node, "width");
   const sbH = boundVarId(node, "height");

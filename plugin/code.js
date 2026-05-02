@@ -791,6 +791,9 @@ figma.ui.onmessage = async (msg) => {
           }
         }
 
+        let ds = null;
+        try { ds = await getDesignSystem(); } catch (e) {}
+
         if (isVariantSet) {
           // Create one component per variant, place them temporarily
           const components = [];
@@ -801,6 +804,7 @@ figma.ui.onmessage = async (msg) => {
             comp.x     = cx;
             comp.y     = pos.y;
             figma.currentPage.appendChild(comp);
+            await autoApplyDimensionalTokens(comp, ds);
             components.push(comp);
             cx += v.width + INNER_GAP;
           }
@@ -820,6 +824,7 @@ figma.ui.onmessage = async (msg) => {
           comp.x     = pos.x;
           comp.y     = pos.y;
           figma.currentPage.appendChild(comp);
+          await autoApplyDimensionalTokens(comp, ds);
           // Replace the original frame with an instance of the new component
           replaceWithInstance(offenderNode, comp);
           figma.viewport.scrollAndZoomIntoView([comp]);
@@ -1196,6 +1201,61 @@ function copyFrameProps(src, dst) {
   // Force fixed sizing so the component doesn't shrink to 0
   try { dst.primaryAxisSizingMode   = "FIXED"; } catch (e) {}
   try { dst.counterAxisSizingMode   = "FIXED"; } catch (e) {}
+}
+
+// After creating a component, bind dimensional tokens (padding, height,
+// itemSpacing) for any slot whose value has an exact unambiguous token match.
+// Errors per-slot are silently swallowed so a missing token never blocks
+// component creation.
+async function autoApplyDimensionalTokens(node, ds) {
+  if (!ds) return;
+  async function getVar(id) {
+    try {
+      return typeof figma.variables.getVariableByIdAsync === "function"
+        ? await figma.variables.getVariableByIdAsync(id)
+        : figma.variables.getVariableById(id);
+    } catch (e) { return null; }
+  }
+  // Padding
+  for (const slot of ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"]) {
+    try {
+      const val = node[slot];
+      if (!val) continue;
+      const sug = buildDimensionalSuggestion(ds, "padding", slot, val);
+      if (!sug) continue;
+      const variable = await getVar(sug.id);
+      if (variable) node.setBoundVariable(slot, variable);
+    } catch (e) {}
+  }
+  // Height (counterAxisSizingMode is already FIXED from copyFrameProps)
+  try {
+    const sug = buildDimensionalSuggestion(ds, "size", "height", node.height);
+    if (sug) {
+      const variable = await getVar(sug.id);
+      if (variable) node.setBoundVariable("height", variable);
+    }
+  } catch (e) {}
+  // Width (primaryAxisSizingMode is FIXED from copyFrameProps)
+  try {
+    const sug = buildDimensionalSuggestion(ds, "size", "width", node.width);
+    if (sug) {
+      const variable = await getVar(sug.id);
+      if (variable) node.setBoundVariable("width", variable);
+    }
+  } catch (e) {}
+  // itemSpacing — only when auto-layout has 2+ children (gap has visual effect)
+  try {
+    if (node.layoutMode && node.layoutMode !== "NONE" && (node.children || []).length >= 2) {
+      const val = node.itemSpacing;
+      if (val > 0) {
+        const sug = buildDimensionalSuggestion(ds, "spacing", "itemSpacing", val);
+        if (sug) {
+          const variable = await getVar(sug.id);
+          if (variable) node.setBoundVariable("itemSpacing", variable);
+        }
+      }
+    }
+  } catch (e) {}
 }
 
 // Convert a raw node into a new COMPONENT with the same visual content.

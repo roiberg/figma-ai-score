@@ -99,8 +99,11 @@ Math (from scan tree children x/y/width/height):
 - \`gap\`: median gap between consecutive children along the primary axis (round to nearest integer).
 - \`paddingTop/Right/Bottom/Left\`: distance from frame edge to nearest child edge on each side.
 
-Vision (from thumbnail):
-- \`primaryAxisSizingMode\`/\`counterAxisSizingMode\`: FIXED if the frame has a defined size independent of content; AUTO (hug) if it wraps its content.
+Vision (from thumbnail) — **these fields are required in every suggestion**:
+- \`primaryAxisSizingMode\`/\`counterAxisSizingMode\`: Determine each axis independently by looking at the thumbnail.
+  - AUTO (hug): the frame wraps its content on that axis — its size is driven by children + padding.
+  - FIXED: the frame has an explicit size on that axis that is independent of its content (e.g. a full-width banner, a fixed-height toolbar, a button that spans the container width).
+  Never default blindly to AUTO — a frame that fills its parent's width should stay FIXED on the horizontal axis.
 - \`primaryAxisAlignItems\`: MIN (start), CENTER, MAX (end), or SPACE_BETWEEN.
 - \`counterAxisAlignItems\`: MIN, CENTER, or MAX.
 - Per-child \`layoutGrow\`: 1 (fill container) if the child visually stretches to fill the frame on the primary axis; 0 otherwise.
@@ -687,16 +690,12 @@ figma.ui.onmessage = async (msg) => {
         const VALID_SIZING  = new Set(["FIXED", "AUTO"]);
         if (s.primaryAxisAlignItems && VALID_PRIMARY.has(s.primaryAxisAlignItems)) node.primaryAxisAlignItems = s.primaryAxisAlignItems;
         if (s.counterAxisAlignItems && VALID_COUNTER.has(s.counterAxisAlignItems)) node.counterAxisAlignItems = s.counterAxisAlignItems;
-        // Always hug when paddings are applied — a fixed pixel size defeats the
-        // purpose. If the suggestion explicitly requests FIXED and no padding is
-        // set (unusual), honour it; otherwise default to AUTO.
-        if (hasPadding) {
-          node.primaryAxisSizingMode = "AUTO";
-          node.counterAxisSizingMode = "AUTO";
-        } else {
-          if (s.primaryAxisSizingMode && VALID_SIZING.has(s.primaryAxisSizingMode)) node.primaryAxisSizingMode = s.primaryAxisSizingMode;
-          if (s.counterAxisSizingMode && VALID_SIZING.has(s.counterAxisSizingMode)) node.counterAxisSizingMode = s.counterAxisSizingMode;
-        }
+        // Trust the AI's vision-derived sizing mode. If omitted, default to AUTO
+        // (hug) rather than leaving whatever the frame had before.
+        node.primaryAxisSizingMode = (s.primaryAxisSizingMode && VALID_SIZING.has(s.primaryAxisSizingMode))
+          ? s.primaryAxisSizingMode : "AUTO";
+        node.counterAxisSizingMode = (s.counterAxisSizingMode && VALID_SIZING.has(s.counterAxisSizingMode))
+          ? s.counterAxisSizingMode : "AUTO";
 
         // Per-child overrides
         if (Array.isArray(s.children)) {

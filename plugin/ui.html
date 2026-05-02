@@ -725,14 +725,24 @@
         padding: 4px 0;
       }
 
-      /* ── Locked banner ── */
+      /* ── Reviewing overlay ── */
       .locked-banner {
         display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 500;
+        background: rgba(0, 0, 0, 0.45);
+        align-items: center;
+        justify-content: center;
+      }
+      .locked-banner-card {
         background: var(--orange-bg);
         border: 1px solid var(--orange-border);
-        padding: 10px 12px;
         border-radius: var(--radius);
-        margin-bottom: 10px;
+        box-shadow: var(--shadow-md);
+        padding: 14px 16px;
+        width: 240px;
+        max-width: calc(100% - 32px);
         font-size: 11px;
         line-height: 1.5;
         animation: slideDown 0.25s ease;
@@ -1965,21 +1975,7 @@
     <div class="two-col" id="two-col">
       <div class="col col-left">
         <div class="col-scroll scroll-area">
-          <div class="panel" id="review-panel" style="display:none">
-            <div id="locked-banner" class="locked-banner">
-              <div id="locked-banner-text">
-                <div id="banner-title-row">
-                  <span id="banner-dot" class="reviewing-dot"></span><span id="banner-title">Starting review…</span>
-                </div>
-                <div id="banner-eta" class="locked-eta" style="display:none"></div>
-                <div id="banner-progress-line">Starting…</div>
-              </div>
-              <div id="progress-fun-line" class="progress-fun"></div>
-              <div id="stop-wrap" class="stop-wrap">
-                <button id="stop" class="danger" style="width:100%">Stop review</button>
-              </div>
-            </div>
-          </div>
+          <div class="panel" id="review-panel" style="display:none"></div>
 
           <div class="panel" id="mode-panel">
             <div class="section-title">Review mode</div>
@@ -3570,10 +3566,8 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
       // is visible.
       function _showReviewBannerShell() {
         document.body.classList.add("reviewing");
-        reviewPanel.style.display = "";
-        reviewPanel.style.borderBottom = "1px solid var(--border)";
         stopWrap.style.display = "block";
-        lockedBanner.style.display = "block";
+        lockedBanner.style.display = "flex";
       }
       function showPreparing(names) {
         _showReviewBannerShell();
@@ -3613,8 +3607,6 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         lockedBanner.style.display = "none";
         stopBtn.disabled = false;
         stopBtn.textContent = "Stop review";
-        reviewPanel.style.borderBottom = "";
-        reviewPanel.style.display = "none";
       }
       stopBtn.addEventListener("click", () => {
         // Tell the sandbox to flip its cancelled flag.
@@ -4257,5 +4249,22 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
       }
     </script>
+
+    <!-- Reviewing overlay — full-screen scrim with centered card -->
+    <div id="locked-banner" class="locked-banner">
+      <div class="locked-banner-card">
+        <div id="locked-banner-text">
+          <div id="banner-title-row">
+            <span id="banner-dot" class="reviewing-dot"></span><span id="banner-title">Starting review…</span>
+          </div>
+          <div id="banner-eta" class="locked-eta" style="display:none"></div>
+          <div id="banner-progress-line">Starting…</div>
+        </div>
+        <div id="progress-fun-line" class="progress-fun"></div>
+        <div id="stop-wrap" class="stop-wrap">
+          <button id="stop" class="danger" style="width:100%">Stop review</button>
+        </div>
+      </div>
+    </div>
   </body>
 </html>

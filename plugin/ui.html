@@ -3809,14 +3809,31 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
                     const validTokens = Array.isArray(o.suggestedTokens)
                       ? o.suggestedTokens.filter(t => t && typeof t === "object" && t.id && t.name && t.kind && t.slot)
                       : [];
-                    if (validTokens.length > 0) {
-                      const btns = validTokens.map(t =>
+                    // Group by token id so the same token applied to multiple
+                    // slots (e.g. paddingLeft + paddingRight both → spacing-xl)
+                    // collapses into ONE button. data-token-slots carries the
+                    // comma-joined slot list; the click handler fans out one
+                    // apply-token RPC per slot.
+                    const tokenGroups = [];
+                    const tokenIndex = new Map();
+                    for (const t of validTokens) {
+                      const key = t.id;
+                      let g = tokenIndex.get(key);
+                      if (!g) {
+                        g = { kind: t.kind, id: t.id, name: t.name, value: t.value, slots: [] };
+                        tokenIndex.set(key, g);
+                        tokenGroups.push(g);
+                      }
+                      if (!g.slots.includes(t.slot)) g.slots.push(t.slot);
+                    }
+                    if (tokenGroups.length > 0) {
+                      const btns = tokenGroups.map(g =>
                         `<button class="apply-rename-btn" ` +
                           `data-apply-token="${esc(o.nodeId)}" ` +
-                          `data-token-kind="${esc(t.kind)}" ` +
-                          `data-token-id="${esc(t.id)}" ` +
-                          `data-token-slot="${esc(t.slot)}" ` +
-                          `>${esc(t.name)}${t.value != null ? ' <span class="token-btn-value">(' + t.value + 'px)</span>' : ''}</button>`
+                          `data-token-kind="${esc(g.kind)}" ` +
+                          `data-token-id="${esc(g.id)}" ` +
+                          `data-token-slots="${esc(g.slots.join(","))}" ` +
+                          `>${esc(g.name)}${g.value != null ? ' <span class="token-btn-value">(' + g.value + 'px)</span>' : ''}</button>`
                       ).join('<span class="token-suggest-or">or</span>');
                       applyParts.push(`<div class="token-suggest-row"><span class="token-suggest-label">Use</span>${btns}</div>`);
                     }
@@ -3922,12 +3939,19 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
           if (tokenNodeId) {
             const kind = applyBtn.getAttribute("data-token-kind");
             const tokenId = applyBtn.getAttribute("data-token-id");
-            const slot = applyBtn.getAttribute("data-token-slot");
+            // Backwards compat: data-token-slot (single) → data-token-slots (csv).
+            // The grouped-button rendering uses slots; legacy callers may still
+            // emit slot. Accept either; fan out one RPC per slot.
+            const slotsCsv = applyBtn.getAttribute("data-token-slots") || applyBtn.getAttribute("data-token-slot") || "";
+            const slots = slotsCsv.split(",").map(s => s.trim()).filter(Boolean);
+            if (slots.length === 0) return;
             applyBtn.disabled = true;
             applyBtn.textContent = "Applying…";
-            parent.postMessage({
-              pluginMessage: { type: "apply-token", nodeId: tokenNodeId, kind, tokenId, slot }
-            }, "*");
+            for (const slot of slots) {
+              parent.postMessage({
+                pluginMessage: { type: "apply-token", nodeId: tokenNodeId, kind, tokenId, slot }
+              }, "*");
+            }
             return;
           }
           // Autolayout suggestion — applies AI-computed layout params to the node.

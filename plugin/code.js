@@ -9,6 +9,35 @@
 console.log("[figma-ai-score] plugin loaded (build: image-fill-exempt, 2026-04-21)");
 figma.showUI(__html__, { width: 653, height: 739, themeColors: true });
 
+// ── Tab deduplication via clientStorage ─────────────────────────────────────
+// figma.clientStorage is shared across all open Figma tabs for this plugin.
+// Each tab claims an ownership slot on open and renews it every 2s. When
+// another tab overwrites the slot, the previous owner yields and tells its UI
+// to show the "Active in another tab" overlay.
+const TAB_PRESENCE_KEY = "figma-ai-score.active-tab-id";
+const myTabId = Math.random().toString(36).slice(2) + Date.now();
+let _isTabOwner = true;
+
+(async () => {
+  try { await figma.clientStorage.setAsync(TAB_PRESENCE_KEY, myTabId); } catch (e) {}
+})();
+
+setInterval(async () => {
+  try {
+    const stored = await figma.clientStorage.getAsync(TAB_PRESENCE_KEY);
+    const nowOwner = !stored || stored === myTabId;
+    if (_isTabOwner && !nowOwner) {
+      _isTabOwner = false;
+      figma.ui.postMessage({ type: "tab-replaced" });
+    } else if (!_isTabOwner && nowOwner) {
+      _isTabOwner = true;
+      figma.ui.postMessage({ type: "tab-reclaimed" });
+    } else if (_isTabOwner) {
+      await figma.clientStorage.setAsync(TAB_PRESENCE_KEY, myTabId);
+    }
+  } catch (e) {}
+}, 2000);
+
 const DEFAULT_RULES = {
   naming: true,
   components: true,
@@ -391,6 +420,12 @@ figma.ui.onmessage = async (msg) => {
   if (!msg) return;
 
   if (!msg.__rpc) {
+    if (msg.type === "reclaim-tab") {
+      try { await figma.clientStorage.setAsync(TAB_PRESENCE_KEY, myTabId); } catch (e) {}
+      _isTabOwner = true;
+      figma.ui.postMessage({ type: "tab-reclaimed" });
+      return;
+    }
     if (msg.type === "set-cancelled") {
       // The UI's Stop button (and any future cancel UX) sets this flag.
       // Subsequent CLI RPCs short-circuit with { cancelled: true } until

@@ -3219,32 +3219,15 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
       }
       function hideReplacedOverlay() { if (replacedOverlay) replacedOverlay.style.display = "none"; }
 
-      // ── BroadcastChannel tab-deduplication ──────────────────────────────
-      // With the ephemeral CLI there is no persistent server to mediate
-      // conflicts, so we use BroadcastChannel to detect when another Figma
-      // tab opens the plugin and show the overlay directly — no server round-
-      // trip needed. Falls back gracefully when the API isn't available.
-      const myTabId = Math.random().toString(36).slice(2);
-      let bc = null;
-      try {
-        bc = new BroadcastChannel("figma-ai-score-tabs");
-        bc.onmessage = (ev) => {
-          const m = ev.data;
-          if (!m || m.tabId === myTabId) return;
-          // Another tab just opened or reclaimed — we yield.
-          if (m.type === "tab-opened" || m.type === "tab-reclaim") {
-            showReplacedOverlay();
-          }
-        };
-        // Announce this tab; any existing tab will see it and yield.
-        bc.postMessage({ type: "tab-opened", tabId: myTabId });
-      } catch (e) { /* BroadcastChannel unavailable — server-mediated fallback only */ }
-
+      // ── Tab deduplication (driven by code.js via clientStorage) ────────
+      // code.js polls figma.clientStorage every 2s to detect when another
+      // tab has claimed the ownership slot, then posts "tab-replaced" here.
+      // No BroadcastChannel or server needed — clientStorage is shared
+      // across all open Figma tabs for this plugin.
       if (replacedReclaimBtn) {
         replacedReclaimBtn.addEventListener("click", () => {
           hideReplacedOverlay();
-          // Tell every other tab they've been displaced.
-          if (bc) try { bc.postMessage({ type: "tab-reclaim", tabId: myTabId }); } catch {}
+          parent.postMessage({ pluginMessage: { type: "reclaim-tab" } }, "*");
           connect();
         });
       }
@@ -3304,6 +3287,8 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
           // If CLOSING/CLOSED the bridge already rejected the pending call; drop.
           return;
         }
+        if (msg.type === "tab-replaced") { showReplacedOverlay(); return; }
+        if (msg.type === "tab-reclaimed") { hideReplacedOverlay(); return; }
         if (msg.type === "suggestion-check-result") { lastSuggestionAt = msg.lastAt || 0; return; }
         if (msg.type === "saved-mode") { applyMode(msg.mode, false); return; }
         if (msg.type === "prefs") renderPrefs(msg.data);

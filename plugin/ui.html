@@ -1128,6 +1128,18 @@
       }
       #accept-all-modal-cancel:hover { background: var(--bg-tertiary); border-color: #999; }
 
+      /* Create-component warning modal — same structure as accept-all modal */
+      #create-component-modal-backdrop {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.35);
+        z-index: 400;
+        align-items: center;
+        justify-content: center;
+      }
+      #create-component-modal-backdrop.open { display: flex; }
+
       /* Accept all button — injected after frame name by renderReport() */
       #accept-all-btn {
         display: none; /* shown via JS when suggestions exist */
@@ -2374,6 +2386,46 @@
         acceptAllBtn.disabled = true;
         acceptAllBtn.textContent = `Applying ${pending.length}…`;
         for (const btn of pending) btn.click();
+      });
+
+      // ── Create-component warning modal ───────────────────────────────────
+      // Shown when the user clicks "Create component" but there are still
+      // other unresolved suggestions in the same frame — fixes should land
+      // on the master component, not on the instance that replaces the frame.
+      const createCompModalBackdrop = document.createElement("div");
+      createCompModalBackdrop.id = "create-component-modal-backdrop";
+      createCompModalBackdrop.innerHTML = `
+        <div id="accept-all-modal">
+          <p><strong>Create component now?</strong></p>
+          <p>This frame has unresolved suggestions. It's best to resolve all issues first — that way the fixes are baked into the component from the start.</p>
+          <div class="modal-actions">
+            <button id="create-comp-modal-cancel">Fix issues first</button>
+            <button id="create-comp-modal-confirm">Create anyway</button>
+          </div>
+        </div>`;
+      document.body.appendChild(createCompModalBackdrop);
+      const createCompModalConfirm = document.getElementById("create-comp-modal-confirm");
+      const createCompModalCancel  = document.getElementById("create-comp-modal-cancel");
+      let _pendingCreateCompBtn = null;
+
+      function closeCreateCompModal() {
+        createCompModalBackdrop.classList.remove("open");
+        _pendingCreateCompBtn = null;
+      }
+
+      createCompModalCancel.addEventListener("click", closeCreateCompModal);
+      createCompModalBackdrop.addEventListener("click", (e) => {
+        if (e.target === createCompModalBackdrop) closeCreateCompModal();
+      });
+      createCompModalConfirm.addEventListener("click", () => {
+        closeCreateCompModal();
+        if (!_pendingCreateCompBtn) return;
+        const btn = _pendingCreateCompBtn;
+        const nodeId      = btn.getAttribute("data-create-component");
+        const frameNodeId = btn.getAttribute("data-frame-id");
+        btn.disabled      = true;
+        btn.textContent   = "Creating…";
+        parent.postMessage({ pluginMessage: { type: "create-component", nodeId, frameNodeId } }, "*");
       });
 
       const setupBanner = document.getElementById("setup-banner");
@@ -3735,9 +3787,22 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         const createComp = ev.target.closest(".create-component-btn");
         if (createComp) {
           ev.stopPropagation();
-          const nodeId     = createComp.getAttribute("data-create-component");
+          // Check for other unresolved suggestions in the same frame report.
+          // If any exist, warn the user to fix them first so fixes are baked
+          // into the master component, not left on the instance.
+          const frameReport = createComp.closest(".frame-report");
+          const otherPending = frameReport ? Array.from(
+            frameReport.querySelectorAll(".apply-rename-btn:not(:disabled):not(.apply-done)")
+          ).filter(b => b !== createComp) : [];
+          if (otherPending.length > 0) {
+            _pendingCreateCompBtn = createComp;
+            createCompModalBackdrop.classList.add("open");
+            return;
+          }
+          // No other issues — proceed immediately.
+          const nodeId      = createComp.getAttribute("data-create-component");
           const frameNodeId = createComp.getAttribute("data-frame-id");
-          createComp.disabled   = true;
+          createComp.disabled    = true;
           createComp.textContent = "Creating…";
           parent.postMessage({ pluginMessage: { type: "create-component", nodeId, frameNodeId } }, "*");
           return;

@@ -2348,6 +2348,7 @@
       // Counts how many actions were dispatched in the current bulk run.
       // Each result handler calls onBulkActionComplete() once.
       let _bulkExpected = 0;
+      let _bulkDeferredCompBtns = null; // create-component buttons deferred to after non-comp phase
 
       function pendingSuggestionButtons() {
         return Array.from(reportEl.querySelectorAll(
@@ -2358,29 +2359,33 @@
 
       function updateAcceptAllBtn() {
         if (!acceptAllBtn) return;
-        if (acceptAllBtn.classList.contains("bulk-done")) return; // stay done
+        if (_bulkExpected > 0) return; // bulk in progress — don't override "Applying N…"
         const pending = pendingSuggestionButtons();
+        acceptAllBtn.classList.remove("bulk-done");
         if (pending.length === 0) {
           acceptAllBtn.style.display = "none";
         } else {
-          acceptAllBtn.style.display = "block"; // block + margin:auto = centered
+          acceptAllBtn.style.display = "block";
           acceptAllBtn.disabled = false;
           acceptAllBtn.textContent = `Accept all suggestions (${pending.length})`;
         }
       }
 
       function onBulkActionComplete() {
-        if (_bulkExpected <= 0) return;
+        if (_bulkExpected <= 0) return; // individual fix; patchOffenderRemoved calls updateAcceptAllBtn
         _bulkExpected--;
+
+        // Phase transition: non-comp phase finished → fire deferred create-component buttons
+        if (_bulkExpected === 0 && _bulkDeferredCompBtns && _bulkDeferredCompBtns.length > 0) {
+          const compBtns = _bulkDeferredCompBtns;
+          _bulkDeferredCompBtns = null;
+          _bulkExpected = compBtns.length;
+          for (const btn of compBtns) btn.click();
+          return;
+        }
+
         if (_bulkExpected === 0) {
-          acceptAllBtn.disabled = true;
-          acceptAllBtn.textContent = "All applied ✓";
-          acceptAllBtn.classList.add("bulk-done");
-          // Hide after 3 s so it doesn't linger forever
-          setTimeout(() => {
-            acceptAllBtn.classList.remove("bulk-done");
-            acceptAllBtn.style.display = "none";
-          }, 3000);
+          updateAcceptAllBtn(); // recalculate — hides if everything is resolved
         }
       }
 
@@ -2417,10 +2422,21 @@
         closeAcceptAllModal();
         const pending = pendingSuggestionButtons();
         if (pending.length === 0) return;
-        _bulkExpected = pending.length;
+        // Split: create-component buttons run LAST so other fixes are baked into the master.
+        const nonCompBtns = pending.filter(b => !b.classList.contains("create-component-btn"));
+        const compBtns    = pending.filter(b =>  b.classList.contains("create-component-btn"));
         acceptAllBtn.disabled = true;
         acceptAllBtn.textContent = `Applying ${pending.length}…`;
-        for (const btn of pending) btn.click();
+        if (nonCompBtns.length > 0) {
+          _bulkExpected = nonCompBtns.length;
+          _bulkDeferredCompBtns = compBtns.length > 0 ? compBtns : null;
+          for (const btn of nonCompBtns) btn.click();
+        } else {
+          // Only create-component buttons — fire them directly
+          _bulkExpected = compBtns.length;
+          _bulkDeferredCompBtns = null;
+          for (const btn of compBtns) btn.click();
+        }
       });
 
       // ── Create-component warning modal ───────────────────────────────────
@@ -3894,6 +3910,8 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
           } else if (!frame.perfect && perfectBadge) {
             perfectBadge.remove();
           }
+          // Keep the accept-all button count in sync for individual (non-bulk) fixes.
+          updateAcceptAllBtn();
         };
 
         if (row) {

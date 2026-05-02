@@ -125,7 +125,7 @@ ${disabledNote}
 0. announce_review_start → use its \`selection.frames\` list (skip get_selection).
 1. get_preferences → read \`instructions\` fully (you are reading them now). If \`designDoc.content\` is non-null, use it throughout.
 2. For each frame at index i (1-based) of N total frames:
-   a. **announce_progress --message "Analyzing <frame name> (i of N)…"** — MANDATORY before every scan.
+   a. **announce_progress --message "Analyzing…"** — MANDATORY before every scan.
    b. begin_and_scan --node-ids <id> --frame-index i --frame-count N
    c. Apply enabled rules to the scan result. Compute score.
 3. **announce_progress --message "Submitting report…"** — MANDATORY before submitting.

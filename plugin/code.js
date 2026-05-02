@@ -2739,8 +2739,11 @@ function rankColorCandidates(candidates, nodeName, max) {
 // "no suggestion" is a safe failure mode. AI mode uses the catalog as-is
 // and lets Claude decide; this filter is for Simple-mode determinism only.
 const DIMENSION_RULE_KEYWORDS = {
-  padding: ["padding", "pad"],
-  spacing: ["spacing", "gap", "space"],
+  // Padding tokens are commonly drawn from the same scale as gap/itemSpacing —
+  // most design systems have one spacing scale used for both. Accept tokens
+  // named after either concept; the value match still has to be exact.
+  padding: ["padding", "pad", "spacing", "gap", "space"],
+  spacing: ["spacing", "gap", "space", "padding", "pad"],
   // "size" excludes "font-size" / "line-height" by inspecting word boundaries
   // in the post-filter step rather than the keywords themselves.
   size: ["size", "height", "width", "dim"]

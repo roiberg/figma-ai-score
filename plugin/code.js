@@ -672,18 +672,31 @@ figma.ui.onmessage = async (msg) => {
         node.layoutMode = s.direction === "VERTICAL" ? "VERTICAL" : "HORIZONTAL";
 
         if (typeof s.gap          === "number") node.itemSpacing          = Math.max(0, Math.round(s.gap));
-        if (typeof s.paddingTop   === "number") node.paddingTop           = Math.max(0, Math.round(s.paddingTop));
-        if (typeof s.paddingRight === "number") node.paddingRight         = Math.max(0, Math.round(s.paddingRight));
-        if (typeof s.paddingBottom === "number") node.paddingBottom       = Math.max(0, Math.round(s.paddingBottom));
-        if (typeof s.paddingLeft  === "number") node.paddingLeft          = Math.max(0, Math.round(s.paddingLeft));
+        const hasPadding =
+          typeof s.paddingTop    === "number" ||
+          typeof s.paddingRight  === "number" ||
+          typeof s.paddingBottom === "number" ||
+          typeof s.paddingLeft   === "number";
+        if (typeof s.paddingTop    === "number") node.paddingTop    = Math.max(0, Math.round(s.paddingTop));
+        if (typeof s.paddingRight  === "number") node.paddingRight  = Math.max(0, Math.round(s.paddingRight));
+        if (typeof s.paddingBottom === "number") node.paddingBottom = Math.max(0, Math.round(s.paddingBottom));
+        if (typeof s.paddingLeft   === "number") node.paddingLeft   = Math.max(0, Math.round(s.paddingLeft));
 
         const VALID_PRIMARY = new Set(["MIN", "CENTER", "MAX", "SPACE_BETWEEN"]);
         const VALID_COUNTER = new Set(["MIN", "CENTER", "MAX"]);
         const VALID_SIZING  = new Set(["FIXED", "AUTO"]);
         if (s.primaryAxisAlignItems && VALID_PRIMARY.has(s.primaryAxisAlignItems)) node.primaryAxisAlignItems = s.primaryAxisAlignItems;
         if (s.counterAxisAlignItems && VALID_COUNTER.has(s.counterAxisAlignItems)) node.counterAxisAlignItems = s.counterAxisAlignItems;
-        if (s.primaryAxisSizingMode && VALID_SIZING.has(s.primaryAxisSizingMode))  node.primaryAxisSizingMode = s.primaryAxisSizingMode;
-        if (s.counterAxisSizingMode && VALID_SIZING.has(s.counterAxisSizingMode))  node.counterAxisSizingMode = s.counterAxisSizingMode;
+        // Always hug when paddings are applied — a fixed pixel size defeats the
+        // purpose. If the suggestion explicitly requests FIXED and no padding is
+        // set (unusual), honour it; otherwise default to AUTO.
+        if (hasPadding) {
+          node.primaryAxisSizingMode = "AUTO";
+          node.counterAxisSizingMode = "AUTO";
+        } else {
+          if (s.primaryAxisSizingMode && VALID_SIZING.has(s.primaryAxisSizingMode)) node.primaryAxisSizingMode = s.primaryAxisSizingMode;
+          if (s.counterAxisSizingMode && VALID_SIZING.has(s.counterAxisSizingMode)) node.counterAxisSizingMode = s.counterAxisSizingMode;
+        }
 
         // Per-child overrides
         if (Array.isArray(s.children)) {

@@ -3840,20 +3840,24 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         const createComp = ev.target.closest(".create-component-btn");
         if (createComp) {
           ev.stopPropagation();
-          // Check for other unresolved suggestions in the same frame report.
-          // If any exist, warn the user to fix them first so fixes are baked
-          // into the master component, not left on the instance.
+          // Check for other unresolved suggestions on the SAME node only.
+          // Issues on different layers are irrelevant to this component.
+          const nodeId_cc   = createComp.getAttribute("data-create-component");
           const frameReport = createComp.closest(".frame-report");
           const otherPending = frameReport ? Array.from(
-            frameReport.querySelectorAll(".apply-rename-btn:not(:disabled):not(.apply-done)")
-          ).filter(b => b !== createComp) : [];
+            frameReport.querySelectorAll(".offender-row[data-offender-node] .apply-rename-btn:not(:disabled):not(.apply-done)")
+          ).filter(b => {
+            if (b === createComp) return false;
+            const row = b.closest(".offender-row");
+            return row && row.getAttribute("data-offender-node") === nodeId_cc;
+          }) : [];
           if (otherPending.length > 0) {
             _pendingCreateCompBtn = createComp;
             createCompModalBackdrop.classList.add("open");
             return;
           }
-          // No other issues — proceed immediately.
-          const nodeId      = createComp.getAttribute("data-create-component");
+          // No other issues on this node — proceed immediately.
+          const nodeId      = nodeId_cc;
           const frameNodeId = createComp.getAttribute("data-frame-id");
           createComp.disabled    = true;
           createComp.textContent = "Creating…";

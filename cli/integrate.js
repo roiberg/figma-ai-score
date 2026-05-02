@@ -80,13 +80,12 @@ function reviewProtocolBody() {
 ## Review steps
 
 1. **\`figma-ai-score announce-review-start\`** — FIRST, always. Returns instantly and flips the plugin UI to "Preparing…". The response includes \`selection\` (current frames) — use it instead of calling \`get-selection\` separately.
-2. **\`figma-ai-score announce-progress --message "Reading preferences…"\`** — call immediately after step 1. Updates the plugin banner so the user sees progress.
-3. **\`figma-ai-score get-preferences\`** — read \`enabledRules\` and the full \`instructions\` field. Follow the instructions exactly.
-4. For each frame (i of N): **\`figma-ai-score announce-progress --message "Analyzing…"\`** then **\`figma-ai-score begin-and-scan --node-ids <id> --frame-index i --frame-count N\`**. Returns scan tree, lintResults, nodeStats, and \`thumbnailPath\`.
-5. After analyzing all frames: **\`figma-ai-score announce-progress --message "Submitting report…"\`**.
-6. Write the final report JSON to a temp file (use the \`Write\` tool), then **\`figma-ai-score submit-report --report-file <path>\`**.
+2. **\`figma-ai-score get-preferences\`** — read \`enabledRules\` and the full \`instructions\` field. Follow the instructions exactly.
+3. For each frame (i of N): **\`figma-ai-score announce-progress --step analyzing\`** then **\`figma-ai-score begin-and-scan --node-ids <id> --frame-index i --frame-count N\`**. Returns scan tree, lintResults, nodeStats, and \`thumbnailPath\`.
+4. After analyzing all frames: **\`figma-ai-score announce-progress --step submitting\`**.
+5. Write the final report JSON to a temp file (use the \`Write\` tool), then **\`figma-ai-score submit-report --report-file <path>\`**.
 
-Call \`announce-progress\` freely whenever you're about to spend time thinking — it updates the plugin banner in real time.
+\`announce-progress\` accepts a fixed \`--step\` key — valid values: \`starting\`, \`reading-preferences\`, \`analyzing\`, \`submitting\`. The plugin maps each key to its display text; arbitrary strings are rejected.
 
 If any subcommand returns \`{ "cancelled": true }\` in its JSON output, stop the review immediately and tell the user "Review cancelled."
 

@@ -98,7 +98,7 @@ Usage:
 
 Subcommands (all return JSON on stdout):
   announce-review-start                   Tell the plugin a review is starting (call this FIRST).
-  announce-progress --message "..."       Post a progress update to the plugin banner.
+  announce-progress --step <key>          Post a progress update. Keys: starting, reading-preferences, analyzing, submitting.
   get-preferences                         Returns enabledRules + the full review instructions.
   get-selection                           Returns the live selection from the plugin.
   begin-and-scan --node-ids id1,id2,...   Lock + scan in one call.
@@ -139,12 +139,19 @@ or '--help' to succeed.
 async function buildParams(subcommand, flags) {
   switch (subcommand) {
     case "announce-progress": {
-      if (typeof flags["message"] !== "string" || !flags["message"].trim()) {
-        const err = new Error("Missing --message for announce-progress.");
+      const VALID_STEPS = ["starting", "reading-preferences", "analyzing", "submitting"];
+      const step = typeof flags["step"] === "string" ? flags["step"].trim() : "";
+      if (!step) {
+        const err = new Error(`Missing --step for announce-progress. Valid values: ${VALID_STEPS.join(", ")}`);
         err.code = "BAD_ARGS";
         throw err;
       }
-      return { message: flags["message"] };
+      if (!VALID_STEPS.includes(step)) {
+        const err = new Error(`Unknown --step "${step}". Valid values: ${VALID_STEPS.join(", ")}`);
+        err.code = "BAD_ARGS";
+        throw err;
+      }
+      return { step };
     }
     case "highlight-nodes": {
       let nodeIds = [];

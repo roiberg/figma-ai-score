@@ -125,10 +125,10 @@ ${disabledNote}
 0. announce_review_start → use its \`selection.frames\` list (skip get_selection).
 1. get_preferences → read \`instructions\` fully (you are reading them now). If \`designDoc.content\` is non-null, use it throughout.
 2. For each frame at index i (1-based) of N total frames:
-   a. **announce_progress --message "Analyzing…"** — MANDATORY before every scan.
+   a. **announce_progress --step analyzing** — MANDATORY before every scan.
    b. begin_and_scan --node-ids <id> --frame-index i --frame-count N
    c. Apply enabled rules to the scan result. Compute score.
-3. **announce_progress --message "Submitting report…"** — MANDATORY before submitting.
+3. **announce_progress --step submitting** — MANDATORY before submitting.
 4. Write report JSON to a temp file, call submit_report --report-file <path>.
 
 If any tool returns \`{ cancelled: true }\`, stop and say "Review cancelled."
@@ -791,11 +791,17 @@ async function handleRpc(method, params) {
       return { cancelled };
     }
     case "announce_progress": {
-      // Mid-review progress update from the AI — shown in the plugin banner
-      // as a real (bold) status line. The AI calls this whenever it's about
-      // to spend time on a step that has no automatic signal.
-      const msg = typeof params.message === "string" ? params.message : "";
-      if (msg) figma.ui.postMessage({ type: "ai-progress", message: msg });
+      // Mid-review progress update from the AI. The AI picks from a fixed set
+      // of step keys; the plugin owns the display text so the AI can't inject
+      // arbitrary copy (including frame names).
+      const STEP_LABELS = {
+        "starting":             "Starting…",
+        "reading-preferences":  "Reading preferences…",
+        "analyzing":            "Analyzing…",
+        "submitting":           "Submitting report…",
+      };
+      const label = STEP_LABELS[params.step] || STEP_LABELS[params.message] || "";
+      if (label) figma.ui.postMessage({ type: "ai-progress", message: label });
       return { ok: true };
     }
     case "announce_review_start": {

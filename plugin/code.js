@@ -1022,6 +1022,15 @@ async function handleRpc(method, params) {
       lockedIds = [];
       return { ok: true };
     }
+    case "dismiss_review": {
+      // Called by the AI when it cannot proceed (e.g. no frames selected).
+      // Dismisses the reviewing overlay without submitting a report.
+      locked = false;
+      lockedIds = [];
+      cancelled = false;
+      figma.ui.postMessage({ type: "unlocked" });
+      return { ok: true };
+    }
     default:
       throw new Error("unknown method: " + method);
   }

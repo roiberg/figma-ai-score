@@ -35,6 +35,7 @@ const SUBCOMMAND_TO_METHOD = {
   "highlight-nodes":       "highlight_nodes",
   "submit-report":         "submit_report",
   "is-cancelled":          "is_cancelled",
+  "dismiss-review":        "dismiss_review",
 };
 
 // ────────────────────────────────────────────────────────────

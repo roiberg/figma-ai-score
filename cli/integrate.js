@@ -80,6 +80,7 @@ function reviewProtocolBody() {
 ## Review steps
 
 1. **\`figma-ai-score announce-review-start\`** — FIRST, always. Returns instantly and flips the plugin UI to "Preparing…". The response includes \`selection\` (current frames) — use it instead of calling \`get-selection\` separately.
+   - **If \`selection.frames\` is empty** (nothing selected in Figma): immediately call **\`figma-ai-score dismiss-review\`** to close the overlay, then tell the user to select a frame and try again. Do NOT proceed.
 2. **\`figma-ai-score get-preferences\`** — read \`enabledRules\` and the full \`instructions\` field. Follow the instructions exactly.
 3. For each frame (i of N): **\`figma-ai-score announce-progress --step analyzing\`** then **\`figma-ai-score begin-and-scan --node-ids <id> --frame-index i --frame-count N\`**. Returns scan tree, lintResults, nodeStats, and \`thumbnailPath\`.
 4. After analyzing all frames: **\`figma-ai-score announce-progress --step submitting\`**.

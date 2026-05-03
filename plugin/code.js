@@ -2103,6 +2103,9 @@ function lintSize(root, ds) {
     // almost always device/page scaffolding with no useful token binding.
     const eligibleTypes = new Set(["COMPONENT", "COMPONENT_SET", "INSTANCE", "FRAME"]);
     if (!eligibleTypes.has(node.type)) return;
+    // COMPONENT_SET is a canvas-only variant container — its size is the bounding
+    // box of all variants arranged for editing, not a rendered dimension. Never flag it.
+    if (node.type === "COMPONENT_SET") return;
     const isFrame = node.type === "FRAME";
     const isInst = isInstance(node);
     const sb = node.sizeBound || {};

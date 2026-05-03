@@ -3266,8 +3266,10 @@ async function getDesignSystem() {
   }
   // Category overrides change cheaply (one clientStorage read) and the user
   // can toggle them without re-extracting variables. Always fetch fresh.
+  // NB: Figma's plugin sandbox doesn't support object spread (...obj). Use
+  // Object.assign for shallow copies of plain DS objects.
   const categoryOverrides = await getTokenCategoryOverrides();
-  return { ...cachedValue, categoryOverrides };
+  return Object.assign({}, cachedValue, { categoryOverrides });
 }
 async function _getDesignSystemUncached() {
   const variables = [];

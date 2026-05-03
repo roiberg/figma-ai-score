@@ -4229,16 +4229,31 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
       // entry from the offender; if no issues remain, removes the offender
       // entirely and bumps the frame score.
       function handleZeroPaddingDone(nodeId, props) {
+        // Scan every rule's offenders — zero actions can live on padding
+        // (existing) or spacing (new: clearing itemSpacing on single-child
+        // auto-layout). Generic so the next rule with a zero action just
+        // works without touching this handler.
         if (!lastReport || !lastReport.frames) return;
         for (const frame of lastReport.frames) {
-          const paddingRule = frame.breakdown && frame.breakdown.padding;
-          if (!paddingRule || !Array.isArray(paddingRule.offenders)) continue;
-          const idx = paddingRule.offenders.findIndex(o =>
-            o.nodeId === nodeId && Array.isArray(o.zeroActions)
-          );
-          if (idx === -1) continue;
-          const beforeCount = paddingRule.offenders.length;
-          const o = paddingRule.offenders[idx];
+          if (!frame.breakdown) continue;
+          let foundRuleName = null;
+          let foundRule = null;
+          let foundIdx = -1;
+          for (const ruleName of Object.keys(frame.breakdown)) {
+            const r = frame.breakdown[ruleName];
+            if (!r || !Array.isArray(r.offenders)) continue;
+            const idx = r.offenders.findIndex(o =>
+              o.nodeId === nodeId && Array.isArray(o.zeroActions)
+            );
+            if (idx === -1) continue;
+            foundRuleName = ruleName;
+            foundRule = r;
+            foundIdx = idx;
+            break;
+          }
+          if (!foundRule) continue;
+          const beforeCount = foundRule.offenders.length;
+          const o = foundRule.offenders[foundIdx];
 
           // Remove the specific zeroAction(s) whose props were just cleared.
           if (Array.isArray(o.zeroActions)) {
@@ -4254,15 +4269,15 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
 
           let removedOffender = false;
           if (!hasRemainingIssues) {
-            paddingRule.offenders.splice(idx, 1);
+            foundRule.offenders.splice(foundIdx, 1);
             removedOffender = true;
           }
 
-          const justEmptied = beforeCount > 0 && paddingRule.offenders.length === 0;
-          if (justEmptied) paddingRule.passed = true;
+          const justEmptied = beforeCount > 0 && foundRule.offenders.length === 0;
+          if (justEmptied) foundRule.passed = true;
 
           if (frame.issues && removedOffender) {
-            frame.issues = frame.issues.filter(i => !(i.nodeId === nodeId && i.rule === "padding"));
+            frame.issues = frame.issues.filter(i => !(i.nodeId === nodeId && i.rule === foundRuleName));
           }
 
           if (removedOffender) {
@@ -4275,7 +4290,7 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
             frame.perfect = rules.every(r => r.passed);
             if (frame.perfect) frame.score = 100;
             else frame.score = Math.max(current, Math.min(100, next));
-            patchOffenderRemoved(nodeId, "padding", frame, paddingRule);
+            patchOffenderRemoved(nodeId, foundRuleName, frame, foundRule);
           } else {
             // Offender still exists but with fewer zeroActions — do a targeted
             // re-render so the button disappears without a full flash.

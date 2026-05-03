@@ -794,8 +794,11 @@ figma.ui.onmessage = async (msg) => {
       return;
     }
     if (msg.type === "zero-padding") {
-      // Zero out one or more padding props (used to clean up padding on
-      // fixed-size axes where padding has no visual effect in code output).
+      // Zero out one or more layout dimensional props. Used to clean up:
+      //   • padding on fixed-axis frames (no visual effect in code output)
+      //   • itemSpacing on single-child auto-layout (no siblings to space)
+      // Despite the name, this handler accepts itemSpacing too — the
+      // event name kept "zero-padding" for backwards compat.
       try {
         const { nodeId, props } = msg;
         if (!Array.isArray(props) || !props.length) return;
@@ -805,7 +808,10 @@ figma.ui.onmessage = async (msg) => {
         }
         if (!node) node = figma.getNodeById(nodeId);
         if (!node) throw new Error("node not found");
-        const ALLOWED = new Set(["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"]);
+        const ALLOWED = new Set([
+          "paddingTop", "paddingRight", "paddingBottom", "paddingLeft",
+          "itemSpacing",
+        ]);
         for (const prop of props) {
           if (ALLOWED.has(prop)) node[prop] = 0;
         }
@@ -1754,14 +1760,23 @@ function lintSpacing(root, ds) {
     const b = al.bound || {};
     // "Auto" gap = SPACE_BETWEEN mode — algorithmically distributed, no fixed value to tokenize.
     if (al.primaryAxisAlignItems === "SPACE_BETWEEN") return;
-    // itemSpacing has no visible effect when there are fewer than 2
-    // children — it's purely a gap between siblings. Don't flag it in
-    // that case even if the value is hardcoded.
     const childCount = (node.children || []).length;
-    if (childCount < 2) return;
-    totalChecked++;
     const val = al.itemSpacing;
     if (val === 0 || val === null || val === undefined) return; // zero is fine
+    totalChecked++;
+    // Special case: single-child auto-layout with a non-zero gap. The gap
+    // has no visual effect (gap is between siblings; there are no siblings)
+    // so it's just noise on the node — clean it up rather than tokenize it.
+    if (childCount < 2) {
+      offenders.push({
+        nodeId: node.id,
+        name: node.name,
+        detail: `Gap value has no effect — only one child.`,
+        tooltip: `Gap is the spacing between sibling children. With only one child there's nothing to space, so the value just adds noise to the layer's properties without changing the design.`,
+        zeroActions: [{ label: "Clear gap", props: ["itemSpacing"] }],
+      });
+      return;
+    }
     if (b.itemSpacing) return; // already bound
     const o = {
       nodeId: node.id,

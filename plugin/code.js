@@ -572,6 +572,7 @@ figma.ui.onmessage = async (msg) => {
       try {
         const libraries = Array.isArray(msg.libraries) ? msg.libraries.filter(s => typeof s === "string") : [];
         await figma.clientStorage.setAsync("figma-ai-score.token-libraries", libraries);
+        _invalidateDesignSystemCache();
       } catch (e) {
         console.warn("[figma-ai-score] couldn't persist token libraries:", e && e.message);
       }
@@ -1201,6 +1202,8 @@ async function handleRpc(method, params) {
     }
     case "begin_and_scan": {
       const _scanStartedAt = Date.now();
+      const _phaseTimings = {};
+      const _markPhase = (label, t0) => { _phaseTimings[label] = Date.now() - t0; };
       // Lock phase
       const ids = Array.isArray(params.nodeIds) ? params.nodeIds : [];
       cancelled = false;
@@ -1232,27 +1235,40 @@ async function handleRpc(method, params) {
       } catch (e) {}
       if (!node) node = figma.getNodeById(scanNodeId);
       if (!node) return { locked: true, error: "node not found: " + scanNodeId };
+      const _t0Extract = Date.now();
       const tree = extractNode(node);
+      _markPhase("extract", _t0Extract);
       let thumbnail = null;
       let thumbError = null;
+      const _t0Thumb = Date.now();
       try {
         if (typeof node.exportAsync === "function") {
           const bytes = await node.exportAsync({ format: "JPG", constraint: { type: "WIDTH", value: 384 } });
           thumbnail = bytesToBase64(bytes);
         }
       } catch (e) { thumbError = String(e && e.message || e); }
+      _markPhase("thumbnail", _t0Thumb);
       let designSystem = null;
+      const _t0Ds = Date.now();
       try { designSystem = await getDesignSystem(); } catch (e) {}
+      _markPhase("designSystem", _t0Ds);
       if (designSystem && Array.isArray(designSystem.variables) && designSystem.variables.length) {
         const frameHexes = extractFrameHexColors(tree);
         designSystem.variables = designSystem.variables.filter(v => v.color && frameHexes.has(v.color));
       }
       let lintResults = null;
+      const _t0Lint = Date.now();
       try { lintResults = lintFrame(tree, prefs, designSystem, { keepInternalFields: true }); } catch (e) {}
+      _markPhase("lint", _t0Lint);
       const nodeStats = computeNodeStats(tree);
       figma.ui.postMessage({ type: "eta-update", eta: estimateEta(nodeStats.total) });
       // Accumulate plugin-side work for ETA stats.
-      if (_etaInFlight) _etaInFlight.pluginWorkMs += Date.now() - _scanStartedAt;
+      if (_etaInFlight) {
+        _etaInFlight.pluginWorkMs += Date.now() - _scanStartedAt;
+        _etaInFlight.phaseTimings = _phaseTimings;
+      }
+      // Log per-phase timing so we can see where slow reviews are spending time.
+      console.log("[figma-ai-score] scan phases (ms):", _phaseTimings);
       // Slim the tree before sending: every per-node field consumed only by
       // the (already-completed) lint pass — fills/strokes/effects/styleIds/
       // boundTypography/sizeBound/radii/autolayout.bound — is dropped.
@@ -1300,6 +1316,7 @@ async function handleRpc(method, params) {
           actualMs,
           pluginWorkMs:  _etaInFlight.pluginWorkMs,
           aiThinkingMs:  Math.max(0, actualMs - _etaInFlight.pluginWorkMs),
+          phaseTimings:  _etaInFlight.phaseTimings || null,
           cancelled:     false,
         });
         _resetEtaStats();
@@ -1662,16 +1679,28 @@ function shallowCountNodes(node) {
 // under-promise (e.g. 45 raw seconds → "About 1 minute").
 // Anything ≥ 5 minutes is shown as "More than 5 minutes".
 // Raw ETA in seconds (for logging — see _etaStats below). Same formula as
-// estimateEta but returns the unrounded number so we can compare against
-// actual measured time.
+// Piecewise ETA model — fit against measured data after the saturation cap
+// landed (which capped the 400+ node worst case from ~13min to ~5min).
+//
+//   0-50   nodes: ~55s flat (AI startup + a tiny vision pass)
+//   50-200 nodes: 55s + 0.4s/node beyond 50
+//   200+   nodes: 115s + 0.85s/node beyond 200 (output dominates here, but
+//                                                saturation caps it at ~50)
+//
+// Anchors:
+//   3 nodes  → 55s  (measured ~51s)
+//   105      → 77s  (measured ~63s)
+//   423      → 305s (measured ~296s)
 function estimateEtaSecondsRaw(totalNodes) {
   if (!totalNodes) return null;
-  return 20 + Math.round(totalNodes * 0.35);
+  if (totalNodes <= 50) return 55;
+  if (totalNodes <= 200) return 55 + Math.round((totalNodes - 50) * 0.4);
+  return 115 + Math.round((totalNodes - 200) * 0.85);
 }
 function estimateEta(totalNodes) {
-  if (!totalNodes) return null;
-  const raw = 20 + Math.round(totalNodes * 0.35);
-  const secs = Math.ceil(raw / 30) * 30; // minimum 30, always a multiple of 30
+  const raw = estimateEtaSecondsRaw(totalNodes);
+  if (raw == null) return null;
+  const secs = Math.ceil(raw / 30) * 30; // round up to multiple of 30
   if (secs < 60) return "About 30 seconds";
   const mins = secs / 60;
   if (mins >= 5) return "More than 5 minutes";
@@ -3171,7 +3200,48 @@ async function getLibraryDesignSystem(getColl) {
   return { variables, numberVariables };
 }
 
+// Session cache for the extracted design system. The expensive part is
+// importVariableByKeyAsync (one round trip per library variable, capped at
+// 1000) plus paint-style enumeration. None of that changes between reviews
+// in the same plugin session unless the user changes their library
+// selection, design-doc, or prefs that affect the DS — at those points we
+// invalidate the cache via _invalidateDesignSystemCache().
+let _dsCache = null;            // { value, key }
+let _dsCacheInFlight = null;    // promise — coalesces concurrent calls
+function _invalidateDesignSystemCache() { _dsCache = null; _dsCacheInFlight = null; }
+async function _designSystemCacheKey() {
+  // Cache key is the selected-libraries list. If the user toggles a library
+  // checkbox, the key changes and we re-extract. Local variables are not
+  // captured in the key — they don't change mid-session in any way that
+  // would make the cache stale (Figma reloads the plugin if the user edits
+  // local variables in the variable editor).
+  try {
+    const libs = await getSelectedTokenLibraries();
+    return JSON.stringify(libs.slice().sort());
+  } catch (e) { return ""; }
+}
 async function getDesignSystem() {
+  const key = await _designSystemCacheKey();
+  let cachedValue;
+  if (_dsCache && _dsCache.key === key) {
+    cachedValue = _dsCache.value;
+  } else if (_dsCacheInFlight) {
+    cachedValue = await _dsCacheInFlight;
+  } else {
+    _dsCacheInFlight = (async () => {
+      const value = await _getDesignSystemUncached();
+      _dsCache = { value, key };
+      _dsCacheInFlight = null;
+      return value;
+    })();
+    cachedValue = await _dsCacheInFlight;
+  }
+  // Category overrides change cheaply (one clientStorage read) and the user
+  // can toggle them without re-extracting variables. Always fetch fresh.
+  const categoryOverrides = await getTokenCategoryOverrides();
+  return { ...cachedValue, categoryOverrides };
+}
+async function _getDesignSystemUncached() {
   const variables = [];
   const numberVariables = [];
   const paintStyles = [];
@@ -3295,12 +3365,8 @@ async function getDesignSystem() {
     console.warn("[figma-ai-score] library DS enumeration failed:", e && e.message);
   }
 
-  // ── User-defined category overrides for token collections ──
-  // Loaded once per scan and threaded through the linting pipeline via
-  // ds.categoryOverrides → buildDimensionalSuggestion → filterDimensionTokensForRule.
-  const categoryOverrides = await getTokenCategoryOverrides();
-
-  return { variables, numberVariables, paintStyles, categoryOverrides };
+  // categoryOverrides is layered on by the caching wrapper (getDesignSystem).
+  return { variables, numberVariables, paintStyles };
 }
 
 // Find tokens (variable preferred over style when both match).

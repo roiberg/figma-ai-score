@@ -3293,6 +3293,7 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
       // tokenCategoriesLoading in the temporal dead zone and throw on access
       // from within the function body.
       var tokenCategoriesLoading = false;
+      var tokenCategoriesPartialError = null; // sandbox-side error, if any
       function fetchTokenCategories() {
         // Show a loading state until the result arrives. Even with the
         // metadata-only sandbox path, big libraries still cost a couple
@@ -3313,11 +3314,35 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
           tokenCategoriesList.appendChild(placeholder);
           return;
         }
+        // Empty (no collections from any source) but with an error message —
+        // show a recoverable empty state. The library API hung or rejected
+        // for every source we tried.
+        if (!tokenCategoryCollections.length && tokenCategoriesPartialError) {
+          tokenCategoriesSection.style.display = "";
+          const errRow = document.createElement("div");
+          errRow.className = "token-cat-row";
+          errRow.style.color = "var(--text-secondary)";
+          errRow.style.fontSize = "11px";
+          errRow.textContent = "Couldn't load collections — try toggling the library off and on, or reopen the plugin.";
+          tokenCategoriesList.appendChild(errRow);
+          return;
+        }
         if (!tokenCategoryCollections.length) {
           tokenCategoriesSection.style.display = "none";
           return;
         }
         tokenCategoriesSection.style.display = "";
+        // Partial success — some collections loaded, others didn't. Surface
+        // a small inline note above the list so the user knows the panel
+        // isn't necessarily complete.
+        if (tokenCategoriesPartialError) {
+          const note = document.createElement("div");
+          note.style.fontSize = "10px";
+          note.style.color = "var(--text-secondary)";
+          note.style.marginBottom = "6px";
+          note.textContent = "Some collections couldn't be loaded — list may be incomplete.";
+          tokenCategoriesList.appendChild(note);
+        }
         for (const coll of tokenCategoryCollections) {
           const row = document.createElement("div");
           row.className = "token-cat-row";
@@ -4916,6 +4941,7 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         if (msg.type === "token-categories-result") {
           tokenCategoriesLoading = false;
           tokenCategoryCollections = Array.isArray(msg.collections) ? msg.collections : [];
+          tokenCategoriesPartialError = msg.partialError || null;
           renderTokenCategoriesList();
         }
         if (msg.type === "design-doc-result") {

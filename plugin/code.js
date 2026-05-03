@@ -585,12 +585,10 @@ figma.ui.onmessage = async (msg) => {
     if (msg.type === "get-token-categories") {
       // Enumerate all numeric-token collections (local + selected libraries),
       // attach auto-detected categories + any user override. METADATA ONLY —
-      // we never call importVariableByKeyAsync here. That import is the slow
-      // part of the full DS extraction (~20s per toggle on big libraries) and
-      // it's not needed to populate the categories panel: the auto-detect only
-      // reads token names + collection name + library name from the haystack.
+      // see listTokenCollectionsLight for the timeout/allSettled hardening.
+      console.debug("[figma-ai-score] get-token-categories started");
       try {
-        const buckets = await listTokenCollectionsLight();
+        const { buckets, errors } = await listTokenCollectionsLight();
         const overrides = await getTokenCategoryOverrides();
         const collections = buckets.map(b => ({
           key: b.key,
@@ -606,10 +604,27 @@ figma.ui.onmessage = async (msg) => {
           if (aLib !== bLib) return aLib.localeCompare(bLib);
           return a.collectionName.localeCompare(b.collectionName);
         });
-        figma.ui.postMessage({ type: "token-categories-result", collections });
+        if (errors && errors.length) {
+          console.warn("[figma-ai-score] get-token-categories partial:", errors);
+        }
+        console.debug("[figma-ai-score] get-token-categories done", { count: collections.length, errors: errors.length });
+        figma.ui.postMessage({
+          type: "token-categories-result",
+          collections,
+          // Surface to the UI when at least one source failed but we still
+          // returned partial results. The UI shows a small recoverable banner.
+          partialError: errors && errors.length ? errors[0] : null
+        });
       } catch (e) {
-        console.warn("[figma-ai-score] get-token-categories failed:", e && e.message);
-        figma.ui.postMessage({ type: "token-categories-result", collections: [] });
+        // Should be unreachable now that listTokenCollectionsLight catches
+        // its own failures, but kept as last-ditch insurance — never let the
+        // UI hang on Loading…
+        console.warn("[figma-ai-score] get-token-categories unexpected failure:", e && e.message);
+        figma.ui.postMessage({
+          type: "token-categories-result",
+          collections: [],
+          partialError: (e && e.message) || "unexpected error"
+        });
       }
       return;
     }
@@ -2880,17 +2895,47 @@ function isPrimitiveTokenName(variableName, collectionName) {
 // import variables from those libraries on review.
 // ──────────────────────────────────────────────────────────────────
 
+// Race a promise against a timeout. The wrapped promise resolves to
+// { ok: true, value } on success, { ok: false, reason } on rejection or
+// timeout. Never rejects — callers can branch on `.ok` cleanly without
+// try/catch around every await. Critical for the categories panel: a
+// single hung Figma API call would otherwise leave the panel forever
+// stuck on "Loading…" because no try/catch fires on a never-resolving
+// promise.
+function withTimeout(promise, ms, label) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const t = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve({ ok: false, reason: `timeout (${label || "task"} after ${ms}ms)` });
+    }, ms);
+    Promise.resolve(promise).then(
+      (value) => { if (settled) return; settled = true; clearTimeout(t); resolve({ ok: true, value }); },
+      (err)   => { if (settled) return; settled = true; clearTimeout(t); resolve({ ok: false, reason: (err && err.message) || String(err) }); }
+    );
+  });
+}
+
 // Lightweight token-collection enumeration for the UI categories panel.
-// Returns one bucket per (libraryName, collectionName) with the list of
-// numeric-token names — name + collectionName + libraryName is everything
-// the auto-detection regexes need.
+// Returns { buckets, errors } where buckets is one entry per (libraryName,
+// collectionName) and errors is the list of failures we tolerated (timed-
+// out or rejected library collections, etc.) so the UI can surface a
+// recoverable message.
+//
+// Robustness guarantees:
+//   - every Figma API call is wrapped in withTimeout (5s default)
+//   - one slow/hanging collection never blocks the others (Promise.allSettled
+//     over per-task awaits)
+//   - the function ALWAYS returns within ~5s no matter what Figma does
 //
 // Critically: NO importVariableByKeyAsync calls. That step is the bottleneck
-// (~20s per toggle on big libraries). We only need names, and metadata-only
-// APIs return them: getLocalVariablesAsync for local, getVariablesInLibrary
-// CollectionAsync for libraries.
+// (~20s per toggle on big libraries). We only need token names + collection
+// name + library name for the auto-detect regexes.
+const TOKEN_CATEGORIES_API_TIMEOUT_MS = 5000;
 async function listTokenCollectionsLight() {
-  const buckets = new Map(); // key → { key, collectionName, libraryName, tokens: [{name,collectionName,libraryName}] }
+  const buckets = new Map();
+  const errors = [];
   function pushToken(libraryName, collectionName, name) {
     const key = tokenCollectionKey(libraryName, collectionName);
     let b = buckets.get(key);
@@ -2901,57 +2946,87 @@ async function listTokenCollectionsLight() {
     b.tokens.push({ name, collectionName, libraryName });
   }
 
-  // ── Local FLOAT variables (cheap — no remote call) ──
-  try {
-    if (figma.variables && typeof figma.variables.getLocalVariablesAsync === "function") {
-      const locals = await figma.variables.getLocalVariablesAsync("FLOAT");
-      // Resolve collection names in parallel via cached lookups.
-      const collCache = new Map();
-      async function getCollName(id) {
-        if (collCache.has(id)) return collCache.get(id);
-        let name = null;
-        try {
-          const c = typeof figma.variables.getVariableCollectionByIdAsync === "function"
-            ? await figma.variables.getVariableCollectionByIdAsync(id)
-            : figma.variables.getVariableCollectionById(id);
-          name = c ? c.name : null;
-        } catch (e) {}
-        collCache.set(id, name);
-        return name;
+  // ── Local FLOAT variables ──
+  // getLocalVariablesAsync gives us the variables; we then need each one's
+  // collection name. We resolve all collection IDs in parallel (allSettled
+  // + timeout each) so a single sluggish lookup can't strand the rest.
+  if (figma.variables && typeof figma.variables.getLocalVariablesAsync === "function") {
+    const localsRes = await withTimeout(
+      figma.variables.getLocalVariablesAsync("FLOAT"),
+      TOKEN_CATEGORIES_API_TIMEOUT_MS,
+      "getLocalVariablesAsync(FLOAT)"
+    );
+    if (!localsRes.ok) {
+      errors.push("Local FLOAT variables: " + localsRes.reason);
+    } else {
+      const locals = localsRes.value || [];
+      // Resolve unique collection IDs once.
+      const uniqueCollIds = Array.from(new Set(locals.map(v => v.variableCollectionId)));
+      const collNameById = new Map();
+      const collResults = await Promise.allSettled(uniqueCollIds.map(async (id) => {
+        const r = await withTimeout(
+          (typeof figma.variables.getVariableCollectionByIdAsync === "function"
+            ? figma.variables.getVariableCollectionByIdAsync(id)
+            : Promise.resolve(figma.variables.getVariableCollectionById(id))),
+          TOKEN_CATEGORIES_API_TIMEOUT_MS,
+          "getVariableCollectionByIdAsync"
+        );
+        return { id, ok: r.ok, name: r.ok && r.value ? r.value.name : null, reason: r.reason };
+      }));
+      for (const cr of collResults) {
+        if (cr.status === "fulfilled" && cr.value.ok) {
+          collNameById.set(cr.value.id, cr.value.name);
+        } else if (cr.status === "fulfilled" && !cr.value.ok) {
+          errors.push("Local collection lookup: " + cr.value.reason);
+        }
       }
       for (const v of locals) {
-        const collName = await getCollName(v.variableCollectionId);
-        pushToken(null, collName, v.name);
+        pushToken(null, collNameById.get(v.variableCollectionId) || null, v.name);
       }
     }
-  } catch (e) {
-    console.warn("[figma-ai-score] local FLOAT enumeration failed:", e && e.message);
   }
 
-  // ── Library FLOAT variables (one round trip per selected collection) ──
-  try {
-    const selected = await getSelectedTokenLibraries();
-    if (selected.length && figma.teamLibrary && typeof figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync === "function") {
-      const collections = await figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync();
+  // ── Library FLOAT variables ──
+  let selected = [];
+  try { selected = await getSelectedTokenLibraries(); } catch (e) {}
+  if (selected.length && figma.teamLibrary && typeof figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync === "function") {
+    const collsRes = await withTimeout(
+      figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync(),
+      TOKEN_CATEGORIES_API_TIMEOUT_MS,
+      "getAvailableLibraryVariableCollectionsAsync"
+    );
+    if (!collsRes.ok) {
+      errors.push("Library collections: " + collsRes.reason);
+    } else {
       const selectedSet = new Set(selected);
-      const matching = collections.filter(c => selectedSet.has(c.libraryName) || selectedSet.has(c.name));
-      // Fetch all matching collections' variable lists in parallel — each
-      // call is one round trip, no per-variable round trips.
-      await Promise.all(matching.map(async (coll) => {
-        try {
-          const items = await figma.teamLibrary.getVariablesInLibraryCollectionAsync(coll.key);
-          for (const it of items) {
-            if (it.resolvedType !== "FLOAT") continue;
-            pushToken(coll.libraryName || null, coll.name, it.name);
-          }
-        } catch (e) { /* skip — collection unreadable */ }
+      const matching = (collsRes.value || []).filter(c => selectedSet.has(c.libraryName) || selectedSet.has(c.name));
+      // allSettled — one bad/timed-out collection no longer wipes out the
+      // others. Each per-collection fetch also has its own timeout so a
+      // single slow library doesn't block the user past ~5s total.
+      const settled = await Promise.allSettled(matching.map(async (coll) => {
+        const r = await withTimeout(
+          figma.teamLibrary.getVariablesInLibraryCollectionAsync(coll.key),
+          TOKEN_CATEGORIES_API_TIMEOUT_MS,
+          `getVariablesInLibraryCollectionAsync(${coll.libraryName || coll.name})`
+        );
+        if (!r.ok) {
+          errors.push(`${coll.libraryName || coll.name} → ${coll.name}: ${r.reason}`);
+          return;
+        }
+        for (const it of (r.value || [])) {
+          if (it.resolvedType !== "FLOAT") continue;
+          pushToken(coll.libraryName || null, coll.name, it.name);
+        }
       }));
+      // allSettled itself never rejects, but a `then` callback could throw —
+      // guard against that propagating.
+      for (const s of settled) {
+        if (s.status === "rejected") errors.push("Unexpected: " + ((s.reason && s.reason.message) || String(s.reason)));
+      }
     }
-  } catch (e) {
-    console.warn("[figma-ai-score] library FLOAT enumeration failed:", e && e.message);
   }
 
-  return Array.from(buckets.values());
+  return { buckets: Array.from(buckets.values()), errors };
 }
 
 async function listAvailableLibraries() {

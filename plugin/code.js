@@ -196,7 +196,7 @@ Pre-computed offenders cover Check 1 (regex defaults + placeholders). ADD from t
 
 Don't flag style choices (lowercase, hyphen, underscore) or valid-but-unusual names.
 
-**suggestedName**: always add \`suggestedName\` to every naming offender — even when uncertain, make your best guess based on the thumbnail and the layer's content. Short, no trailing punctuation. There is no "omit when unsure" — a best guess is always more useful than nothing.`
+**suggestedName**: every naming offender carries a pre-computed \`suggestedName\` derived from the layer's structural content (TEXT content, single-shape children, autolayout direction). For most offenders, the pre-computed value is good enough — pass it through unchanged. Only override when the thumbnail clearly disagrees with the structural guess (e.g. a layer the heuristic called "Stack" is actually a "Card" based on visual context). When overriding, write a short, semantic name with no trailing punctuation. Never strip the field — if no \`suggestedName\` was pre-computed, write your own best guess.`
 };
 
 function buildInstructions(enabledRules) {
@@ -1254,12 +1254,17 @@ async function handleRpc(method, params) {
       figma.ui.postMessage({ type: "eta-update", eta: estimateEta(nodeStats.total) });
       // Accumulate plugin-side work for ETA stats.
       if (_etaInFlight) _etaInFlight.pluginWorkMs += Date.now() - _scanStartedAt;
+      // Slim the tree before sending: every per-node field consumed only by
+      // the (already-completed) lint pass — fills/strokes/effects/styleIds/
+      // boundTypography/sizeBound/radii/autolayout.bound — is dropped.
+      // Cuts the AI-bound payload by ~50-70% on typical screens.
+      const slimTree = slimTreeForAI(tree);
       return {
         locked: true,
         fileName: figma.root.name,
         pageName: figma.currentPage.name,
         root: { id: node.id, name: node.name, type: node.type },
-        tree,
+        tree: slimTree,
         thumbnail,
         thumbError,
         designSystem,
@@ -2458,6 +2463,37 @@ function lintEffects(root) {
 // ── naming rule (naive — regex for defaults, short/placeholder names) ──
 const NAMING_DEFAULT_RE = /^(frame|rectangle|ellipse|polygon|star|line|vector|group|component|instance|text|image)\s*\d*$/i;
 const NAMING_PLACEHOLDER_RE = /^(untitled|new\s+frame|copy|copy\s+\d+|asdf|test|temp|foo|bar|baz|placeholder|thing|stuff|element|new|item)$/i;
+// Cheap heuristic name suggester. Used to pre-fill `suggestedName` on naming
+// offenders so the AI either accepts our guess or overrides via vision —
+// either way it writes fewer tokens. Vision is still better than this for
+// non-obvious cases; we only handle easy structural patterns.
+const SHAPE_LEAF_TYPES_FOR_NAMING = new Set([
+  "VECTOR", "BOOLEAN_OPERATION", "ELLIPSE", "RECTANGLE", "POLYGON", "STAR", "LINE"
+]);
+function suggestNameHeuristic(node) {
+  if (!node) return null;
+  // TEXT with non-empty content: first 2-3 words make a sensible label.
+  if (node.type === "TEXT" && typeof node.characters === "string") {
+    const words = node.characters.trim().split(/\s+/).filter(Boolean).slice(0, 3).join(" ");
+    if (words) return words.length > 24 ? words.slice(0, 24) : words;
+  }
+  const kids = Array.isArray(node.children)
+    ? node.children.filter(c => !c.ignored)
+    : [];
+  // Single shape child → icon wrapper.
+  if (kids.length === 1 && SHAPE_LEAF_TYPES_FOR_NAMING.has(kids[0].type)) return "Icon";
+  // Single text child → name after the text content.
+  if (kids.length === 1 && kids[0].type === "TEXT") {
+    const sub = suggestNameHeuristic(kids[0]);
+    if (sub) return sub;
+  }
+  // Auto-layout container with multiple children: hint at the direction.
+  if (kids.length >= 2 && node.autolayout && node.autolayout.mode) {
+    return node.autolayout.mode === "HORIZONTAL" ? "Row" : "Stack";
+  }
+  return null;
+}
+
 function lintNaming(root) {
   const offenders = [];
   let totalChecked = 0;
@@ -2476,7 +2512,10 @@ function lintNaming(root) {
       reason = `"${name}" is too short or non-descriptive.`;
     }
     if (reason) {
-      offenders.push({ nodeId: node.id, name: node.name, detail: reason });
+      const o = { nodeId: node.id, name: node.name, detail: reason };
+      const suggested = suggestNameHeuristic(node);
+      if (suggested) o.suggestedName = suggested;
+      offenders.push(o);
     }
   });
   return {
@@ -2706,6 +2745,52 @@ function extractNode(node, depth = 0, maxDepth = 8) {
   }
 
   return out;
+}
+
+// Strip every per-node field that was consumed only by the plugin's lint pass
+// (which has already run by the time this is called) — fills, strokes, effects,
+// styleIds, boundTypography, sizeBound, radii, autolayout.bound, etc. The AI
+// keeps everything it needs for vision augmentation: id/name/type, the
+// component/instance flags, ignored markers, characters (TEXT), bounds, and
+// a slimmed autolayout block. Recursive — INSTANCE children are absent here
+// already because extractNode skips them.
+function slimTreeForAI(node) {
+  if (!node || typeof node !== "object") return node;
+  const slim = {
+    id: node.id,
+    name: node.name,
+    type: node.type,
+  };
+  if (node.isComponent) slim.isComponent = true;
+  if (node.isInstance) slim.isInstance = true;
+  if (node.mainComponentId) slim.mainComponentId = node.mainComponentId;
+  if (node.ignored) slim.ignored = true;
+  if (node.ignoredInherited) slim.ignoredInherited = true;
+  if (typeof node.characters === "string") slim.characters = node.characters;
+  if (typeof node.width === "number") slim.width = node.width;
+  if (typeof node.height === "number") slim.height = node.height;
+  if (typeof node.x === "number") slim.x = node.x;
+  if (typeof node.y === "number") slim.y = node.y;
+  if (node.autolayout && typeof node.autolayout === "object") {
+    const al = node.autolayout;
+    const slimAl = {
+      mode: al.mode,
+      paddingTop: al.paddingTop,
+      paddingRight: al.paddingRight,
+      paddingBottom: al.paddingBottom,
+      paddingLeft: al.paddingLeft,
+      itemSpacing: al.itemSpacing,
+    };
+    if (al.primaryAxisAlignItems) slimAl.primaryAxisAlignItems = al.primaryAxisAlignItems;
+    if (al.counterAxisAlignItems) slimAl.counterAxisAlignItems = al.counterAxisAlignItems;
+    if (al.sizingHorizontal) slimAl.sizingHorizontal = al.sizingHorizontal;
+    if (al.sizingVertical) slimAl.sizingVertical = al.sizingVertical;
+    slim.autolayout = slimAl;
+  }
+  if (Array.isArray(node.children)) {
+    slim.children = node.children.map(slimTreeForAI);
+  }
+  return slim;
 }
 
 function boundVarId(node, key) {

@@ -237,7 +237,7 @@ The scan response includes \`lintResults\` — deterministic offenders + token s
 
 **Accept as final (no re-analysis):** colors, typography, spacing, padding, size, effects, naming (Check 1 regex), components (Checks 1-3), autolayout (presence check). Copy these offenders into the report unchanged — including any \`suggestedTokens\`, \`zeroActions\`, or \`suggestedName\` fields. They're already correct. Do NOT re-walk the tree for these — wastes time, identical results.
 
-**Pre-computed \`informational\` arrays** (instance-only issues): each rule in lintResults may also carry an \`informational\` array containing instance issues that the user CAN'T fix locally — the fix lives on the master component. Copy these to the rule's \`informational\` field in the report verbatim. They do NOT count against the score and are rendered separately in the UI ("Instances with issues — not affecting the score"). Never move an entry between \`offenders\` and \`informational\`; the lint already classified them.
+**Pre-computed \`informational\` arrays** (instance-only issues): each rule in lintResults may carry an \`informational\` array containing instance issues whose fix lives on the master component (the user can't fix them on the instance). Copy these to the rule's \`informational\` field in the report verbatim. They DO count toward the score — \`_offenderCount\` and \`_totalChecked\` already include them. Each instance counts independently (no master-level dedup). The UI renders them in a separate "Instances with issues" section with no fix actions, but they still affect the score because a screen built from broken components really is broken. Never move an entry between \`offenders\` and \`informational\`; the lint already classified them.
 
 **Critical — \`suggestedTokens\` format**: the field is an array of OBJECTS, not strings. Each entry has the shape \`{ id, name, kind, slot, value?, reason? }\`. NEVER replace these objects with bare strings (\`["spacing-xl"]\` is wrong — the UI renders \`.name\` and would show "undefined"). Copy the entries verbatim as you received them in \`lintResults\`.
 
@@ -847,6 +847,62 @@ figma.ui.onmessage = async (msg) => {
         figma.viewport.scrollAndZoomIntoView([node]);
       } catch (e) {
         // ignore — node may have been deleted or is in a locked state
+      }
+      return;
+    }
+    if (msg.type === "open-master") {
+      // Navigate to the master component of an INSTANCE. Used by the
+      // "Open master" button on instance issues — the user can't fix the
+      // problem from the instance, so we send them where the fix actually
+      // lives. For library (remote) components we can't navigate (Figma
+      // plugins can't switch files); send a notice instead.
+      try {
+        const inst = await figma.getNodeByIdAsync(msg.nodeId);
+        if (!inst || inst.type !== "INSTANCE") {
+          figma.ui.postMessage({ type: "open-master-result", ok: false, nodeId: msg.nodeId, error: "Not an instance" });
+          return;
+        }
+        let main = null;
+        try {
+          main = typeof inst.getMainComponentAsync === "function"
+            ? await inst.getMainComponentAsync()
+            : inst.mainComponent;
+        } catch (e) {}
+        if (!main) {
+          figma.ui.postMessage({ type: "open-master-result", ok: false, nodeId: msg.nodeId, error: "Master not found" });
+          return;
+        }
+        if (main.remote) {
+          figma.ui.postMessage({
+            type: "open-master-result",
+            ok: false,
+            nodeId: msg.nodeId,
+            error: "library",
+            masterName: main.name,
+          });
+          return;
+        }
+        // Prefer navigating to the parent COMPONENT_SET when this main is a
+        // variant — selecting the whole "Button" rather than just the
+        // variant gives the user better context to fix.
+        const target = (main.parent && main.parent.type === "COMPONENT_SET") ? main.parent : main;
+        if ("setCurrentPageAsync" in figma && target.parent) {
+          let p = target.parent;
+          while (p && p.type !== "PAGE") p = p.parent;
+          if (p && p !== figma.currentPage) {
+            await figma.setCurrentPageAsync(p);
+          }
+        }
+        figma.currentPage.selection = [target];
+        figma.viewport.scrollAndZoomIntoView([target]);
+        figma.ui.postMessage({ type: "open-master-result", ok: true, nodeId: msg.nodeId, masterName: main.name });
+      } catch (e) {
+        figma.ui.postMessage({
+          type: "open-master-result",
+          ok: false,
+          nodeId: msg.nodeId,
+          error: (e && e.message) ? e.message : String(e)
+        });
       }
       return;
     }
@@ -1661,7 +1717,7 @@ function lintColors(root, ds) {
     // SOLID fill produces nothing to check.
     for (const f of (node.fills || [])) {
       if (f.type !== "SOLID" || f.visible === false) continue;
-      if (!isInst) totalChecked++;
+      totalChecked++;
       if (!f.boundVariable && !node.fillStyleId) {
         if (isInst) {
           informational.push({
@@ -1698,7 +1754,7 @@ function lintColors(root, ds) {
     }
     for (const s of (node.strokes || [])) {
       if (s.type !== "SOLID" || s.visible === false) continue;
-      if (!isInst) totalChecked++;
+      totalChecked++;
       if (!s.boundVariable && !node.strokeStyleId) {
         if (isInst) {
           informational.push({
@@ -1730,13 +1786,18 @@ function lintColors(root, ds) {
       }
     }
   });
+  // Instance issues (informational) DO count toward the score now — the
+  // user's reasoning: a broken master used 20 times across a screen really
+  // does break the screen 20 times, regardless of where the fix lives.
+  // _offenderCount = offenders + informational so the rule_score formula
+  // ((total - offenders) / total) sees the full picture.
   return {
     enabled: true,
-    passed: offenders.length === 0,
+    passed: offenders.length === 0 && informational.length === 0,
     offenders: offenders.slice(0, 30),
     informational: informational.slice(0, 30),
     _totalChecked: totalChecked,
-    _offenderCount: offenders.length
+    _offenderCount: offenders.length + informational.length
   };
 }
 
@@ -1797,7 +1858,7 @@ function lintSpacing(root, ds) {
     const val = al.itemSpacing;
     if (val === 0 || val === null || val === undefined) return; // zero is fine
     const isInst = isInstance(node);
-    if (!isInst) totalChecked++;
+    totalChecked++;
     if (b.itemSpacing) return; // already bound
     if (isInst) {
       // Instance: surface read-only. Don't include the single-child-noise
@@ -1843,11 +1904,11 @@ function lintSpacing(root, ds) {
   });
   return {
     enabled: true,
-    passed: offenders.length === 0,
+    passed: offenders.length === 0 && informational.length === 0,
     offenders: offenders.slice(0, 30),
     informational: informational.slice(0, 30),
     _totalChecked: totalChecked,
-    _offenderCount: offenders.length
+    _offenderCount: offenders.length + informational.length
   };
 }
 
@@ -1936,7 +1997,7 @@ function lintPadding(root, ds) {
 
     // Count one check per node (not per prop) and one offender per node.
     const isInst = isInstance(node);
-    if (!isInst) totalChecked++;
+    totalChecked++;
     const hasZeroIssue = zeroVerticalProps.length > 0 || zeroHorizontalProps.length > 0;
     if (!failedProps.length && !hasZeroIssue) return;
     // Instance branch: surface read-only with no fix actions; the fix
@@ -2017,11 +2078,11 @@ function lintPadding(root, ds) {
   });
   return {
     enabled: true,
-    passed: offenders.length === 0,
+    passed: offenders.length === 0 && informational.length === 0,
     offenders: offenders.slice(0, 30),
     informational: informational.slice(0, 30),
     _totalChecked: totalChecked,
-    _offenderCount: offenders.length
+    _offenderCount: offenders.length + informational.length
   };
 }
 
@@ -2056,7 +2117,7 @@ function lintSize(root, ds) {
       vCheck = true;
     }
     if (hCheck) {
-      if (!isInst) totalChecked++;
+      totalChecked++;
       if (!sb.width && typeof node.width === "number") {
         if (isInst) {
           informational.push({
@@ -2080,7 +2141,7 @@ function lintSize(root, ds) {
       }
     }
     if (vCheck) {
-      if (!isInst) totalChecked++;
+      totalChecked++;
       if (!sb.height && typeof node.height === "number") {
         if (isInst) {
           informational.push({
@@ -2106,11 +2167,11 @@ function lintSize(root, ds) {
   });
   return {
     enabled: true,
-    passed: offenders.length === 0,
+    passed: offenders.length === 0 && informational.length === 0,
     offenders: offenders.slice(0, 30),
     informational: informational.slice(0, 30),
     _totalChecked: totalChecked,
-    _offenderCount: offenders.length
+    _offenderCount: offenders.length + informational.length
   };
 }
 
@@ -2276,7 +2337,7 @@ function lintFrame(tree, enabledRules, ds, { keepInternalFields = false } = {}) 
     }
   }
   const finalScore = ruleScores.length === 0 ? 100 : Math.round(ruleScores.reduce((a, b) => a + b, 0) / ruleScores.length);
-  const perfect = Object.values(breakdown).every(r => r.offenders.length === 0);
+  const perfect = Object.values(breakdown).every(r => r.offenders.length === 0 && (r.informational || []).length === 0);
 
   // Strip internal fields (unless caller wants them for pre-computed results)
   const cleanBreakdown = {};

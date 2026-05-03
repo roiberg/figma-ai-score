@@ -3983,13 +3983,14 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
                       ${e.tooltip ? `<button class="offender-info-btn" data-tooltip="${esc(e.tooltip)}" aria-label="More info" tabindex="-1">
                         <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><circle cx="6" cy="6" r="5"/><line x1="6" y1="5.5" x2="6" y2="8.5"/><circle cx="6" cy="3.5" r="0.6" fill="currentColor" stroke="none"/></svg>
                       </button>` : ''}
+                      <button class="open-master-btn apply-rename-btn" data-open-master="${esc(e.nodeId)}">Open master</button>
                       <button class="bullseye-btn" data-select-node="${esc(e.nodeId)}" title="Select layer in Figma" aria-label="Select layer">
                         <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><circle cx="6" cy="6" r="5"/><circle cx="6" cy="6" r="2"/><circle cx="6" cy="6" r="0.7" fill="currentColor" stroke="none"/></svg>
                       </button>
                     </div>
                   </div>`).join("");
                 return `<div class="instance-info-section">
-                  <div class="instance-info-header">Instances with issues <span class="instance-info-sub">(not affecting the score)</span></div>
+                  <div class="instance-info-header">Instances with issues <span class="instance-info-sub">— fix on the master to resolve</span></div>
                   <div class="instance-info-list">${rows}</div>
                 </div>`;
               })()}
@@ -4014,6 +4015,15 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         const applyBtn = ev.target.closest(".apply-rename-btn");
         if (applyBtn) {
           ev.stopPropagation();
+          // Open master (instance issues): navigate Figma to the main
+          // component so the user can fix it where the fix actually lives.
+          const openMasterId = applyBtn.getAttribute("data-open-master");
+          if (openMasterId) {
+            applyBtn.disabled = true;
+            applyBtn.textContent = "Opening…";
+            parent.postMessage({ pluginMessage: { type: "open-master", nodeId: openMasterId } }, "*");
+            return;
+          }
           // Rename suggestion (naming rule)
           const renameId = applyBtn.getAttribute("data-apply-rename");
           const newName = applyBtn.getAttribute("data-new-name");
@@ -4395,6 +4405,17 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         if (!msg) return;
         if (msg.type === "rename-done") { handleRenameDone(msg.nodeId, msg.newName); onBulkActionComplete(); }
         if (msg.type === "rename-failed") { onBulkActionComplete(); }
+        if (msg.type === "open-master-result") {
+          // Restore the "Open master" button on the matching info-row,
+          // regardless of success/failure.
+          const btn = document.querySelector(`.open-master-btn[data-open-master="${CSS.escape(msg.nodeId || "")}"]`);
+          if (btn) { btn.disabled = false; btn.textContent = "Open master"; }
+          if (!msg.ok && msg.error === "library") {
+            alert(`"${msg.masterName || "This component"}" lives in a published library file. Open that file directly to fix it.`);
+          } else if (!msg.ok) {
+            console.warn("[figma-ai-score] open-master failed:", msg.error);
+          }
+        }
         if (msg.type === "apply-token-done") { handleTokenApplied(msg.nodeId, msg.slot); onBulkActionComplete(); }
         if (msg.type === "apply-token-failed") {
           onBulkActionComplete();

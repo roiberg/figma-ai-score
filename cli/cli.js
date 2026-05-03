@@ -37,6 +37,10 @@ const SUBCOMMAND_TO_METHOD = {
   "submit-report":         "submit_report",
   "is-cancelled":          "is_cancelled",
   "dismiss-review":        "dismiss_review",
+  // Internal tuning instruments — not user-facing, will be removed when
+  // we're done analyzing ETA accuracy.
+  "eta-stats":             "get_eta_stats",
+  "eta-clear":             "clear_eta_stats",
 };
 
 // ────────────────────────────────────────────────────────────

@@ -51,6 +51,27 @@ const DEFAULT_RULES = {
 };
 const PREFS_KEY = "figma-ai-score.prefs.v1";
 
+// ── ETA-vs-actual stats logging ──────────────────────────────────────────
+// Internal-only instrumentation to compare estimateEta() against actual
+// review wall time. Captures plugin-side work separately from AI thinking
+// time so we can tell where variance is coming from. The log lives in
+// figma.clientStorage and is dumped via the `eta-stats` CLI subcommand.
+// Capped at the last MAX_ETA_LOG entries — old entries pushed out FIFO.
+// THIS IS A TUNING INSTRUMENT, NOT A USER FEATURE — remove when done.
+const ETA_LOG_KEY  = "figma-ai-score.eta-log.v1";
+const MAX_ETA_LOG  = 100;
+let _etaInFlight = null; // { startedAt, etaSeconds, frames, totalNodes, mode, pluginWorkMs }
+function _resetEtaStats() { _etaInFlight = null; }
+async function _appendEtaLogEntry(entry) {
+  try {
+    const existing = await figma.clientStorage.getAsync(ETA_LOG_KEY);
+    const list = Array.isArray(existing) ? existing.slice() : [];
+    list.push(entry);
+    while (list.length > MAX_ETA_LOG) list.shift();
+    await figma.clientStorage.setAsync(ETA_LOG_KEY, list);
+  } catch (e) { /* swallow — stats logging must never break a real review */ }
+}
+
 let prefs = Object.assign({}, DEFAULT_RULES);
 let locked = false;
 let lockedIds = [];
@@ -987,6 +1008,23 @@ async function handleRpc(method, params) {
       reviewMode = "ai";
       try { await figma.clientStorage.setAsync("figma-ai-score.mode", "ai"); } catch (e) {}
       const selSummary = selectionSummary();
+      // Start ETA-vs-actual timing for this review. Estimate from the same
+      // shallow node count the UI was already showing on selection-eta.
+      let _etaTotalNodes = 0;
+      try {
+        for (const f of selSummary.frames) {
+          const n = figma.getNodeById(f.id);
+          if (n) _etaTotalNodes += shallowCountNodes(n);
+        }
+      } catch (e) {}
+      _etaInFlight = {
+        startedAt: Date.now(),
+        etaSeconds: estimateEtaSecondsRaw(_etaTotalNodes),
+        frames: selSummary.frames.length,
+        totalNodes: _etaTotalNodes,
+        mode: "smart",
+        pluginWorkMs: 0,
+      };
       // Only show the reviewing overlay when there are frames to work on.
       // If the selection is empty the AI will bail out immediately and there
       // is nothing to dismiss — skipping the postMessage means the overlay
@@ -1011,6 +1049,7 @@ async function handleRpc(method, params) {
       };
     }
     case "begin_and_scan": {
+      const _scanStartedAt = Date.now();
       // Lock phase
       const ids = Array.isArray(params.nodeIds) ? params.nodeIds : [];
       cancelled = false;
@@ -1061,6 +1100,8 @@ async function handleRpc(method, params) {
       try { lintResults = lintFrame(tree, prefs, designSystem, { keepInternalFields: true }); } catch (e) {}
       const nodeStats = computeNodeStats(tree);
       figma.ui.postMessage({ type: "eta-update", eta: estimateEta(nodeStats.total) });
+      // Accumulate plugin-side work for ETA stats.
+      if (_etaInFlight) _etaInFlight.pluginWorkMs += Date.now() - _scanStartedAt;
       return {
         locked: true,
         fileName: figma.root.name,
@@ -1091,6 +1132,22 @@ async function handleRpc(method, params) {
       figma.ui.postMessage({ type: "report", data: params.report });
       locked = false;
       lockedIds = [];
+      // Finalize ETA stats for this review.
+      if (_etaInFlight) {
+        const actualMs = Date.now() - _etaInFlight.startedAt;
+        _appendEtaLogEntry({
+          ts:            new Date().toISOString(),
+          mode:          _etaInFlight.mode,
+          frames:        _etaInFlight.frames,
+          totalNodes:    _etaInFlight.totalNodes,
+          etaSeconds:    _etaInFlight.etaSeconds,
+          actualMs,
+          pluginWorkMs:  _etaInFlight.pluginWorkMs,
+          aiThinkingMs:  Math.max(0, actualMs - _etaInFlight.pluginWorkMs),
+          cancelled:     false,
+        });
+        _resetEtaStats();
+      }
       return { ok: true };
     }
     case "dismiss_review": {
@@ -1100,6 +1157,39 @@ async function handleRpc(method, params) {
       lockedIds = [];
       cancelled = false;
       figma.ui.postMessage({ type: "unlocked" });
+      // Reset ETA timing so the next review starts fresh. Don't log this as
+      // an entry — pre-flight bails (no frames selected) shouldn't pollute
+      // the dataset.
+      _resetEtaStats();
+      return { ok: true };
+    }
+    case "get_eta_stats": {
+      // Internal tuning instrument — dumps the captured log of estimated
+      // vs actual review durations. Surfaced by the `eta-stats` CLI
+      // subcommand. Not a user feature.
+      let log = [];
+      try { log = (await figma.clientStorage.getAsync(ETA_LOG_KEY)) || []; } catch (e) {}
+      // Compute headline stats so the dump is immediately useful.
+      const completed = log.filter(e => !e.cancelled && typeof e.etaSeconds === "number");
+      const summary = (() => {
+        if (!completed.length) return null;
+        const ratios = completed.map(e => (e.actualMs / 1000) / e.etaSeconds);
+        const avg = ratios.reduce((a, b) => a + b, 0) / ratios.length;
+        const sorted = ratios.slice().sort((a, b) => a - b);
+        const median = sorted[Math.floor(sorted.length / 2)];
+        const aiShare = completed.reduce((a, e) => a + (e.aiThinkingMs / e.actualMs), 0) / completed.length;
+        return {
+          n: completed.length,
+          avgActualOverEta: Number(avg.toFixed(2)),
+          medianActualOverEta: Number(median.toFixed(2)),
+          avgAiShareOfActual: Number(aiShare.toFixed(2)),
+        };
+      })();
+      return { entries: log, summary };
+    }
+    case "clear_eta_stats": {
+      // Wipe the log — for when you want a fresh dataset.
+      try { await figma.clientStorage.deleteAsync(ETA_LOG_KEY); } catch (e) {}
       return { ok: true };
     }
     default:
@@ -1415,6 +1505,13 @@ function shallowCountNodes(node) {
 // Always ceiling-rounds to the nearest 30-second boundary so we never
 // under-promise (e.g. 45 raw seconds → "About 1 minute").
 // Anything ≥ 5 minutes is shown as "More than 5 minutes".
+// Raw ETA in seconds (for logging — see _etaStats below). Same formula as
+// estimateEta but returns the unrounded number so we can compare against
+// actual measured time.
+function estimateEtaSecondsRaw(totalNodes) {
+  if (!totalNodes) return null;
+  return 20 + Math.round(totalNodes * 0.35);
+}
 function estimateEta(totalNodes) {
   if (!totalNodes) return null;
   const raw = 20 + Math.round(totalNodes * 0.35);

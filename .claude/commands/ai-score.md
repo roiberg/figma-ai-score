@@ -41,7 +41,7 @@ Every subcommand prints JSON on stdout. On error, JSON is written to stderr in t
 
 The plugin must be open in Figma. **Retry the same call once after a brief pause (~1s) before alarming the user** — momentary disconnects during reconnect cycles are normal jitter; they almost always succeed on retry. If the retry also fails, tell the user exactly:
 
-> The AI Programmability Score plugin isn't open in Figma yet. Open it (Plugins menu → AI Programmability Score → Run), then try again.
+> The AI Programmability readiness plugin isn't open in Figma yet. Open it (Plugins menu → AI Programmability readiness → Run), then try again.
 
 ### Other errors
 

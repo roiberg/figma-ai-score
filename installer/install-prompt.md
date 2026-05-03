@@ -88,7 +88,7 @@ After step 4 (cleanup), verify the plugin is reachable yourself by running `figm
   > "Install complete and verified — the plugin is connected. Say `review my design` or run `/ai-score` to start a review."
 
 - **Failed with `PLUGIN_NOT_CONNECTED`** (plugin is closed) — tell the user:
-  > "Install complete, but the plugin isn't open in Figma yet. Open it (Plugins menu → AI Programmability Score → Run) and let me know — I'll re-verify."
+  > "Install complete, but the plugin isn't open in Figma yet. Open it (Plugins menu → AI Programmability readiness → Run) and let me know — I'll re-verify."
   
   When they confirm, run `get-selection` again.
 

@@ -59,7 +59,7 @@ export class Bridge {
       new Promise(resolve => setTimeout(() => resolve("__timeout__"), CONNECT_TIMEOUT_MS)),
     ]);
     if (winner === "__timeout__") {
-      const err = new Error(`Figma plugin is not connected. Open the AI Programmability Score plugin in Figma.`);
+      const err = new Error(`Figma plugin is not connected. Open the AI Programmability readiness plugin in Figma.`);
       err.code = "PLUGIN_NOT_CONNECTED";
       throw err;
     }

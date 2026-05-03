@@ -21,7 +21,7 @@ When the user asks to review, score, check, audit, or evaluate their design/desi
 
 If the retry also fails (the CLI still exits 2 with `{"error":"...","code":"PLUGIN_NOT_CONNECTED"}` on stderr), the most common cause is that the plugin isn't open in Figma yet. Tell the user:
 
-> The AI Programmability Score plugin isn't open in Figma yet. Open it (Plugins menu → AI Programmability Score → Run), then try again.
+> The AI Programmability readiness plugin isn't open in Figma yet. Open it (Plugins menu → AI Programmability readiness → Run), then try again.
 
 ### Other CLI errors
 

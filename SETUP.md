@@ -2,7 +2,7 @@
 
 For end users:
 
-1. In Figma, open the AI Programmability Score plugin (Plugins menu → AI Programmability Score → Run).
+1. In Figma, open the AI Programmability readiness plugin (Plugins menu → AI Programmability readiness → Run).
 2. Click **"Copy install instructions"** in the plugin's setup banner.
 3. Paste into your AI coding tool (Claude Code, Cursor, Codex CLI, Gemini CLI, …). The AI handles the rest — download the .pkg from GitHub Releases, extract it, run the postinstall.
 4. Done.

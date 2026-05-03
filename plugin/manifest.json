@@ -1,5 +1,5 @@
 {
-  "name": "AI Programmability Score",
+  "name": "AI Programmability readiness",
   "id": "figma-ai-score-dev-local",
   "api": "1.0.0",
   "main": "code.js",

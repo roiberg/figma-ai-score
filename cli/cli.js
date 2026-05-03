@@ -344,7 +344,7 @@ async function checkPluginReachable() {
     bridge.close();
     let hint;
     if (e.code === "PLUGIN_NOT_CONNECTED") {
-      hint = "Open the AI Programmability Score plugin in Figma (Plugins menu → AI Programmability Score → Run).";
+      hint = "Open the AI Programmability readiness plugin in Figma (Plugins menu → AI Programmability readiness → Run).";
     } else if (e.code === "BIND_FAILED") {
       hint = "Couldn't stand up the bridge — see the bind checks above for the specific cause.";
     }

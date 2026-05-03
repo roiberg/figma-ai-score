@@ -112,7 +112,7 @@ Every subcommand prints JSON on stdout. On error, JSON is written to stderr in t
 
 The plugin must be open in Figma. **Retry the same call once after a brief pause (~1s) before alarming the user** — momentary disconnects during reconnect cycles are normal jitter; they almost always succeed on retry. If the retry also fails, tell the user exactly:
 
-> The AI Programmability Score plugin isn't open in Figma yet. Open it (Plugins menu → AI Programmability Score → Run), then try again.
+> The AI Programmability readiness plugin isn't open in Figma yet. Open it (Plugins menu → AI Programmability readiness → Run), then try again.
 
 ### BIND_FAILED
 
@@ -176,7 +176,7 @@ When the user asks to review/score/check/audit/evaluate their design / frame / s
 
 ### Plugin-not-connected (exit code 2)
 
-The CLI exits 2 with \`{"error":"...","code":"PLUGIN_NOT_CONNECTED"}\` on stderr when the Figma plugin isn't open. **Retry the same call once after ~1s before alarming the user** — momentary disconnects during reconnect cycles are normal jitter; the retry usually succeeds. If the retry also fails, tell the user to open the AI Programmability Score plugin in Figma; don't try to restart anything yourself.
+The CLI exits 2 with \`{"error":"...","code":"PLUGIN_NOT_CONNECTED"}\` on stderr when the Figma plugin isn't open. **Retry the same call once after ~1s before alarming the user** — momentary disconnects during reconnect cycles are normal jitter; the retry usually succeeds. If the retry also fails, tell the user to open the AI Programmability readiness plugin in Figma; don't try to restart anything yourself.
 <!-- figma-ai-score -->
 `;
 }
@@ -256,7 +256,7 @@ The block below is what should end up in your tool's rules file:
 ${reviewProtocolBody()}
 ---
 
-After writing, verify by running \`figma-ai-score get-selection\` while the AI Programmability Score plugin is open in Figma. You should see a JSON response with the current selection.
+After writing, verify by running \`figma-ai-score get-selection\` while the AI Programmability readiness plugin is open in Figma. You should see a JSON response with the current selection.
 `;
 }
 

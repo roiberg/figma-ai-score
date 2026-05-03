@@ -1615,6 +1615,114 @@
         border-radius: var(--radius-sm);
         overflow: hidden;
       }
+      /* ── Token categories (per-collection mapping) ── */
+      .token-cat-section {
+        margin-top: 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .token-cat-head {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+      }
+      .token-cat-title {
+        margin: 0;
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--text);
+      }
+      .token-cat-hint {
+        margin: 0;
+        font-size: 11px;
+        color: var(--text-secondary);
+        line-height: 1.4;
+      }
+      .token-cat-list {
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        overflow: hidden;
+      }
+      .token-cat-row {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--border);
+      }
+      .token-cat-row:last-child { border-bottom: 0; }
+      .token-cat-row-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 8px;
+        min-width: 0;
+      }
+      .token-cat-row-name {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        flex: 1;
+        min-width: 0;
+      }
+      .token-cat-row-meta {
+        font-size: 10px;
+        color: var(--text-secondary);
+        white-space: nowrap;
+      }
+      .token-cat-pills {
+        display: flex;
+        gap: 4px;
+        flex-wrap: wrap;
+      }
+      .token-cat-pill {
+        flex: 1 1 0;
+        min-width: 0;
+        font-size: 10px;
+        font-weight: 600;
+        padding: 5px 8px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        background: var(--bg);
+        color: var(--text-secondary);
+        cursor: pointer;
+        text-align: center;
+        white-space: nowrap;
+        transition: background 0.12s, color 0.12s, border-color 0.12s;
+      }
+      .token-cat-pill:hover { background: var(--bg-secondary); }
+      .token-cat-pill.is-active {
+        background: var(--text);
+        color: var(--bg);
+        border-color: var(--text);
+      }
+      .token-cat-row-foot {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        font-size: 10px;
+        color: var(--text-secondary);
+      }
+      .token-cat-badge {
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        font-weight: 700;
+      }
+      .token-cat-reset {
+        background: none;
+        border: 0;
+        font-size: 10px;
+        color: var(--text-secondary);
+        text-decoration: underline;
+        cursor: pointer;
+        padding: 0;
+      }
+      .token-cat-reset:hover { color: var(--text); }
       /* ── Design document dropzone ── */
       .md-drop-zone {
         flex-shrink: 0;
@@ -1949,6 +2057,16 @@
         </div>
         <div class="lib-half-scroll">
           <div id="tokens-library-list" class="settings-lib-list"></div>
+
+          <!-- Token categories: per-collection mapping override.
+               Hidden until at least one collection is detected. -->
+          <div id="token-categories-section" class="token-cat-section" style="display:none">
+            <div class="token-cat-head">
+              <h4 class="token-cat-title">Token categories</h4>
+              <p class="token-cat-hint">How the plugin classifies your tokens for fix suggestions. Tap to override the auto-detection.</p>
+            </div>
+            <div id="token-categories-list" class="token-cat-list"></div>
+          </div>
         </div>
       </div>
 
@@ -2940,9 +3058,12 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
       const librariesScreen = document.getElementById("libraries-screen");
       const librariesBack = document.getElementById("libraries-back");
       const tokensLibList = document.getElementById("tokens-library-list");
+      const tokenCategoriesSection = document.getElementById("token-categories-section");
+      const tokenCategoriesList = document.getElementById("token-categories-list");
 
       let availableLibraries = []; // [{ name, collectionCount }]
       let selectedLibraries = []; // [name, ...]
+      let tokenCategoryCollections = []; // [{ key, collectionName, libraryName, tokenCount, autoCategory, override }]
 
       // Show a dot on the libraries button until the user opens it at least once.
       // Uses clientStorage (via sandbox) so it persists across plugin sessions.
@@ -2953,6 +3074,7 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
         // Always re-fetch so newly added libraries appear immediately.
         parent.postMessage({ pluginMessage: { type: "get-libraries" } }, "*");
         parent.postMessage({ pluginMessage: { type: "get-design-doc" } }, "*");
+        parent.postMessage({ pluginMessage: { type: "get-token-categories" } }, "*");
       }
       function closeLibraries() {
         librariesScreen.style.display = "none";
@@ -2985,6 +3107,9 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
             parent.postMessage({
               pluginMessage: { type: "set-token-libraries", libraries: selectedLibraries }
             }, "*");
+            // Selected libraries changed — re-enumerate which collections
+            // appear in the categories section.
+            parent.postMessage({ pluginMessage: { type: "get-token-categories" } }, "*");
           });
 
           const info = document.createElement("div");
@@ -3020,6 +3145,101 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
           item.appendChild(info);
           item.appendChild(track);
           tokensLibList.appendChild(item);
+        }
+      }
+
+      // ── Token categories (per-collection mapping) ──
+      // The user can override the auto-detected category for each numeric-token
+      // collection. Default behavior (no override) matches the legacy heuristics,
+      // so users who never open this section see no change.
+      const TOKEN_CAT_LABELS = {
+        spacing: "Spacing",
+        size: "Size",
+        both: "Both",
+        ignore: "—"
+      };
+      function renderTokenCategoriesList() {
+        tokenCategoriesList.innerHTML = "";
+        // Hide the whole section when there are no collections (e.g. no library
+        // selected and no local variables). Per spec: appears only after at
+        // least one library is connected OR local variables exist.
+        if (!tokenCategoryCollections.length) {
+          tokenCategoriesSection.style.display = "none";
+          return;
+        }
+        tokenCategoriesSection.style.display = "";
+        for (const coll of tokenCategoryCollections) {
+          const row = document.createElement("div");
+          row.className = "token-cat-row";
+
+          // Header: collection name + token count.
+          const head = document.createElement("div");
+          head.className = "token-cat-row-head";
+          const name = document.createElement("div");
+          name.className = "token-cat-row-name";
+          // Local collections have no library prefix; library ones are scoped.
+          name.textContent = coll.libraryName
+            ? `${coll.libraryName} · ${coll.collectionName}`
+            : coll.collectionName;
+          name.title = name.textContent;
+          const meta = document.createElement("div");
+          meta.className = "token-cat-row-meta";
+          meta.textContent = `${coll.tokenCount} token${coll.tokenCount !== 1 ? "s" : ""}`;
+          head.appendChild(name);
+          head.appendChild(meta);
+
+          // Pills: spacing | size | both | —. Active = current effective category.
+          const pills = document.createElement("div");
+          pills.className = "token-cat-pills";
+          const effective = coll.override || coll.autoCategory;
+          ["spacing", "size", "both", "ignore"].forEach(cat => {
+            const btn = document.createElement("button");
+            btn.className = "token-cat-pill" + (cat === effective ? " is-active" : "");
+            btn.type = "button";
+            btn.textContent = TOKEN_CAT_LABELS[cat];
+            btn.addEventListener("click", () => {
+              // If the clicked category equals the auto-detected one, clear
+              // the override ("auto"). Otherwise set it.
+              const newOverride = (cat === coll.autoCategory) ? null : cat;
+              coll.override = newOverride;
+              parent.postMessage({
+                pluginMessage: {
+                  type: "set-token-category",
+                  key: coll.key,
+                  category: newOverride || "auto"
+                }
+              }, "*");
+              renderTokenCategoriesList();
+            });
+            pills.appendChild(btn);
+          });
+
+          // Footer: auto/custom badge + reset link when overridden.
+          const foot = document.createElement("div");
+          foot.className = "token-cat-row-foot";
+          const badge = document.createElement("span");
+          badge.className = "token-cat-badge";
+          badge.textContent = coll.override ? "Custom" : "Auto";
+          foot.appendChild(badge);
+          if (coll.override) {
+            const reset = document.createElement("button");
+            reset.className = "token-cat-reset";
+            reset.type = "button";
+            reset.textContent = "Reset to auto";
+            reset.addEventListener("click", () => {
+              coll.override = null;
+              parent.postMessage({
+                pluginMessage: { type: "set-token-category", key: coll.key, category: "auto" }
+              }, "*");
+              renderTokenCategoriesList();
+            });
+            foot.appendChild(reset);
+          }
+
+          row.appendChild(head);
+          row.appendChild(pills);
+          row.appendChild(foot);
+          tokenCategoriesList.appendChild(row);
         }
       }
 
@@ -4452,6 +4672,13 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
           availableLibraries = Array.isArray(msg.libraries) ? msg.libraries : [];
           selectedLibraries = Array.isArray(msg.selected) ? msg.selected.slice() : [];
           renderTokensLibList();
+          // Library selection may have changed which collections are eligible
+          // for the categories section; refresh it.
+          parent.postMessage({ pluginMessage: { type: "get-token-categories" } }, "*");
+        }
+        if (msg.type === "token-categories-result") {
+          tokenCategoryCollections = Array.isArray(msg.collections) ? msg.collections : [];
+          renderTokenCategoriesList();
         }
         if (msg.type === "design-doc-result") {
           renderDesignDoc(msg.doc || null);

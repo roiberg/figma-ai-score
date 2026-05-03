@@ -3288,7 +3288,11 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
         return coll.override !== null ? coll.override : (coll.autoCategories || []);
       }
 
-      let tokenCategoriesLoading = false;
+      // `var` (not `let`) so callers earlier in the file can invoke
+      // fetchTokenCategories() before this line executes — `let` would put
+      // tokenCategoriesLoading in the temporal dead zone and throw on access
+      // from within the function body.
+      var tokenCategoriesLoading = false;
       function fetchTokenCategories() {
         // Show a loading state until the result arrives. Even with the
         // metadata-only sandbox path, big libraries still cost a couple

@@ -463,6 +463,10 @@ figma.ui.onmessage = async (msg) => {
       // Subsequent CLI RPCs short-circuit with { cancelled: true } until
       // the next announce_review_start / begin_and_scan clears it.
       cancelled = !!msg.value;
+      // Cancelled reviews don't get logged — drop any in-flight timer so a
+      // later announce_review_start starts fresh and we never accidentally
+      // attribute the AI's give-up time to the next review.
+      if (cancelled) _resetEtaStats();
       return;
     }
     if (msg.type === "ui-ready") {
@@ -1008,23 +1012,29 @@ async function handleRpc(method, params) {
       reviewMode = "ai";
       try { await figma.clientStorage.setAsync("figma-ai-score.mode", "ai"); } catch (e) {}
       const selSummary = selectionSummary();
-      // Start ETA-vs-actual timing for this review. Estimate from the same
-      // shallow node count the UI was already showing on selection-eta.
-      let _etaTotalNodes = 0;
-      try {
-        for (const f of selSummary.frames) {
-          const n = figma.getNodeById(f.id);
-          if (n) _etaTotalNodes += shallowCountNodes(n);
-        }
-      } catch (e) {}
-      _etaInFlight = {
-        startedAt: Date.now(),
-        etaSeconds: estimateEtaSecondsRaw(_etaTotalNodes),
-        frames: selSummary.frames.length,
-        totalNodes: _etaTotalNodes,
-        mode: "smart",
-        pluginWorkMs: 0,
-      };
+      // Start ETA-vs-actual timing for this review. If a previous timer is
+      // still in flight (e.g. the AI errored mid-review without cancelling),
+      // drop it — only completed reviews end up in the log.
+      _resetEtaStats();
+      // Skip timing entirely if the selection is empty — the AI bails
+      // immediately and there's no real review to measure.
+      if (selSummary.frames.length > 0) {
+        let _etaTotalNodes = 0;
+        try {
+          for (const f of selSummary.frames) {
+            const n = figma.getNodeById(f.id);
+            if (n) _etaTotalNodes += shallowCountNodes(n);
+          }
+        } catch (e) {}
+        _etaInFlight = {
+          startedAt: Date.now(),
+          etaSeconds: estimateEtaSecondsRaw(_etaTotalNodes),
+          frames: selSummary.frames.length,
+          totalNodes: _etaTotalNodes,
+          mode: "smart",
+          pluginWorkMs: 0,
+        };
+      }
       // Only show the reviewing overlay when there are frames to work on.
       // If the selection is empty the AI will bail out immediately and there
       // is nothing to dismiss — skipping the postMessage means the overlay

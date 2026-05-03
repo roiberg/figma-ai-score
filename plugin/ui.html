@@ -3302,7 +3302,6 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
         tokenCategoriesLoading = true;
         tokenCategoriesPartialError = null;
         renderTokenCategoriesList();
-        console.log("[figma-ai-score:ui] → get-token-categories postMessage");
         parent.postMessage({ pluginMessage: { type: "get-token-categories" } }, "*");
         // Fail-safe: if the sandbox never replies (parse error, hang, message
         // dropped), surface a recoverable error instead of an indefinite
@@ -3311,9 +3310,8 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
         if (tokenCategoriesFailsafeTimer) clearTimeout(tokenCategoriesFailsafeTimer);
         tokenCategoriesFailsafeTimer = setTimeout(() => {
           if (!tokenCategoriesLoading) return;
-          console.warn("[figma-ai-score:ui] token-categories-result fail-safe fired (no reply in 8s)");
           tokenCategoriesLoading = false;
-          tokenCategoriesPartialError = "No reply from sandbox in 8s — open the dev console (Plugins → Development) to see why.";
+          tokenCategoriesPartialError = "Couldn't load collections — try toggling the library off and on, or reopen the plugin.";
           renderTokenCategoriesList();
         }, 8000);
       }
@@ -4954,7 +4952,6 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
           fetchTokenCategories();
         }
         if (msg.type === "token-categories-result") {
-          console.log("[figma-ai-score:ui] ← token-categories-result", { count: (msg.collections || []).length, partialError: msg.partialError || null });
           if (tokenCategoriesFailsafeTimer) { clearTimeout(tokenCategoriesFailsafeTimer); tokenCategoriesFailsafeTimer = null; }
           tokenCategoriesLoading = false;
           tokenCategoryCollections = Array.isArray(msg.collections) ? msg.collections : [];

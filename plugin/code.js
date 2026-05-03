@@ -583,7 +583,6 @@ figma.ui.onmessage = async (msg) => {
       return;
     }
     if (msg.type === "get-token-categories") {
-      console.log("[figma-ai-score:sb] ← get-token-categories");
       // Reply-once guard: belt-and-suspenders so the UI ALWAYS gets a
       // response no matter what code path errors below. Without this, a
       // synchronous throw before postMessage would leave the UI stuck on
@@ -592,11 +591,10 @@ figma.ui.onmessage = async (msg) => {
       const reply = (collections, partialError) => {
         if (_replied) return;
         _replied = true;
-        console.log("[figma-ai-score:sb] → token-categories-result", { count: collections.length, partialError });
         try {
           figma.ui.postMessage({ type: "token-categories-result", collections, partialError: partialError || null });
         } catch (e) {
-          console.error("[figma-ai-score:sb] postMessage failed:", e && e.message);
+          console.warn("[figma-ai-score] token-categories postMessage failed:", e && e.message);
         }
       };
       try {
@@ -618,7 +616,7 @@ figma.ui.onmessage = async (msg) => {
         });
         reply(collections, errors && errors.length ? errors[0] : null);
       } catch (e) {
-        console.warn("[figma-ai-score:sb] get-token-categories unexpected failure:", e && e.message);
+        console.warn("[figma-ai-score] get-token-categories unexpected failure:", e && e.message);
         reply([], (e && e.message) || "unexpected error");
       }
       return;
@@ -1268,8 +1266,7 @@ async function handleRpc(method, params) {
         _etaInFlight.pluginWorkMs += Date.now() - _scanStartedAt;
         _etaInFlight.phaseTimings = _phaseTimings;
       }
-      // Log per-phase timing so we can see where slow reviews are spending time.
-      console.log("[figma-ai-score] scan phases (ms):", _phaseTimings);
+      // Phase timings are surfaced in eta-stats entries — no console noise.
       // Slim the tree before sending: every per-node field consumed only by
       // the (already-completed) lint pass — fills/strokes/effects/styleIds/
       // boundTypography/sizeBound/radii/autolayout.bound — is dropped.

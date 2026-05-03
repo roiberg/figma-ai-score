@@ -47,6 +47,7 @@ const DEFAULT_RULES = {
   spacing: true,
   padding: true,
   size: true,
+  radius: true,
   effects: true
 };
 const PREFS_KEY = "figma-ai-score.prefs.v1";
@@ -134,6 +135,9 @@ Pre-computed. Each offender may carry \`suggestedTokens\` (un-tokenized padding)
 
   size: `### size
 Pre-computed (offenders + \`suggestedTokens\`). Pass through unchanged.`,
+
+  radius: `### radius
+Pre-computed (offenders + \`suggestedTokens\`). Pass through unchanged. Each offender represents a node with one or more hardcoded corner radii; \`suggestedTokens\` may contain per-corner bindings.`,
 
   autolayout: `### auto layout
 Pre-computed offenders cover the boolean "is this node auto-layout?" check. ADD from the thumbnail:
@@ -230,7 +234,7 @@ If \`selection.capped\` is true, warn the user only the first 10 frames are revi
 - **Off-screen layers**: still scored; mention in detail so the designer knows.
 - **Scrollable / overflow content**: NOT issues (intentional scroll prototyping).
 - **Repeated component instances**: GOOD — same instance across variants is correct reuse, never flag.
-- **COMPONENT_SET nodes are skipped entirely by**: colors, spacing, padding, autolayout, effects.
+- **COMPONENT_SET nodes are skipped entirely by**: colors, spacing, padding, autolayout, effects, radius, size.
 
 ## PRE-COMPUTED LINT RESULTS
 The scan response includes \`lintResults\` — deterministic offenders + token suggestions, computed server-side.
@@ -745,7 +749,8 @@ figma.ui.onmessage = async (msg) => {
         const PAINT_SLOTS = new Set(["fill", "stroke"]);
         const NODE_PROP_SLOTS = new Set([
           "paddingTop", "paddingRight", "paddingBottom", "paddingLeft",
-          "itemSpacing", "width", "height"
+          "itemSpacing", "width", "height",
+          "cornerRadius", "topLeftRadius", "topRightRadius", "bottomLeftRadius", "bottomRightRadius"
         ]);
 
         if (PAINT_SLOTS.has(slot)) {
@@ -2250,6 +2255,88 @@ function lintSize(root, ds) {
   };
 }
 
+// ── radius rule ──
+// Flags hardcoded corner radii on any node that has corners. Uses
+// `node.radii` (populated by extractNode from cornerRadius / *Radius fields).
+// A corner is considered failing when value > 0 AND not bound to a variable.
+// Sharp (0) corners are intentional — never flagged.
+function lintRadius(root, ds) {
+  const offenders = [];
+  const informational = [];
+  let totalChecked = 0;
+  walkDesignerNodes(root, (node) => {
+    if (!node.radii) return;
+    // COMPONENT_SET is a canvas-only variant container — skip.
+    if (node.type === "COMPONENT_SET") return;
+    const r = node.radii;
+    const bound = r.bound || {};
+    const isInst = isInstance(node);
+
+    const cornerKeys = ["topLeftRadius","topRightRadius","bottomLeftRadius","bottomRightRadius"];
+    const failing = [];
+    for (const k of cornerKeys) {
+      const val = r[k];
+      if (typeof val !== "number" || val === 0) continue; // sharp / absent — fine
+      if (bound[k]) continue;                              // already token-bound
+      failing.push({ slot: k, value: val });
+    }
+    if (!failing.length) return;
+    // Each failing corner counts as a checked-but-failing instance for scoring.
+    totalChecked += cornerKeys.length;
+
+    const values = [...new Set(failing.map(f => f.value))];
+    const allFour = failing.length === cornerKeys.length;
+    let detail;
+    if (allFour && values.length === 1) {
+      detail = `corner radius ${values[0]}px is not using a token.`;
+    } else if (values.length === 1) {
+      detail = `${failing.length} corner${failing.length !== 1 ? "s" : ""} at ${values[0]}px not using a token.`;
+    } else {
+      detail = `corner radii (${values.join(", ")}px) not using tokens.`;
+    }
+
+    if (isInst) {
+      informational.push({
+        nodeId: node.id,
+        name: node.name,
+        rule: "radius",
+        detail,
+        tooltip: "This radius is hardcoded on an instance. The fix lives on the master component — change it there and every instance inherits the correction."
+      });
+      return;
+    }
+
+    const o = {
+      nodeId: node.id,
+      name: node.name,
+      detail,
+      tooltip: "This corner radius is a raw pixel value, not linked to a radius token."
+    };
+    // Build per-corner suggestions; dedupe so we don't render four identical
+    // buttons when all four corners share the same value.
+    const sugs = [];
+    const seen = new Set();
+    for (const f of failing) {
+      const sug = buildDimensionalSuggestion(ds, "radius", f.slot, f.value);
+      if (!sug) continue;
+      const key = sug.id + ":" + f.slot;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      sugs.push(sug);
+    }
+    if (sugs.length) o.suggestedTokens = sugs;
+    offenders.push(o);
+  });
+  return {
+    enabled: true,
+    passed: offenders.length === 0 && informational.length === 0,
+    offenders: offenders.slice(0, 30),
+    informational: informational.slice(0, 30),
+    _totalChecked: totalChecked,
+    _offenderCount: offenders.length + informational.length
+  };
+}
+
 // ── auto-layout rule (Simple mode — deterministic) ──
 // Flags eligible container nodes (FRAME/GROUP/COMPONENT/COMPONENT_SET/
 // INSTANCE) that aren't using auto-layout. Walks ALL nodes — no name-based
@@ -2398,6 +2485,7 @@ function lintFrame(tree, enabledRules, ds, { keepInternalFields = false } = {}) 
   if (enabledRules.spacing) breakdown.spacing = lintSpacing(tree, ds);
   if (enabledRules.padding) breakdown.padding = lintPadding(tree, ds);
   if (enabledRules.size) breakdown.size = lintSize(tree, ds);
+  if (enabledRules.radius) breakdown.radius = lintRadius(tree, ds);
   if (enabledRules.effects) breakdown.effects = lintEffects(tree);
 
   const ruleScores = [];
@@ -2540,6 +2628,24 @@ function extractNode(node, depth = 0, maxDepth = 8) {
   const sbW = boundVarId(node, "width");
   const sbH = boundVarId(node, "height");
   if (sbW || sbH) out.sizeBound = { width: sbW, height: sbH };
+
+  // Corner radii — for the radius rule. Captures per-corner numeric values
+  // (Figma exposes them whether or not corners are uniform). Bound variables
+  // are tracked separately so the rule can tell "value=8 + bound" (passing)
+  // from "value=8 + unbound" (offender).
+  if ("topLeftRadius" in node || "cornerRadius" in node) {
+    const r = {};
+    for (const k of ["topLeftRadius","topRightRadius","bottomLeftRadius","bottomRightRadius"]) {
+      if (typeof node[k] === "number") r[k] = node[k];
+    }
+    const bound = {};
+    for (const k of ["topLeftRadius","topRightRadius","bottomLeftRadius","bottomRightRadius"]) {
+      const v = boundVarId(node, k);
+      if (v) bound[k] = v;
+    }
+    if (Object.keys(bound).length) r.bound = bound;
+    if (Object.keys(r).length) out.radii = r;
+  }
 
   // Stop recursion at INSTANCE boundaries — their children are library
   // internals the designer doesn't control, and skipping them shrinks
@@ -3149,7 +3255,9 @@ const DIMENSION_RULE_KEYWORDS = {
   padding: ["padding", "pad", "spacing", "gap", "space"],
   spacing: ["spacing", "gap", "space", "padding", "pad"],
   // size: no allowlist — see comment above.
-  size: null
+  size: null,
+  // radius: only collections whose haystack matches radius keywords.
+  radius: ["radius", "radii", "corner", "rounded"]
 };
 
 // Token-category overrides let users override the auto-detection per
@@ -3181,22 +3289,29 @@ async function setTokenCategoryOverride(key, category) {
 // individual token names don't contain "radius".
 const SIZE_REJECT_RE = /font[-_\/ ]?size|line[-_\/ ]?height|letter[-_\/ ]?spacing|font[-_\/ ]?weight|radius|radii|border[-_\/ ]?radius|elevation|shadow|opacity|z[-_\/ ]?index/i;
 const SPACING_KEYWORDS = ["padding", "pad", "spacing", "gap", "space"];
+const RADIUS_KEYWORDS = ["radius", "radii", "corner", "rounded"];
 function tokenHaystack(t) {
   return ((t.name || "") + " " + (t.collectionName || "") + " " + (t.libraryName || "")).toLowerCase();
 }
 
 // Auto-detect what category a collection would be classified as by the
 // default rules (mirrors filterDimensionTokensForRule when no override is
-// present). Returns "spacing" | "size" | "both" | "ignore".
+// present). Returns "spacing" | "size" | "both" | "radius" | "ignore".
+//
+// Radius wins outright when detected — a "Radiuses" collection is a radius
+// collection, not a spacing/size collection that happens to also be radius.
 function autoDetectCollectionCategory(tokens) {
   if (!tokens || !tokens.length) return "ignore";
   let anySpacing = false;
   let anySize = false;
+  let anyRadius = false;
   for (const t of tokens) {
     const hay = tokenHaystack(t);
+    if (RADIUS_KEYWORDS.some(k => hay.includes(k))) anyRadius = true;
     if (SPACING_KEYWORDS.some(k => hay.includes(k))) anySpacing = true;
     if (!SIZE_REJECT_RE.test(hay)) anySize = true;
   }
+  if (anyRadius) return "radius";
   if (anySpacing && anySize) return "both";
   if (anySpacing) return "spacing";
   if (anySize) return "size";
@@ -3205,18 +3320,19 @@ function autoDetectCollectionCategory(tokens) {
 
 // Filter numeric tokens for a dimensional rule.
 //
-// 1. If the user has set an override for the token's collection, that decides:
-//    - "ignore"  → drop
-//    - "spacing" → only spacing/padding rules accept it
-//    - "size"    → only size rule accepts it
-//    - "both"    → all three rules accept it
-//    With an override, the rejectlist is NOT applied — the user has explicitly
-//    declared intent and we trust them.
-// 2. Without an override, fall back to the default heuristics:
-//    - padding/spacing rules require a keyword match
-//    - size accepts everything except a typography/radius/elevation rejectlist
-//      (haystack includes name + collection name so a "Radiuses" collection
-//      with tokens named "sm"/"md" is correctly rejected)
+// Category compatibility table — which categories each rule accepts:
+//   padding/spacing rule ← spacing, both
+//   size rule            ← size, both
+//   radius rule          ← radius
+//
+// 1. If the user has set an override for the token's collection, that decides
+//    purely via the table above. The rejectlist is NOT applied — the user has
+//    explicitly declared intent and we trust them.
+// 2. Without an override, fall back to default heuristics:
+//    - padding/spacing rules require a spacing-keyword match
+//    - radius rule requires a radius-keyword match
+//    - size accepts everything except the SIZE_REJECT_RE haystack (which
+//      includes radius/typography/elevation/etc.)
 function filterDimensionTokensForRule(numberVariables, rule, overrides) {
   overrides = overrides || {};
   const keywords = DIMENSION_RULE_KEYWORDS[rule];
@@ -3229,21 +3345,25 @@ function filterDimensionTokensForRule(numberVariables, rule, overrides) {
 
     if (override) {
       // Explicit user category — gate by the rule being checked. No rejectlist.
-      if (override === "spacing" && rule === "size") continue;
-      if (override === "size" && (rule === "padding" || rule === "spacing")) continue;
-      // "both" or matching category: accept.
+      const accept = (
+        (rule === "padding" && (override === "spacing" || override === "both")) ||
+        (rule === "spacing" && (override === "spacing" || override === "both")) ||
+        (rule === "size"    && (override === "size"    || override === "both")) ||
+        (rule === "radius"  && override === "radius")
+      );
+      if (!accept) continue;
       out.push(v);
       continue;
     }
 
-    // No override — apply the default heuristics.
+    // No override — apply default heuristics.
     const hay = tokenHaystack(v);
     if (keywords) {
-      // padding/spacing rules: require a keyword match in name or collection.
+      // padding/spacing/radius: require a keyword match in the haystack.
       if (!keywords.some(k => hay.includes(k))) continue;
     }
     if (rule === "size") {
-      // size: rejectlist on the full haystack (name + collection + library).
+      // size: rejectlist on the full haystack.
       if (SIZE_REJECT_RE.test(hay)) continue;
     }
     out.push(v);
@@ -3324,7 +3444,7 @@ const EXPORT_SCORE_CIRCLE_SIZE = 186;
 const EXPORT_RULE_ORDER = [
   "naming", "components", "autolayout",
   "colors", "typography",
-  "spacing", "padding", "size",
+  "spacing", "padding", "size", "radius",
   "effects"
 ];
 const EXPORT_RULE_LABELS = {
@@ -3336,6 +3456,7 @@ const EXPORT_RULE_LABELS = {
   spacing: "Spacing",
   padding: "Padding",
   size: "Size",
+  radius: "Radius",
   effects: "Effects"
 };
 

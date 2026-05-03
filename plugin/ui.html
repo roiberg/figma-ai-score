@@ -2316,6 +2316,11 @@
                 <span class="rule-label">Size tokens</span>
               </label>
               <label class="rule">
+                <input type="checkbox" data-rule="radius" />
+                <span class="toggle-track"></span>
+                <span class="rule-label">Radius tokens</span>
+              </label>
+              <label class="rule">
                 <input type="checkbox" data-rule="effects" />
                 <span class="toggle-track"></span>
                 <span class="rule-label">Effect tokens</span>
@@ -3156,6 +3161,7 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
         spacing: "Spacing",
         size: "Size",
         both: "Both",
+        radius: "Radius",
         ignore: "—"
       };
       function renderTokenCategoriesList() {
@@ -3192,7 +3198,7 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
           const pills = document.createElement("div");
           pills.className = "token-cat-pills";
           const effective = coll.override || coll.autoCategory;
-          ["spacing", "size", "both", "ignore"].forEach(cat => {
+          ["spacing", "size", "both", "radius", "ignore"].forEach(cat => {
             const btn = document.createElement("button");
             btn.className = "token-cat-pill" + (cat === effective ? " is-active" : "");
             btn.type = "button";

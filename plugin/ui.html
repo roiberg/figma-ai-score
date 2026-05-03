@@ -3299,8 +3299,9 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
         // metadata-only sandbox path, big libraries still cost a couple
         // seconds — without this the panel looks frozen during a toggle.
         tokenCategoriesLoading = true;
+        tokenCategoriesPartialError = null;
         renderTokenCategoriesList();
-        fetchTokenCategories();
+        parent.postMessage({ pluginMessage: { type: "get-token-categories" } }, "*");
       }
       function renderTokenCategoriesList() {
         tokenCategoriesList.innerHTML = "";

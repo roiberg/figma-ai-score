@@ -10,13 +10,14 @@ Five things, all on the local Mac, no network calls beyond the one-time pkg down
 2. **Symlinks the launcher** to `~/.local/bin/figma-ai-score` (always) and `/usr/local/bin/figma-ai-score` (best-effort, no sudo prompt — just `ln -sf` and ignored if not writable).
 3. **Adds a documentation block** to `~/.claude/CLAUDE.md` between `<!-- figma-ai-score -->` markers, describing the CLI's subcommands so Claude Code knows what to do when you say "review my design." You can preview the exact contents before approving (see "Inspect first" below).
 4. **Adds a `/ai-score` slash command** at `~/.claude/commands/ai-score.md` so you can run reviews with `/ai-score`. Same preview is available.
-5. **Adds four entries to the `permissions.allow` array in `~/.claude/settings.json`** so Claude Code doesn't prompt on every review. The exact entries are:
+5. **Adds five entries to the `permissions.allow` array in `~/.claude/settings.json`** so Claude Code doesn't prompt on every review. The exact entries are:
    - `Bash(figma-ai-score:*)` — lets `figma-ai-score <subcommand>` run without a permission prompt. Does NOT cover any other command.
    - `Read(/var/folders/**/figma-ai-score-*/**)` — lets Claude read the JPEG thumbnails the CLI writes to `$TMPDIR` for visual rules. Scoped to `figma-ai-score-*` directories only.
+   - `Read(/private/var/folders/**/figma-ai-score-*/**)` — same path resolved through macOS's `/var/folders` → `/private/var/folders` symlink. Claude Code matches against the resolved path, so both forms are needed.
    - `Read(/tmp/figma-ai-score-*)` — same, for legacy `/tmp` paths.
    - `Write(/tmp/figma-ai-score-*)` — lets Claude write the report JSON during a review.
 
-   These are persistent grants. The merge is idempotent (never clobbers, never duplicates) and refuses to overwrite a malformed `settings.json` rather than corrupting it. The four entries are also published as `figma-ai-score integrate --tool claude-permissions` (single source of truth in `cli/integrate.js`).
+   These are persistent grants. The merge is idempotent (never clobbers, never duplicates) and refuses to overwrite a malformed `settings.json` rather than corrupting it. The five entries are also published as `figma-ai-score integrate --tool claude-permissions` (single source of truth in `cli/integrate.js`).
 
 That's the complete list. The install does NOT modify your shell rc, NOT write to `/etc/`, NOT install a LaunchAgent or daemon, NOT touch other AI tools' config files (see "If you are NOT Claude Code" below for that).
 

@@ -66,8 +66,8 @@ The plugin id is `figma-ai-score-dev-local` (in `plugin/manifest.json`); import 
 | `figma-ai-score announce-review-start` | First call before a review (UI feedback). |
 | `figma-ai-score get-preferences` | Returns enabled rules + the full review protocol in `instructions`. |
 | `figma-ai-score get-selection` | Live selection from the plugin. |
-| `figma-ai-score begin-review --node-ids id1,id2,…` | Lock the plugin into review state. |
-| `figma-ai-score request-scan --node-id <id>` | Scan tree + `thumbnailPath` (JPEG file for vision rules). |
+| `figma-ai-score announce-progress --step <key>` | Post a progress update to the plugin banner. Steps: `starting`, `reading-preferences`, `analyzing`, `submitting`. |
+| `figma-ai-score begin-and-scan --node-ids id1,id2,… [--frame-index N] [--frame-count N]` | Lock + scan in one round-trip. Returns scan tree + `thumbnailPath` (JPEG). |
 | `figma-ai-score highlight-nodes --node-ids …` | Flash nodes in Figma. |
 | `figma-ai-score submit-report --report-file <path>` | Deliver the final report. |
 | `figma-ai-score is-cancelled` | `{ cancelled: bool }`. |

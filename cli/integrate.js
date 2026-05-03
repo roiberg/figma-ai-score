@@ -157,7 +157,7 @@ A Figma plugin + CLI that reviews designs for AI programmability. The CLI is \`f
 
 Subcommands:
 - \`figma-ai-score announce-review-start\` — call FIRST whenever the user asks for a review. Returns \`{ ok, selection }\` so you can skip a separate get-selection call.
-- \`figma-ai-score announce-progress --message "..."\` — post a real progress update to the plugin banner. Call this freely whenever you're about to spend time thinking.
+- \`figma-ai-score announce-progress --step <key>\` — post a progress update to the plugin banner. Valid steps: \`starting\`, \`reading-preferences\`, \`analyzing\`, \`submitting\`. The plugin maps each key to its display text — arbitrary strings are not accepted.
 - \`figma-ai-score get-preferences\` — returns enabledRules + a long \`instructions\` field with the full review protocol. Always call this and follow what it says.
 - \`figma-ai-score get-selection\` — returns the live Figma selection. Skip if you already have it from announce-review-start.
 - \`figma-ai-score begin-and-scan --node-ids id1,id2,… [--frame-index N] [--frame-count N]\` — lock + scan in one call. Returns scan tree + \`thumbnailPath\` (JPEG file). Use \`Read\` on that path for AI-mode visual rules.

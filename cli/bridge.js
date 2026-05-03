@@ -181,8 +181,24 @@ export class Bridge {
           return;
         }
 
-        // Async events (e.g. "cancel") are handled plugin-side now; the
-        // bridge just transports.
+        // Cancel event from the plugin UI. The user clicked Stop while a
+        // CLI call was in flight. Reject any pending RPCs so the CLI exits
+        // promptly with `{ cancelled: true }` instead of waiting on the
+        // sandbox to finish work that's been disowned. The plugin sandbox
+        // also flips its own `cancelled` flag (set-cancelled message), so
+        // any subsequent begin_and_scan / submit_report calls short-circuit
+        // server-side too.
+        if (msg.type === "event" && msg.name === "cancel") {
+          for (const [, p] of this.pending) {
+            clearTimeout(p.timer);
+            p.reject(Object.assign(
+              new Error("review cancelled by user"),
+              { code: "CANCELLED" }
+            ));
+          }
+          this.pending.clear();
+          return;
+        }
       });
 
       ws.on("close", () => {

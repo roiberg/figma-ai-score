@@ -2,14 +2,15 @@
 
 If your AI coding tool didn't auto-set itself up after `figma-ai-score integrate`, here's the recipe.
 
-The CLI is `figma-ai-score` on PATH. It exposes 9 subcommands, all of which print JSON to stdout. Run `figma-ai-score --help` to see them. The standard review flow is:
+The CLI is `figma-ai-score` on PATH. All subcommands print JSON to stdout. Run `figma-ai-score --help` to see them. The standard review flow is:
 
 ```
-figma-ai-score announce-review-start
-figma-ai-score get-preferences           # read .instructions, follow it exactly
-figma-ai-score get-selection
-figma-ai-score begin-review --node-ids id1,id2,…
-figma-ai-score request-scan --node-id <id>     # for each frame; thumbnailPath returned
+figma-ai-score announce-review-start            # selection comes back here too — skip get-selection
+figma-ai-score get-preferences                  # read .instructions, follow it exactly
+figma-ai-score announce-progress --step analyzing
+figma-ai-score begin-and-scan --node-ids <id> --frame-index 1 --frame-count <total>
+                                                # one call per frame; returns scan tree + thumbnailPath
+figma-ai-score announce-progress --step submitting
 figma-ai-score submit-report --report-file <path>
 ```
 

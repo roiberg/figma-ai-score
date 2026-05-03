@@ -23,7 +23,7 @@ import { buildIntegrationDoc } from "./integrate.js";
 
 const WS_PORT = 3055;
 
-const VERSION = "0.6.4";
+const VERSION = "0.6.5";
 
 // CLI subcommand → plugin-side RPC method name. Plugin still uses underscored
 // names (announce_review_start, etc.) — we keep that wire format unchanged.
@@ -494,6 +494,13 @@ async function main() {
     if (e.code === "PROTOCOL_MISMATCH") {
       emitErr("PROTOCOL_MISMATCH", e.message);
       return 5;
+    }
+    if (e.code === "CANCELLED") {
+      // User clicked Stop while this call was in flight. Treated as a normal
+      // result (exit 0 with {cancelled: true}) — same shape the AI's
+      // instructions already handle for sandbox-side cancels.
+      emitJson({ cancelled: true, reason: "user stopped review" });
+      return 0;
     }
     emitErr(e.code || "FAILURE", e.message || String(e));
     return 1;

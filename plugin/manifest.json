@@ -7,7 +7,10 @@
   "editorType": ["figma"],
   "permissions": ["teamlibrary"],
   "networkAccess": {
-    "allowedDomains": ["ws://localhost:3055"],
-    "reasoning": "Connects only to a local CLI on 127.0.0.1 so the user's own AI coding tool (Claude Code, Cursor, Codex, Gemini, …) can read the current Figma selection and score it. No external services."
+    "allowedDomains": [
+      "ws://localhost:3055",
+      "https://script.google.com"
+    ],
+    "reasoning": "Two endpoints: (1) ws://localhost:3055 — local CLI on 127.0.0.1, used by the user's own AI coding tool (Claude Code, Cursor, Codex, Gemini, …) to read the current Figma selection and score it. (2) https://script.google.com — only contacted when the user types feedback into the in-plugin 'Send a suggestion' box and clicks Send. The text the user typed is the only thing sent; no design content, file contents, selection data, telemetry, or analytics are transmitted."
   }
 }

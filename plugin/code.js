@@ -86,8 +86,12 @@ const CANCEL_EXEMPT_METHODS = new Set([
   "get_selection", "get_preferences", "is_cancelled"
 ]);
 const CANCEL_CLEARING_METHODS = new Set([
-  // A new review cycle clears any stale cancel flag.
-  "announce_review_start", "begin_and_scan"
+  // Only the START of a new review cycle clears any stale cancel flag.
+  // begin_and_scan is mid-review (the AI may call it many times across
+  // multiple frames). Clearing on begin_and_scan would defeat the Stop
+  // button: a click between frames would be silently undone by the next
+  // begin_and_scan call.
+  "announce_review_start"
 ]);
 
 // ── Full review protocol. Returned by get_preferences so any Claude ──
@@ -291,7 +295,7 @@ submit_report expects:
       <ruleName>: {
         enabled, passed,
         offenders:    [{ nodeId, name, detail, suggestedTokens?, suggestedName?, ... }] (max 30),
-        informational: [{ nodeId, name, rule, detail }] (max 30, instance-only, no fix actions, doesn't affect score)
+        informational: [{ nodeId, name, rule, detail }] (max 30, instance-only, no fix actions in UI; DO count toward the score via _offenderCount)
       }
     },
     issues: [{ rule, nodeId, name, detail }] (max 20)
@@ -1206,7 +1210,9 @@ async function handleRpc(method, params) {
       const _markPhase = (label, t0) => { _phaseTimings[label] = Date.now() - t0; };
       // Lock phase
       const ids = Array.isArray(params.nodeIds) ? params.nodeIds : [];
-      cancelled = false;
+      // NB: do NOT clear `cancelled` here. begin_and_scan runs mid-review;
+      // a Stop click between frames must persist so subsequent begin_and_scan
+      // calls short-circuit. The flag is cleared only on announce_review_start.
       locked = true;
       lockedIds = ids;
       const names = ids.map(id => {
@@ -2295,16 +2301,21 @@ function lintRadius(root, ds) {
     const isInst = isInstance(node);
 
     const cornerKeys = ["topLeftRadius","topRightRadius","bottomLeftRadius","bottomRightRadius"];
+    // Count every corner that exists as a checked unit, regardless of whether
+    // it ends up in `failing`. Sharp (0) and bound corners are passing checks;
+    // they belong in the denominator alongside the failing corners.
+    let cornersOnNode = 0;
     const failing = [];
     for (const k of cornerKeys) {
       const val = r[k];
-      if (typeof val !== "number" || val === 0) continue; // sharp / absent — fine
-      if (bound[k]) continue;                              // already token-bound
+      if (typeof val !== "number") continue; // corner doesn't exist on this node type
+      cornersOnNode++;
+      if (val === 0) continue;               // sharp — passing
+      if (bound[k]) continue;                // already token-bound — passing
       failing.push({ slot: k, value: val });
     }
+    totalChecked += cornersOnNode;
     if (!failing.length) return;
-    // Each failing corner counts as a checked-but-failing instance for scoring.
-    totalChecked += cornerKeys.length;
 
     const values = [...new Set(failing.map(f => f.value))];
     const allFour = failing.length === cornerKeys.length;
@@ -2612,7 +2623,15 @@ function lintFrame(tree, enabledRules, ds, { keepInternalFields = false } = {}) 
 
 // ------- extraction -------
 
-function extractNode(node, depth = 0, maxDepth = 8) {
+// Full-depth tree extraction. The lint pass walks this tree; truncating at a
+// shallow depth would silently exclude deep layers from scoring. The AI-bound
+// tree is separately depth-capped via slimTreeForAI(maxDepth=12) to keep the
+// AI input bounded; the lint sees everything.
+//
+// `maxDepth` is kept as a guardrail against pathological designs (deeply
+// recursive graphs would blow the stack), but at 64 it's far above any real
+// design tree.
+function extractNode(node, depth = 0, maxDepth = 64) {
   const out = { id: node.id, name: node.name, type: node.type };
 
   // Mark nodes explicitly excluded via plugin data flag (ground truth for
@@ -2759,7 +2778,12 @@ function extractNode(node, depth = 0, maxDepth = 8) {
 // component/instance flags, ignored markers, characters (TEXT), bounds, and
 // a slimmed autolayout block. Recursive — INSTANCE children are absent here
 // already because extractNode skips them.
-function slimTreeForAI(node) {
+//
+// Caps depth at SLIM_MAX_DEPTH so the AI-bound payload stays bounded on
+// pathologically deep designs. The lint pass, run earlier on the full tree,
+// already saw the deeper nodes — they're just elided from the AI tree.
+const SLIM_MAX_DEPTH = 12;
+function slimTreeForAI(node, depth = 0) {
   if (!node || typeof node !== "object") return node;
   const slim = {
     id: node.id,
@@ -2792,8 +2816,12 @@ function slimTreeForAI(node) {
     if (al.sizingVertical) slimAl.sizingVertical = al.sizingVertical;
     slim.autolayout = slimAl;
   }
-  if (Array.isArray(node.children)) {
-    slim.children = node.children.map(slimTreeForAI);
+  if (Array.isArray(node.children) && depth < SLIM_MAX_DEPTH) {
+    slim.children = node.children.map(c => slimTreeForAI(c, depth + 1));
+  } else if (Array.isArray(node.children) && node.children.length) {
+    // Mark elision so the AI knows the tree was truncated here, not "no
+    // children." A future bullet on the report banner could surface this.
+    slim.childrenTruncated = node.children.length;
   }
   return slim;
 }
@@ -3403,7 +3431,9 @@ function rankColorCandidates(candidates, nodeName, max) {
     const parts = (t.name || "").toLowerCase().split(/[\s\-_\/]+/);
     for (const w of parts) if (nodeWords.has(w)) s += 10;
     if ((t.collectionName || t.name || "").toLowerCase().startsWith("main")) s += 5;
-    if (t.isPrimitive) s += 2;
+    // Penalize primitives — semantic tokens (e.g. surface/primary) should win
+    // over raw palette tokens (blue-500) when both have the matching value.
+    if (t.isPrimitive) s -= 2;
     s -= parts.length; // prefer shorter names
     return s;
   }

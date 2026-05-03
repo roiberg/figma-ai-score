@@ -3058,6 +3058,25 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
       const modeHintSimple = document.getElementById("mode-hint-simple");
       const modeHintAi = document.getElementById("mode-hint-ai");
 
+      // Per-rule tooltip text shown when the user clicks the info icon on an
+      // offender. Lint emissions no longer include a `tooltip` field — these
+      // static strings are looked up by rule key. The detail string already
+      // carries any dynamic context (e.g. specific values, sides affected).
+      const RULE_TOOLTIPS = {
+        naming:     "This layer's name is generic or auto-generated. Naming layers semantically helps designers and AI tools understand intent.",
+        components: "Repeated visual structures should be components. Converting them keeps the design system reusable and consistent.",
+        autolayout: "Without auto layout, child elements are positioned with fixed coordinates. Auto layout lets the frame resize and reflow its children automatically — essential for responsive components.",
+        colors:     "This color is hardcoded as a raw value, not a design system token. If the design system color changes, this layer won't update automatically.",
+        typography: "This text has its font, size, and weight set directly on the layer. Changes to the design system typography won't propagate, and it can't be traced back to a shared style.",
+        spacing:    "The gap between children is set to a raw pixel value. Using a spacing token keeps it consistent as the design system evolves.",
+        padding:    "This padding is set to a raw pixel value, not linked to a spacing token in the design system.",
+        size:       "This dimension is a hardcoded pixel value. Binding to a size token keeps it in sync if the token value changes.",
+        radius:     "This corner radius is a raw pixel value, not linked to a radius token.",
+        effects:    "This layer has shadows or blurs applied directly, not through a shared effect style. Without a style, the effect can't be updated globally."
+      };
+      // Single shared tooltip for instance-level informational entries.
+      const INSTANCE_TOOLTIP = "This issue lives on an instance — fix it on the master component, and every instance inherits the correction.";
+
       const RULE_LABELS = {
         components: { simple: "component usage", ai: "component usage" },
         autolayout: { simple: "auto layout",     ai: "auto layout"     },
@@ -4293,8 +4312,13 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
                       applyParts.push(`<div class="token-suggest-row"><span class="token-suggest-label">Fix</span>${zeroBtns}</div>`);
                     }
                     const applyBtn = applyParts.join('');
-                    const infoIcon = o.tooltip
-                      ? `<button class="offender-info-btn" data-tooltip="${esc(o.tooltip)}" aria-label="More info" tabindex="-1">
+                    // Tooltip is now a static per-rule lookup (RULE_TOOLTIPS). Lint
+                    // emissions no longer ship a `tooltip` field — we still honor
+                    // a per-offender override if one is present, but the common
+                    // case looks up the rule's static tooltip text.
+                    const tooltipText = o.tooltip || RULE_TOOLTIPS[rule] || "";
+                    const infoIcon = tooltipText
+                      ? `<button class="offender-info-btn" data-tooltip="${esc(tooltipText)}" aria-label="More info" tabindex="-1">
                           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><circle cx="6" cy="6" r="5"/><line x1="6" y1="5.5" x2="6" y2="8.5"/><circle cx="6" cy="3.5" r="0.6" fill="currentColor" stroke="none"/></svg>
                          </button>`
                       : '';
@@ -4377,14 +4401,18 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
                   }
                 }
                 if (!allInfo.length) return "";
-                const rows = allInfo.map(e => `
+                const rows = allInfo.map(e => {
+                  // Informational items always live on instances; their fix
+                  // is on the master. Use a single shared tooltip string.
+                  const infoTooltipText = e.tooltip || INSTANCE_TOOLTIP;
+                  return `
                   <div class="info-row" data-info-node="${esc(e.nodeId)}" data-info-rule="${esc(e.rule)}">
                     <div class="info-body">
                       <div class="info-name">${esc(e.name)} <span class="info-rule-tag">${esc(e.rule)}</span></div>
                       <div class="info-detail">${esc(e.detail)}</div>
                     </div>
                     <div class="offender-row-actions">
-                      ${e.tooltip ? `<button class="offender-info-btn" data-tooltip="${esc(e.tooltip)}" aria-label="More info" tabindex="-1">
+                      ${infoTooltipText ? `<button class="offender-info-btn" data-tooltip="${esc(infoTooltipText)}" aria-label="More info" tabindex="-1">
                         <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><circle cx="6" cy="6" r="5"/><line x1="6" y1="5.5" x2="6" y2="8.5"/><circle cx="6" cy="3.5" r="0.6" fill="currentColor" stroke="none"/></svg>
                       </button>` : ''}
                       <button class="open-master-btn apply-rename-btn" data-open-master="${esc(e.nodeId)}">Open master</button>
@@ -4392,7 +4420,8 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
                         <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><circle cx="6" cy="6" r="5"/><circle cx="6" cy="6" r="2"/><circle cx="6" cy="6" r="0.7" fill="currentColor" stroke="none"/></svg>
                       </button>
                     </div>
-                  </div>`).join("");
+                  </div>`;
+                }).join("");
                 return `<div class="instance-info-section">
                   <div class="instance-info-header">Instances with issues <span class="instance-info-sub">— fix on the master to resolve</span></div>
                   <div class="instance-info-list">${rows}</div>

@@ -289,8 +289,8 @@ submit_report expects:
     breakdown: {
       <ruleName>: {
         enabled, passed,
-        offenders:    [{ nodeId, name, detail, tooltip, ... }] (max 30),
-        informational: [{ nodeId, name, rule, detail, tooltip }] (max 30, instance-only, no fix actions, doesn't affect score)
+        offenders:    [{ nodeId, name, detail, suggestedTokens?, suggestedName?, ... }] (max 30),
+        informational: [{ nodeId, name, rule, detail }] (max 30, instance-only, no fix actions, doesn't affect score)
       }
     },
     issues: [{ rule, nodeId, name, detail }] (max 20)
@@ -309,9 +309,7 @@ Only include the ${enabledNames.length} enabled rule${enabledNames.length === 1 
   Good: "Fill does not use a token or style." / "Spacing not tokenized." / "Auto-layout missing on this frame."
   Bad: "SOLID fill #FF0000 has no bound variable or style." / "boundVariable is null on the first paint."
 - **Forbidden phrases** in details: "no action required/needed", "minimal impact", "low impact", "be aware that", "verify that", "confirm that", "extends beyond", "overflow", "layout mismatch", "outside container bounds".
-- **Tooltip strings**: every offender must include a \`tooltip\` field — 1–2 plain-English sentences that explain *why* this is an issue and what it means in practice, written for a designer who may not know the technical term. No fix instructions. No jargon.
-  Example — detail: "Top and bottom padding ignored (fixed height)." → tooltip: "This frame has a fixed height, so Figma ignores any vertical padding you set. The frame won't grow or shrink with its content."
-  Example — detail: "Fill does not use a token or style." → tooltip: "This color is hardcoded as a raw value. If the design system color changes, this layer won't update automatically."
+- **No \`tooltip\` field needed** on offenders. The UI looks up a per-rule tooltip by rule key. The detail string already carries any dynamic context (specific values, sides affected). Don't write tooltips — they will be discarded.
 - After submitting, briefly summarize to the user: score, rules passed/failed, top issues.
 
 ## DO NOT GROUP OFFENDERS
@@ -1804,7 +1802,6 @@ function lintColors(root, ds) {
             name: node.name,
             rule: "colors",
             detail: `Fill does not use a token or style.`,
-            tooltip: `This color is hardcoded on an instance. The fix lives on the master component — change it there and every instance inherits the correction.`,
           });
           continue;
         }
@@ -1812,7 +1809,6 @@ function lintColors(root, ds) {
           nodeId: node.id,
           name: node.name,
           detail: `Fill does not use a token or style.`,
-          tooltip: `This color is hardcoded as a raw value. If the design system color changes, this layer won't update automatically.`
         };
         // Suggest token(s) for exact color matches. When multiple tokens share
         // the same value, rank by semantic fit and show the top 3 — Simple mode
@@ -1841,7 +1837,6 @@ function lintColors(root, ds) {
             name: node.name,
             rule: "colors",
             detail: `Stroke does not use a token or style.`,
-            tooltip: `This border color is hardcoded on an instance. The fix lives on the master component — change it there and every instance inherits the correction.`,
           });
           continue;
         }
@@ -1849,7 +1844,6 @@ function lintColors(root, ds) {
           nodeId: node.id,
           name: node.name,
           detail: `Stroke does not use a token or style.`,
-          tooltip: `This border color is hardcoded as a raw value. If the design system color changes, this layer won't update automatically.`
         };
         if (hasDs && !node.hasMultipleStrokes) {
           const all = findTokensByColor(ds, s.color);
@@ -1890,7 +1884,7 @@ function lintTypography(root) {
     if (node.textStyleId) return;
     const bt = node.boundTypography || {};
     if (bt.fontSize && bt.fontFamily && bt.fontWeight && bt.lineHeight) return;
-    offenders.push({ nodeId: node.id, name: node.name, detail: `Text is not using a text style or typography tokens.`, tooltip: `This text has its font, size, and weight set directly on the layer. Changes to the design system typography won't affect it, and it can't be traced back to a shared style.` });
+    offenders.push({ nodeId: node.id, name: node.name, detail: `Text is not using a text style or typography tokens.` });
   });
   return {
     enabled: true,
@@ -1949,7 +1943,6 @@ function lintSpacing(root, ds) {
         name: node.name,
         rule: "spacing",
         detail: `itemSpacing ${val}px is not using a spacing token.`,
-        tooltip: `The gap between children is hardcoded on this instance. The fix lives on the master component — change it there and every instance inherits the correction.`,
       });
       return;
     }
@@ -1966,7 +1959,6 @@ function lintSpacing(root, ds) {
         nodeId: node.id,
         name: node.name,
         detail: `Gap value has no effect — only one child.`,
-        tooltip: `Gap is the spacing between sibling children. With only one child there's nothing to space, so the value just adds noise to the layer's properties without changing the design.`,
         zeroActions: [{ label: "Clear gap", props: ["itemSpacing"] }],
       });
       return;
@@ -1975,7 +1967,6 @@ function lintSpacing(root, ds) {
       nodeId: node.id,
       name: node.name,
       detail: `itemSpacing ${val}px is not using a spacing token.`,
-      tooltip: `The gap between children in this frame is set to a raw pixel value. Using a spacing token means the gap stays consistent with the rest of the design system when spacing values change.`
     };
     const sug = buildDimensionalSuggestion(ds, "spacing", "itemSpacing", val);
     if (sug) o.suggestedTokens = [sug];
@@ -2090,7 +2081,6 @@ function lintPadding(root, ds) {
         name: node.name,
         rule: "padding",
         detail: `${sideList} padding not tokenized.`,
-        tooltip: `This padding is hardcoded on an instance. The fix lives on the master component — change it there and every instance inherits the correction.`,
       });
       return;
     }
@@ -2117,19 +2107,10 @@ function lintPadding(root, ds) {
     if (zeroHorizontalProps.length) detailParts.push(sideLabel(zeroHorizontalProps, "fixed width"));
 
     const _paddingDetail = detailParts.join(" ");
-    const _paddingTooltip = (() => {
-      const parts = [];
-      if (zeroVerticalProps.length)   parts.push("This frame has a fixed height, so Figma ignores any vertical padding you set.");
-      if (zeroHorizontalProps.length) parts.push("This frame has a fixed width, so Figma ignores any horizontal padding you set.");
-      if (failedProps.length && !zeroVerticalProps.length && !zeroHorizontalProps.length)
-        parts.push("This padding value is a raw pixel number, not linked to a spacing token in the design system.");
-      return parts.join(" ") || "This padding is not connected to the design system, so it won't update when spacing values change.";
-    })();
     const o = {
       nodeId:  node.id,
       name:    node.name,
       detail:  _paddingDetail,
-      tooltip: _paddingTooltip,
     };
 
     // One suggestion per failing-and-visible padding prop. We deliberately
@@ -2208,7 +2189,6 @@ function lintSize(root, ds) {
             name: node.name,
             rule: "size",
             detail: `width ${node.width}px is not using a size token.`,
-            tooltip: `This width is hardcoded on an instance. The fix lives on the master component — change it there and every instance inherits the correction.`,
           });
         } else {
           const sug = buildDimensionalSuggestion(ds, "size", "width", node.width);
@@ -2222,9 +2202,6 @@ function lintSize(root, ds) {
               nodeId: node.id,
               name: node.name,
               detail: `width ${node.width}px is not using a size token.`,
-              tooltip: isFrame
-                ? `This frame's width is a hardcoded pixel value that matches a design token. Binding it keeps dimensions in sync if the token value changes.`
-                : `This component's width is a hardcoded pixel value. Binding it to a size token means it stays in sync if the token value changes.`
             };
             if (sug) o.suggestedTokens = [sug];
             offenders.push(o);
@@ -2241,7 +2218,6 @@ function lintSize(root, ds) {
             name: node.name,
             rule: "size",
             detail: `height ${node.height}px is not using a size token.`,
-            tooltip: `This height is hardcoded on an instance. The fix lives on the master component — change it there and every instance inherits the correction.`,
           });
         } else {
           const sug = buildDimensionalSuggestion(ds, "size", "height", node.height);
@@ -2253,9 +2229,6 @@ function lintSize(root, ds) {
               nodeId: node.id,
               name: node.name,
               detail: `height ${node.height}px is not using a size token.`,
-              tooltip: isFrame
-                ? `This frame's height is a hardcoded pixel value that matches a design token. Binding it keeps dimensions in sync if the token value changes.`
-                : `This component's height is a hardcoded pixel value. Binding it to a size token means it stays in sync if the token value changes.`
             };
             if (sug) o.suggestedTokens = [sug];
             offenders.push(o);
@@ -2320,7 +2293,6 @@ function lintRadius(root, ds) {
         name: node.name,
         rule: "radius",
         detail,
-        tooltip: "This radius is hardcoded on an instance. The fix lives on the master component — change it there and every instance inherits the correction."
       });
       return;
     }
@@ -2329,7 +2301,6 @@ function lintRadius(root, ds) {
       nodeId: node.id,
       name: node.name,
       detail,
-      tooltip: "This corner radius is a raw pixel value, not linked to a radius token."
     };
     // Build per-corner suggestions; dedupe so we don't render four identical
     // buttons when all four corners share the same value.
@@ -2414,7 +2385,6 @@ function lintAutolayoutSimple(root) {
           nodeId: node.id,
           name: node.name,
           detail: `${node.type.toLowerCase()} isn't using auto layout.`,
-          tooltip: `Without auto layout, child elements are positioned with fixed x/y coordinates. Auto layout lets the frame resize and reflow its children automatically, which is essential for responsive components.`
         });
       }
     }
@@ -2447,7 +2417,6 @@ function lintEffects(root) {
         nodeId: node.id,
         name: node.name,
         detail: `${visible.length} effect${visible.length === 1 ? "" : "s"} not using an effect style.`,
-        tooltip: `This layer has ${visible.length === 1 ? "a shadow or blur" : "shadows or blurs"} applied directly, not through a shared effect style. Without a style, the effect can't be updated globally across the design system.`
       });
     }
   });

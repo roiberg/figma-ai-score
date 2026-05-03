@@ -878,6 +878,29 @@
         text-align: center;
         color: var(--text);
       }
+      /* Saturation banner — surfaced when a frame's pre-computed offender
+         count exceeded the threshold and the lint capped per-rule output. */
+      .saturation-banner {
+        margin: 8px 0 12px;
+        padding: 10px 12px;
+        background: #FFF6E5;
+        border: 1px solid #F4B95A;
+        border-radius: var(--radius-sm);
+        color: #6B4500;
+        font-size: 11px;
+        line-height: 1.4;
+      }
+      .saturation-banner-title {
+        font-weight: 700;
+        font-size: 12px;
+        margin: 0 0 4px 0;
+      }
+      .saturation-banner-counts {
+        margin-top: 6px;
+        font-size: 10px;
+        color: #6B4500;
+        opacity: 0.85;
+      }
       .score-row {
         display: flex;
         flex-direction: column;
@@ -4321,6 +4344,24 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
                 <div class="frame-name">${esc(f.name)}</div>
                 ${f.perfect ? '<span class="perfect-badge">Perfect</span>' : ''}
               </div>
+              ${(() => {
+                if (!f.saturated) return "";
+                const counts = f.originalOffenderCounts || {};
+                // Top 3 worst rules by original count.
+                const top = Object.entries(counts)
+                  .filter(([, n]) => n > 0)
+                  .sort((a, b) => b[1] - a[1])
+                  .slice(0, 3)
+                  .map(([rule, n]) => `${rule} (${n})`)
+                  .join(", ");
+                const total = Object.values(counts).reduce((s, n) => s + (n || 0), 0);
+                return `
+                  <div class="saturation-banner">
+                    <p class="saturation-banner-title">Too many issues — showing the top items per rule</p>
+                    This frame has ${total} pre-computed issues. To keep the review fast and actionable, only the top 7 per rule are shown below. Fix these first, then re-run the review for a fresh pass.
+                    ${top ? `<div class="saturation-banner-counts">Worst rules: ${esc(top)}</div>` : ""}
+                  </div>`;
+              })()}
               <div class="breakdown-grid">${breakdown}</div>
               ${(() => {
                 // "Instances with issues" — read-only aggregation of every

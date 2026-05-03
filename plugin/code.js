@@ -250,6 +250,12 @@ The scan response includes \`lintResults\` — deterministic offenders + token s
 - components: ADD Check 4 (semantic-name structures) + Vision check (discrete UI regions).
 - autolayout: ADD quality offenders (pathological structure, wrong direction).
 
+**Saturation mode — read this first.** If \`lintResults.saturated\` is \`true\`, the frame has more than 50 pre-computed offenders. The lint has already capped each rule to its top 7 actionable issues; the rest are elided. In this mode:
+- **Skip ALL vision augmentation** — no Check 2 naming, no Check 4 components, no autolayout quality vision. The capped offenders are enough; finding 5 more issues won't change the verdict.
+- Copy the capped offenders into the report unchanged.
+- The UI shows a banner with the original counts (\`originalOffenderCounts\`) automatically; you do NOT need to enumerate elided offenders in your prose.
+- Keep your message short: name the worst 2-3 rules by count, recommend fixing the highlighted issues, and note that re-running after fixes will surface the next batch.
+
 **Scoring per rule**:
 - Accept-as-final: use \`lintResults.<rule>._totalChecked\` and offender count directly.
 - Augmented: \`score = (totalChecked - newOffenderCount) / totalChecked * 100\`.
@@ -278,6 +284,8 @@ submit_report expects:
 {
   frames: [{
     nodeId, name, score, perfect,
+    saturated,                 // copy from lintResults.saturated (default false)
+    originalOffenderCounts,    // copy from lintResults.originalOffenderCounts (only when saturated)
     breakdown: {
       <ruleName>: {
         enabled, passed,
@@ -2508,6 +2516,35 @@ function lintFrame(tree, enabledRules, ds, { keepInternalFields = false } = {}) 
   const finalScore = ruleScores.length === 0 ? 100 : Math.round(ruleScores.reduce((a, b) => a + b, 0) / ruleScores.length);
   const perfect = Object.values(breakdown).every(r => r.offenders.length === 0 && (r.informational || []).length === 0);
 
+  // ── Saturation cap ──
+  // When a frame has too many issues, the AI ends up writing a 50-100KB JSON
+  // report — output tokens dominate review time and a 280-issue dump isn't
+  // actionable for the designer anyway. Cap each rule to its top-N most
+  // impactful offenders ("actionable" = has suggestedTokens or suggestedName)
+  // and tell the AI to skip vision augmentation. Original counts surface in
+  // the report banner so the user knows how much was elided.
+  const SATURATION_THRESHOLD = 50;
+  const SATURATION_PER_RULE_CAP = 7;
+  const SATURATION_INFO_CAP = 5;
+  const totalOffenders = Object.values(breakdown).reduce((sum, r) => sum + (r._offenderCount || 0), 0);
+  let saturated = false;
+  const originalOffenderCounts = {};
+  if (totalOffenders > SATURATION_THRESHOLD) {
+    saturated = true;
+    for (const [k, r] of Object.entries(breakdown)) {
+      originalOffenderCounts[k] = r._offenderCount || 0;
+      // Stable sort: offenders with suggestedTokens or suggestedName float to
+      // the top — these are the ones where the user can act with a fix button.
+      // Falls back to original order otherwise.
+      const sorted = (r.offenders || [])
+        .map((o, i) => ({ o, i, actionable: ((o.suggestedTokens && o.suggestedTokens.length) || o.suggestedName) ? 1 : 0 }))
+        .sort((a, b) => (b.actionable - a.actionable) || (a.i - b.i))
+        .map(x => x.o);
+      r.offenders = sorted.slice(0, SATURATION_PER_RULE_CAP);
+      r.informational = (r.informational || []).slice(0, SATURATION_INFO_CAP);
+    }
+  }
+
   // Strip internal fields (unless caller wants them for pre-computed results)
   const cleanBreakdown = {};
   for (const [k, v] of Object.entries(breakdown)) {
@@ -2518,7 +2555,15 @@ function lintFrame(tree, enabledRules, ds, { keepInternalFields = false } = {}) 
     }
   }
 
-  return { score: finalScore, perfect, breakdown: cleanBreakdown, issues: topIssues.slice(0, 20) };
+  return {
+    score: finalScore,
+    perfect,
+    breakdown: cleanBreakdown,
+    issues: topIssues.slice(0, 20),
+    saturated,
+    originalOffenderCounts: saturated ? originalOffenderCounts : undefined,
+    totalOffenders,
+  };
 }
 
 // ------- extraction -------

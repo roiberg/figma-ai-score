@@ -1012,6 +1012,61 @@
         overflow: visible;
         border-top-color: var(--border);
       }
+      /* "Instances with issues" — read-only section after the rule grid */
+      .instance-info-section {
+        margin-top: 16px;
+        padding-top: 12px;
+        border-top: 1px dashed var(--border);
+      }
+      .instance-info-header {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        margin-bottom: 6px;
+      }
+      .instance-info-sub {
+        font-weight: 400;
+        opacity: 0.8;
+      }
+      .instance-info-list {
+        background: var(--bg-secondary, transparent);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        overflow: hidden;
+      }
+      .info-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 6px 10px;
+        border-bottom: 1px solid var(--border);
+        font-size: 11px;
+      }
+      .info-row:last-child { border-bottom: none; }
+      .info-body { flex: 1; min-width: 0; }
+      .info-name {
+        font-weight: 600;
+        font-size: 11px;
+        color: var(--text);
+        opacity: 0.85;
+      }
+      .info-rule-tag {
+        font-weight: 400;
+        font-size: 9.5px;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+        color: var(--text-secondary);
+        margin-left: 4px;
+        padding: 1px 5px;
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        vertical-align: middle;
+      }
+      .info-detail {
+        color: var(--text-secondary);
+        font-size: 10.5px;
+        line-height: 1.45;
+      }
       .offender-row {
         display: flex;
         align-items: flex-start;
@@ -3904,6 +3959,40 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
                 ${f.perfect ? '<span class="perfect-badge">Perfect</span>' : ''}
               </div>
               <div class="breakdown-grid">${breakdown}</div>
+              ${(() => {
+                // "Instances with issues" — read-only aggregation of every
+                // rule's `informational` array. Doesn't affect the score.
+                // Empty if no rule has any informational entries.
+                const allInfo = [];
+                for (const [rule, r] of Object.entries(f.breakdown || {})) {
+                  if (r.enabled === false) continue;
+                  if (Array.isArray(r.informational)) {
+                    for (const e of r.informational) {
+                      allInfo.push({ rule, ...e });
+                    }
+                  }
+                }
+                if (!allInfo.length) return "";
+                const rows = allInfo.map(e => `
+                  <div class="info-row" data-info-node="${esc(e.nodeId)}" data-info-rule="${esc(e.rule)}">
+                    <div class="info-body">
+                      <div class="info-name">${esc(e.name)} <span class="info-rule-tag">${esc(e.rule)}</span></div>
+                      <div class="info-detail">${esc(e.detail)}</div>
+                    </div>
+                    <div class="offender-row-actions">
+                      ${e.tooltip ? `<button class="offender-info-btn" data-tooltip="${esc(e.tooltip)}" aria-label="More info" tabindex="-1">
+                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><circle cx="6" cy="6" r="5"/><line x1="6" y1="5.5" x2="6" y2="8.5"/><circle cx="6" cy="3.5" r="0.6" fill="currentColor" stroke="none"/></svg>
+                      </button>` : ''}
+                      <button class="bullseye-btn" data-select-node="${esc(e.nodeId)}" title="Select layer in Figma" aria-label="Select layer">
+                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><circle cx="6" cy="6" r="5"/><circle cx="6" cy="6" r="2"/><circle cx="6" cy="6" r="0.7" fill="currentColor" stroke="none"/></svg>
+                      </button>
+                    </div>
+                  </div>`).join("");
+                return `<div class="instance-info-section">
+                  <div class="instance-info-header">Instances with issues <span class="instance-info-sub">(not affecting the score)</span></div>
+                  <div class="instance-info-list">${rows}</div>
+                </div>`;
+              })()}
             </div>`;
         }).join("");
 

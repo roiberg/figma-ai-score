@@ -237,6 +237,8 @@ The scan response includes \`lintResults\` — deterministic offenders + token s
 
 **Accept as final (no re-analysis):** colors, typography, spacing, padding, size, effects, naming (Check 1 regex), components (Checks 1-3), autolayout (presence check). Copy these offenders into the report unchanged — including any \`suggestedTokens\`, \`zeroActions\`, or \`suggestedName\` fields. They're already correct. Do NOT re-walk the tree for these — wastes time, identical results.
 
+**Pre-computed \`informational\` arrays** (instance-only issues): each rule in lintResults may also carry an \`informational\` array containing instance issues that the user CAN'T fix locally — the fix lives on the master component. Copy these to the rule's \`informational\` field in the report verbatim. They do NOT count against the score and are rendered separately in the UI ("Instances with issues — not affecting the score"). Never move an entry between \`offenders\` and \`informational\`; the lint already classified them.
+
 **Critical — \`suggestedTokens\` format**: the field is an array of OBJECTS, not strings. Each entry has the shape \`{ id, name, kind, slot, value?, reason? }\`. NEVER replace these objects with bare strings (\`["spacing-xl"]\` is wrong — the UI renders \`.name\` and would show "undefined"). Copy the entries verbatim as you received them in \`lintResults\`.
 
 **Augment with vision** (use the thumbnail):
@@ -273,7 +275,11 @@ submit_report expects:
   frames: [{
     nodeId, name, score, perfect,
     breakdown: {
-      <ruleName>: { enabled, passed, offenders: [{ nodeId, name, detail, tooltip, ... }] (max 30) }
+      <ruleName>: {
+        enabled, passed,
+        offenders:    [{ nodeId, name, detail, tooltip, ... }] (max 30),
+        informational: [{ nodeId, name, rule, detail, tooltip }] (max 30, instance-only, no fix actions, doesn't affect score)
+      }
     },
     issues: [{ rule, nodeId, name, detail }] (max 20)
   }],
@@ -1637,6 +1643,11 @@ function lintComponents(root) {
 // ── colors rule ──
 function lintColors(root, ds) {
   const offenders = [];
+  // Instance-only issues. Surfaced read-only at the bottom of the report
+  // ("Instances with issues — not affecting the score"). No suggestedTokens
+  // / zeroActions because fixing on the instance creates an override; the
+  // real fix lives on the master component.
+  const informational = [];
   let totalChecked = 0;
   const hasDs = ds && ((ds.variables || []).length > 0 || (ds.paintStyles || []).length > 0);
   walkDesignerNodes(root, (node) => {
@@ -1644,13 +1655,24 @@ function lintColors(root, ds) {
     // code. Its purple dotted outline is a Figma affordance, not a real style.
     // Skip fills and strokes entirely.
     if (node.type === "COMPONENT_SET") return;
+    const isInst = isInstance(node);
     // Only SOLID fills can be tokenized. Image/video/gradient fills are skipped
     // (they don't carry color tokens). A layer with only an image fill and no
     // SOLID fill produces nothing to check.
     for (const f of (node.fills || [])) {
       if (f.type !== "SOLID" || f.visible === false) continue;
-      totalChecked++;
+      if (!isInst) totalChecked++;
       if (!f.boundVariable && !node.fillStyleId) {
+        if (isInst) {
+          informational.push({
+            nodeId: node.id,
+            name: node.name,
+            rule: "colors",
+            detail: `Fill does not use a token or style.`,
+            tooltip: `This color is hardcoded on an instance. The fix lives on the master component — change it there and every instance inherits the correction.`,
+          });
+          continue;
+        }
         const o = {
           nodeId: node.id,
           name: node.name,
@@ -1676,8 +1698,18 @@ function lintColors(root, ds) {
     }
     for (const s of (node.strokes || [])) {
       if (s.type !== "SOLID" || s.visible === false) continue;
-      totalChecked++;
+      if (!isInst) totalChecked++;
       if (!s.boundVariable && !node.strokeStyleId) {
+        if (isInst) {
+          informational.push({
+            nodeId: node.id,
+            name: node.name,
+            rule: "colors",
+            detail: `Stroke does not use a token or style.`,
+            tooltip: `This border color is hardcoded on an instance. The fix lives on the master component — change it there and every instance inherits the correction.`,
+          });
+          continue;
+        }
         const o = {
           nodeId: node.id,
           name: node.name,
@@ -1702,6 +1734,7 @@ function lintColors(root, ds) {
     enabled: true,
     passed: offenders.length === 0,
     offenders: offenders.slice(0, 30),
+    informational: informational.slice(0, 30),
     _totalChecked: totalChecked,
     _offenderCount: offenders.length
   };
@@ -1751,6 +1784,7 @@ function buildDimensionalSuggestion(ds, rule, slot, value) {
 // ── spacing rule — itemSpacing only ──
 function lintSpacing(root, ds) {
   const offenders = [];
+  const informational = [];
   let totalChecked = 0;
   walkDesignerNodes(root, (node) => {
     if (!node.autolayout) return;
@@ -1762,7 +1796,23 @@ function lintSpacing(root, ds) {
     if (al.primaryAxisAlignItems === "SPACE_BETWEEN") return;
     const val = al.itemSpacing;
     if (val === 0 || val === null || val === undefined) return; // zero is fine
-    totalChecked++;
+    const isInst = isInstance(node);
+    if (!isInst) totalChecked++;
+    if (b.itemSpacing) return; // already bound
+    if (isInst) {
+      // Instance: surface read-only. Don't include the single-child-noise
+      // case here — extractNode doesn't expand instance children so we
+      // can't reliably tell, and even if we could, the cleanup belongs on
+      // the master.
+      informational.push({
+        nodeId: node.id,
+        name: node.name,
+        rule: "spacing",
+        detail: `itemSpacing ${val}px is not using a spacing token.`,
+        tooltip: `The gap between children is hardcoded on this instance. The fix lives on the master component — change it there and every instance inherits the correction.`,
+      });
+      return;
+    }
     // Single-child noise check: a non-zero gap on an auto-layout frame with
     // only one child has no visual effect (gap is between siblings) — flag
     // it for cleanup. Critical: only fire this when we can actually count
@@ -1781,7 +1831,6 @@ function lintSpacing(root, ds) {
       });
       return;
     }
-    if (b.itemSpacing) return; // already bound
     const o = {
       nodeId: node.id,
       name: node.name,
@@ -1796,6 +1845,7 @@ function lintSpacing(root, ds) {
     enabled: true,
     passed: offenders.length === 0,
     offenders: offenders.slice(0, 30),
+    informational: informational.slice(0, 30),
     _totalChecked: totalChecked,
     _offenderCount: offenders.length
   };
@@ -1804,6 +1854,7 @@ function lintSpacing(root, ds) {
 // ── padding rule — paddingTop/Right/Bottom/Left ──
 function lintPadding(root, ds) {
   const offenders = [];
+  const informational = [];
   let totalChecked = 0;
 
   // Returns true when padding on an axis can be safely zeroed without changing
@@ -1884,9 +1935,30 @@ function lintPadding(root, ds) {
     }
 
     // Count one check per node (not per prop) and one offender per node.
-    totalChecked++;
+    const isInst = isInstance(node);
+    if (!isInst) totalChecked++;
     const hasZeroIssue = zeroVerticalProps.length > 0 || zeroHorizontalProps.length > 0;
     if (!failedProps.length && !hasZeroIssue) return;
+    // Instance branch: surface read-only with no fix actions; the fix
+    // belongs on the master component. We still describe failedProps
+    // (which paddings are not tokenized) but skip the zero-action branch
+    // entirely — even surfacing the "ignored due to fixed axis" details
+    // would imply an actionable cleanup, and there is none here.
+    if (isInst) {
+      if (!failedProps.length) return;
+      const sides = failedProps.map(p => p.replace("padding", "").toLowerCase());
+      const sideList = sides.length === 1
+        ? sides[0]
+        : sides.slice(0, -1).join(", ") + " and " + sides[sides.length - 1];
+      informational.push({
+        nodeId: node.id,
+        name: node.name,
+        rule: "padding",
+        detail: `${sideList} padding not tokenized.`,
+        tooltip: `This padding is hardcoded on an instance. The fix lives on the master component — change it there and every instance inherits the correction.`,
+      });
+      return;
+    }
 
     // Build detail from all issues on this node.
     const detailParts = [];
@@ -1947,6 +2019,7 @@ function lintPadding(root, ds) {
     enabled: true,
     passed: offenders.length === 0,
     offenders: offenders.slice(0, 30),
+    informational: informational.slice(0, 30),
     _totalChecked: totalChecked,
     _offenderCount: offenders.length
   };
@@ -1959,6 +2032,7 @@ function lintPadding(root, ds) {
 //   width and height are intrinsically FIXED (no hug/fill). Check both.
 function lintSize(root, ds) {
   const offenders = [];
+  const informational = [];
   let totalChecked = 0;
   walkDesignerNodes(root, (node) => {
     // Only flag size on atom-like nodes: COMPONENT, COMPONENT_SET, INSTANCE.
@@ -1969,6 +2043,7 @@ function lintSize(root, ds) {
     // chips, avatars, icons) where size tokens earn their keep.
     const eligibleTypes = new Set(["COMPONENT", "COMPONENT_SET", "INSTANCE"]);
     if (!eligibleTypes.has(node.type)) return;
+    const isInst = isInstance(node);
     const sb = node.sizeBound || {};
     const al = node.autolayout;
     let hCheck = false, vCheck = false;
@@ -1981,31 +2056,51 @@ function lintSize(root, ds) {
       vCheck = true;
     }
     if (hCheck) {
-      totalChecked++;
+      if (!isInst) totalChecked++;
       if (!sb.width && typeof node.width === "number") {
-        const o = {
-          nodeId: node.id,
-          name: node.name,
-          detail: `width ${node.width}px is not using a size token.`,
-          tooltip: `This component's width is a hardcoded pixel value. Binding it to a size token means it stays in sync if the token value changes.`
-        };
-        const sug = buildDimensionalSuggestion(ds, "size", "width", node.width);
-        if (sug) o.suggestedTokens = [sug];
-        offenders.push(o);
+        if (isInst) {
+          informational.push({
+            nodeId: node.id,
+            name: node.name,
+            rule: "size",
+            detail: `width ${node.width}px is not using a size token.`,
+            tooltip: `This width is hardcoded on an instance. The fix lives on the master component — change it there and every instance inherits the correction.`,
+          });
+        } else {
+          const o = {
+            nodeId: node.id,
+            name: node.name,
+            detail: `width ${node.width}px is not using a size token.`,
+            tooltip: `This component's width is a hardcoded pixel value. Binding it to a size token means it stays in sync if the token value changes.`
+          };
+          const sug = buildDimensionalSuggestion(ds, "size", "width", node.width);
+          if (sug) o.suggestedTokens = [sug];
+          offenders.push(o);
+        }
       }
     }
     if (vCheck) {
-      totalChecked++;
+      if (!isInst) totalChecked++;
       if (!sb.height && typeof node.height === "number") {
-        const o = {
-          nodeId: node.id,
-          name: node.name,
-          detail: `height ${node.height}px is not using a size token.`,
-          tooltip: `This component's height is a hardcoded pixel value. Binding it to a size token means it stays in sync if the token value changes.`
-        };
-        const sug = buildDimensionalSuggestion(ds, "size", "height", node.height);
-        if (sug) o.suggestedTokens = [sug];
-        offenders.push(o);
+        if (isInst) {
+          informational.push({
+            nodeId: node.id,
+            name: node.name,
+            rule: "size",
+            detail: `height ${node.height}px is not using a size token.`,
+            tooltip: `This height is hardcoded on an instance. The fix lives on the master component — change it there and every instance inherits the correction.`,
+          });
+        } else {
+          const o = {
+            nodeId: node.id,
+            name: node.name,
+            detail: `height ${node.height}px is not using a size token.`,
+            tooltip: `This component's height is a hardcoded pixel value. Binding it to a size token means it stays in sync if the token value changes.`
+          };
+          const sug = buildDimensionalSuggestion(ds, "size", "height", node.height);
+          if (sug) o.suggestedTokens = [sug];
+          offenders.push(o);
+        }
       }
     }
   });
@@ -2013,6 +2108,7 @@ function lintSize(root, ds) {
     enabled: true,
     passed: offenders.length === 0,
     offenders: offenders.slice(0, 30),
+    informational: informational.slice(0, 30),
     _totalChecked: totalChecked,
     _offenderCount: offenders.length
   };
@@ -2186,9 +2282,9 @@ function lintFrame(tree, enabledRules, ds, { keepInternalFields = false } = {}) 
   const cleanBreakdown = {};
   for (const [k, v] of Object.entries(breakdown)) {
     if (keepInternalFields) {
-      cleanBreakdown[k] = { enabled: v.enabled, passed: v.passed, offenders: v.offenders, _totalChecked: v._totalChecked, _offenderCount: v._offenderCount };
+      cleanBreakdown[k] = { enabled: v.enabled, passed: v.passed, offenders: v.offenders, informational: v.informational || [], _totalChecked: v._totalChecked, _offenderCount: v._offenderCount };
     } else {
-      cleanBreakdown[k] = { enabled: v.enabled, passed: v.passed, offenders: v.offenders };
+      cleanBreakdown[k] = { enabled: v.enabled, passed: v.passed, offenders: v.offenders, informational: v.informational || [] };
     }
   }
 

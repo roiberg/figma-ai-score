@@ -1760,14 +1760,18 @@ function lintSpacing(root, ds) {
     const b = al.bound || {};
     // "Auto" gap = SPACE_BETWEEN mode — algorithmically distributed, no fixed value to tokenize.
     if (al.primaryAxisAlignItems === "SPACE_BETWEEN") return;
-    const childCount = (node.children || []).length;
     const val = al.itemSpacing;
     if (val === 0 || val === null || val === undefined) return; // zero is fine
     totalChecked++;
-    // Special case: single-child auto-layout with a non-zero gap. The gap
-    // has no visual effect (gap is between siblings; there are no siblings)
-    // so it's just noise on the node — clean it up rather than tokenize it.
-    if (childCount < 2) {
+    // Single-child noise check: a non-zero gap on an auto-layout frame with
+    // only one child has no visual effect (gap is between siblings) — flag
+    // it for cleanup. Critical: only fire this when we can actually count
+    // children. extractNode() does NOT populate `children` on INSTANCE
+    // nodes (library internals are intentionally not expanded) and stops
+    // expansion at maxDepth — so `node.children === undefined` means
+    // "unknown count," which we must not treat as zero. Without this guard
+    // every auto-layout INSTANCE got falsely flagged as single-child.
+    if (Array.isArray(node.children) && node.children.length < 2) {
       offenders.push({
         nodeId: node.id,
         name: node.name,

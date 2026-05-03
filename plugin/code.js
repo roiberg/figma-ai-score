@@ -1975,24 +1975,19 @@ function lintPadding(root, ds) {
       if (rightPad > 0) zeroHorizontalProps.push("paddingRight");
     }
 
-    // Two prop buckets:
-    //  - failedProps: not in zeroSet → the standard "not tokenized" issue.
-    //  - tokenizableZeroProps: IN zeroSet (currently ignored by Figma due to
-    //    fixed-axis sizing) but the value still matches a token. We surface
-    //    BOTH the zero action AND the token-bind so the user can pick:
-    //    • Clear it (if they want to keep fixed sizing), or
-    //    • Bind the token (meaningful if they later flip the axis to hug).
-    //  Either way, raw 16px values shouldn't sit unannounced just because the
-    //  axis is currently fixed.
+    // failedProps: paddings that are visually applied but not tokenized.
+    // Paddings being ignored (in zeroSet) are NOT included here — there's
+    // no point suggesting a token for a value Figma is currently dropping.
+    // The fix options for ignored paddings are "clear" (zeroAction) or
+    // "switch axis to hug" (hugAction) — see below.
     const zeroSet = new Set([...zeroVerticalProps, ...zeroHorizontalProps]);
     const failedProps = [];
-    const tokenizableZeroProps = [];
     for (const p of ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"]) {
       const val = al[p];
       if (val === 0 || val === null || val === undefined) continue;
       if (b[p]) continue; // already bound to a token
-      if (zeroSet.has(p)) tokenizableZeroProps.push(p);
-      else                failedProps.push(p);
+      if (zeroSet.has(p)) continue; // ignored — handled by zero/hug actions
+      failedProps.push(p);
     }
 
     // Count one check per node (not per prop) and one offender per node.
@@ -2058,13 +2053,13 @@ function lintPadding(root, ds) {
       tooltip: _paddingTooltip,
     };
 
-    // One suggestion per non-zero, un-bound prop — including ones currently
-    // being ignored by a fixed axis. The user can pick the token alongside
-    // the zero action; the token only "kicks in" if they later flip to hug,
-    // but it's still worth surfacing rather than silently dropping.
-    const allTokenizable = [...failedProps, ...tokenizableZeroProps];
-    if (allTokenizable.length) {
-      const sugs = allTokenizable.map(p => buildDimensionalSuggestion(ds, "padding", p, al[p])).filter(Boolean);
+    // One suggestion per failing-and-visible padding prop. We deliberately
+    // skip ignored paddings (zeroSet): no point binding a token to a value
+    // Figma is currently dropping. The fix for those is the zero action
+    // (clear them) — the user explicitly preferred this over double-action
+    // suggestions that mixed "tokenize" with "clear."
+    if (failedProps.length) {
+      const sugs = failedProps.map(p => buildDimensionalSuggestion(ds, "padding", p, al[p])).filter(Boolean);
       if (sugs.length) o.suggestedTokens = sugs;
     }
 
@@ -2096,23 +2091,30 @@ function lintSize(root, ds) {
   const informational = [];
   let totalChecked = 0;
   walkDesignerNodes(root, (node) => {
-    // Only flag size on atom-like nodes: COMPONENT, COMPONENT_SET, INSTANCE.
-    // Plain FRAME/GROUP at fixed sizes are usually layout scaffolding (root
-    // canvases like an iPhone frame, section wrappers, positioning shells)
-    // whose dimensions come from device/parent context, not from a token a
-    // designer should pick. Components and instances are the atoms (buttons,
-    // chips, avatars, icons) where size tokens earn their keep.
-    const eligibleTypes = new Set(["COMPONENT", "COMPONENT_SET", "INSTANCE"]);
+    // Eligible types:
+    // - COMPONENT, COMPONENT_SET, INSTANCE: always checked — atoms like buttons,
+    //   chips, avatars, icons where size tokens earn their keep.
+    // - FRAME with autolayout: checked ONLY when an exact DS token match exists.
+    //   This catches auto-layout frames whose fixed axis matches a design token
+    //   (e.g. a 48px icon wrapper with a "size-48" token) while silently skipping
+    //   scaffolding (device canvases, section wrappers, positioning shells) whose
+    //   dimensions don't match any token in the design system.
+    // Plain FRAMEs without autolayout and GROUP nodes are excluded — they are
+    // almost always device/page scaffolding with no useful token binding.
+    const eligibleTypes = new Set(["COMPONENT", "COMPONENT_SET", "INSTANCE", "FRAME"]);
     if (!eligibleTypes.has(node.type)) return;
+    const isFrame = node.type === "FRAME";
     const isInst = isInstance(node);
     const sb = node.sizeBound || {};
     const al = node.autolayout;
+    // Plain FRAMEs without autolayout are scaffolding — skip entirely.
+    if (isFrame && !al) return;
     let hCheck = false, vCheck = false;
     if (al) {
       hCheck = al.sizingHorizontal === "FIXED";
       vCheck = al.sizingVertical === "FIXED";
     } else {
-      // Non-autolayout: dimensions are intrinsically fixed.
+      // Non-autolayout COMPONENT/COMPONENT_SET/INSTANCE: dimensions are intrinsically fixed.
       hCheck = true;
       vCheck = true;
     }
@@ -2128,15 +2130,24 @@ function lintSize(root, ds) {
             tooltip: `This width is hardcoded on an instance. The fix lives on the master component — change it there and every instance inherits the correction.`,
           });
         } else {
-          const o = {
-            nodeId: node.id,
-            name: node.name,
-            detail: `width ${node.width}px is not using a size token.`,
-            tooltip: `This component's width is a hardcoded pixel value. Binding it to a size token means it stays in sync if the token value changes.`
-          };
           const sug = buildDimensionalSuggestion(ds, "size", "width", node.width);
-          if (sug) o.suggestedTokens = [sug];
-          offenders.push(o);
+          // For plain FRAMEs: only flag when there's an exact DS token match.
+          // This suppresses device canvases and scaffolding that have no
+          // corresponding token.
+          if (isFrame && !sug) {
+            totalChecked--; // undo the check — this isn't a real candidate
+          } else {
+            const o = {
+              nodeId: node.id,
+              name: node.name,
+              detail: `width ${node.width}px is not using a size token.`,
+              tooltip: isFrame
+                ? `This frame's width is a hardcoded pixel value that matches a design token. Binding it keeps dimensions in sync if the token value changes.`
+                : `This component's width is a hardcoded pixel value. Binding it to a size token means it stays in sync if the token value changes.`
+            };
+            if (sug) o.suggestedTokens = [sug];
+            offenders.push(o);
+          }
         }
       }
     }
@@ -2152,15 +2163,22 @@ function lintSize(root, ds) {
             tooltip: `This height is hardcoded on an instance. The fix lives on the master component — change it there and every instance inherits the correction.`,
           });
         } else {
-          const o = {
-            nodeId: node.id,
-            name: node.name,
-            detail: `height ${node.height}px is not using a size token.`,
-            tooltip: `This component's height is a hardcoded pixel value. Binding it to a size token means it stays in sync if the token value changes.`
-          };
           const sug = buildDimensionalSuggestion(ds, "size", "height", node.height);
-          if (sug) o.suggestedTokens = [sug];
-          offenders.push(o);
+          // For plain FRAMEs: only flag when there's an exact DS token match.
+          if (isFrame && !sug) {
+            totalChecked--; // undo the check — this isn't a real candidate
+          } else {
+            const o = {
+              nodeId: node.id,
+              name: node.name,
+              detail: `height ${node.height}px is not using a size token.`,
+              tooltip: isFrame
+                ? `This frame's height is a hardcoded pixel value that matches a design token. Binding it keeps dimensions in sync if the token value changes.`
+                : `This component's height is a hardcoded pixel value. Binding it to a size token means it stays in sync if the token value changes.`
+            };
+            if (sug) o.suggestedTokens = [sug];
+            offenders.push(o);
+          }
         }
       }
     }

@@ -572,7 +572,7 @@ figma.ui.onmessage = async (msg) => {
     }
     if (msg.type === "get-token-categories") {
       // Enumerate all numeric-token collections (local + selected libraries),
-      // attach the auto-detected category and any user override. The UI uses
+      // attach the auto-detected categories and any user override. The UI uses
       // this to populate the "Token categories" mapping section.
       try {
         const ds = await getDesignSystem();
@@ -597,8 +597,10 @@ figma.ui.onmessage = async (msg) => {
           collectionName: b.collectionName,
           libraryName: b.libraryName,
           tokenCount: b.tokens.length,
-          autoCategory: autoDetectCollectionCategory(b.tokens),
-          override: overrides[b.key] || null
+          autoCategories: autoDetectCollectionCategories(b.tokens),
+          // Override may be an array (explicit) or null (no override).
+          // The empty array [] is a meaningful override: "no rule uses this."
+          override: Array.isArray(overrides[b.key]) ? overrides[b.key] : null
         }));
         // Sort: local first, then by library name, then by collection name.
         collections.sort((a, b) => {
@@ -615,10 +617,14 @@ figma.ui.onmessage = async (msg) => {
       return;
     }
     if (msg.type === "set-token-category") {
-      // category: "spacing" | "size" | "both" | "ignore" | "auto" (clears override)
+      // categories: array of category strings, OR null/undefined to clear
+      // the override (back to auto-detection).
       try {
         if (typeof msg.key === "string") {
-          await setTokenCategoryOverride(msg.key, msg.category);
+          const value = (msg.categories === null || msg.categories === undefined)
+            ? null
+            : msg.categories;
+          await setTokenCategoryOverride(msg.key, value);
         }
       } catch (e) {
         console.warn("[figma-ai-score] set-token-category failed:", e && e.message);
@@ -3250,122 +3256,175 @@ function rankColorCandidates(candidates, nodeName, max) {
 //   positives (wrong-category button), because the exact value match is
 //   already a strong gate. If exactly one token in the DS is worth 48px and
 //   it's named "spacing-6xl", that IS the right suggestion for a 48px frame.
-const DIMENSION_RULE_KEYWORDS = {
-  // Padding/spacing tokens come from one shared scale in most design systems.
-  padding: ["padding", "pad", "spacing", "gap", "space"],
-  spacing: ["spacing", "gap", "space", "padding", "pad"],
-  // size: no allowlist — see comment above.
-  size: null,
-  // radius: only collections whose haystack matches radius keywords.
-  radius: ["radius", "radii", "corner", "rounded"]
+// Which categories does each lint rule accept? Used by filterDimensionTokensForRule
+// to gate tokens by their override (or auto-detected) categories array.
+const RULE_ACCEPTED_CATEGORIES = {
+  padding: ["spacing"],
+  spacing: ["spacing"],
+  size:    ["size"],
+  radius:  ["radius"],
+  // Future rules will add: "font-size", "font-weight", "line-height",
+  // "letter-spacing", "paragraph-spacing", "stroke-weight", "opacity".
 };
 
 // Token-category overrides let users override the auto-detection per
-// collection. Stored shape: { "<libraryName||local>::<collectionName>": "spacing"|"size"|"both"|"ignore" }.
-// Persisted in clientStorage so it follows the user across files.
+// collection. Stored shape: { "<libraryName||local>::<collectionName>": [category, ...] }.
+// An empty array means "used by no rule." Absence of a key means "no override —
+// fall back to auto-detection." Persisted in clientStorage so it follows the
+// user across files.
+//
+// Legacy values (single strings: "spacing"/"size"/"both"/"radius"/"ignore")
+// are migrated to arrays on read so we don't need a one-shot migration step.
 const TOKEN_CATEGORIES_KEY = "figma-ai-score.token-categories";
 function tokenCollectionKey(libraryName, collectionName) {
   return (libraryName || "local") + "::" + (collectionName || "");
 }
+function normalizeCategoriesValue(v) {
+  // Array (new format): keep as-is, dedupe, drop unknowns.
+  if (Array.isArray(v)) {
+    const valid = new Set([
+      "spacing","size","radius","stroke-weight",
+      "font-size","font-weight","line-height","letter-spacing","paragraph-spacing",
+      "opacity"
+    ]);
+    return Array.from(new Set(v.filter(s => typeof s === "string" && valid.has(s))));
+  }
+  // Legacy string format → array.
+  if (typeof v === "string") {
+    if (v === "both") return ["spacing", "size"];
+    if (v === "ignore") return [];
+    if (v === "auto" || v === "other") return null; // null = clear override
+    return [v];
+  }
+  return null;
+}
 async function getTokenCategoryOverrides() {
   try {
-    const v = await figma.clientStorage.getAsync(TOKEN_CATEGORIES_KEY);
-    return (v && typeof v === "object" && !Array.isArray(v)) ? v : {};
+    const raw = await figma.clientStorage.getAsync(TOKEN_CATEGORIES_KEY);
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+    const out = {};
+    for (const [k, v] of Object.entries(raw)) {
+      const norm = normalizeCategoriesValue(v);
+      if (norm !== null) out[k] = norm;
+    }
+    return out;
   } catch (e) { return {}; }
 }
-async function setTokenCategoryOverride(key, category) {
+async function setTokenCategoryOverride(key, categories) {
   try {
     const map = await getTokenCategoryOverrides();
-    if (category && category !== "auto") map[key] = category;
-    else delete map[key];
+    if (categories === null || categories === undefined) {
+      // null clears the override → falls back to auto-detection.
+      delete map[key];
+    } else {
+      const norm = normalizeCategoriesValue(categories);
+      // If the input couldn't be normalized, treat as a clear.
+      if (norm === null) delete map[key];
+      else map[key] = norm;
+    }
     await figma.clientStorage.setAsync(TOKEN_CATEGORIES_KEY, map);
   } catch (e) {
     console.warn("[figma-ai-score] couldn't persist token category:", e && e.message);
   }
 }
-// Tokens that are clearly NOT layout-size candidates. Tested against the full
-// haystack (name + collection name + library name) so a "Radiuses" collection
-// with tokens named "sm"/"md"/"lg" is correctly rejected even though the
-// individual token names don't contain "radius".
+// Per-category keyword patterns. Tested against the full haystack
+// (name + collection name + library name) so a "Radiuses" collection
+// with tokens named "sm"/"md"/"lg" is correctly recognized even though
+// the individual token names don't contain "radius".
+const CATEGORY_PATTERNS = {
+  radius:              /radius|radii|corner|rounded/i,
+  "font-size":         /font[-_\/ ]?size|fontsize|text[-_\/ ]?size/i,
+  "font-weight":       /font[-_\/ ]?weight|fontweight/i,
+  "line-height":       /line[-_\/ ]?height|lineheight|leading/i,
+  "letter-spacing":    /letter[-_\/ ]?spacing|tracking/i,
+  "paragraph-spacing": /paragraph[-_\/ ]?spacing|para[-_\/ ]?spacing/i,
+  "stroke-weight":     /stroke[-_\/ ]?weight|border[-_\/ ]?weight|border[-_\/ ]?width/i,
+  opacity:             /opacity|alpha/i,
+  spacing:             /spacing|gap|space|padding|pad/i,
+};
+// Tokens whose haystack matches this regex are NEVER candidates for the
+// generic "size" rule (typography, radius, opacity, etc).
 const SIZE_REJECT_RE = /font[-_\/ ]?size|line[-_\/ ]?height|letter[-_\/ ]?spacing|font[-_\/ ]?weight|radius|radii|border[-_\/ ]?radius|elevation|shadow|opacity|z[-_\/ ]?index/i;
-const SPACING_KEYWORDS = ["padding", "pad", "spacing", "gap", "space"];
-const RADIUS_KEYWORDS = ["radius", "radii", "corner", "rounded"];
+
 function tokenHaystack(t) {
   return ((t.name || "") + " " + (t.collectionName || "") + " " + (t.libraryName || "")).toLowerCase();
 }
 
-// Auto-detect what category a collection would be classified as by the
-// default rules (mirrors filterDimensionTokensForRule when no override is
-// present). Returns "spacing" | "size" | "both" | "radius" | "ignore".
-//
-// Radius wins outright when detected — a "Radiuses" collection is a radius
-// collection, not a spacing/size collection that happens to also be radius.
-function autoDetectCollectionCategory(tokens) {
-  if (!tokens || !tokens.length) return "ignore";
-  let anySpacing = false;
-  let anySize = false;
-  let anyRadius = false;
-  for (const t of tokens) {
-    const hay = tokenHaystack(t);
-    if (RADIUS_KEYWORDS.some(k => hay.includes(k))) anyRadius = true;
-    if (SPACING_KEYWORDS.some(k => hay.includes(k))) anySpacing = true;
-    if (!SIZE_REJECT_RE.test(hay)) anySize = true;
+// Classify a single token by its haystack — the most specific category wins.
+// Returns one of: "radius", "font-size", "font-weight", "line-height",
+// "letter-spacing", "paragraph-spacing", "stroke-weight", "opacity",
+// "spacing", "size", "ignore".
+function classifyTokenHaystack(hay) {
+  // Specific categories first. Order matters — radius before "spacing" since
+  // a token named "corner-padding" is more useful as a radius hint than spacing.
+  for (const cat of [
+    "radius","font-size","font-weight","line-height","letter-spacing",
+    "paragraph-spacing","stroke-weight","opacity"
+  ]) {
+    if (CATEGORY_PATTERNS[cat].test(hay)) return cat;
   }
-  if (anyRadius) return "radius";
-  if (anySpacing && anySize) return "both";
-  if (anySpacing) return "spacing";
-  if (anySize) return "size";
+  if (CATEGORY_PATTERNS.spacing.test(hay)) return "spacing";
+  if (!SIZE_REJECT_RE.test(hay)) return "size";
   return "ignore";
+}
+
+// Auto-detect which categories a collection belongs to. Returns an array
+// (possibly empty). Per-token classification with majority vote for specific
+// categories (radius/typography/etc.) so a single misnamed token can't hijack
+// a "Numbers" collection. Spacing+size co-presence yields ["spacing","size"]
+// because that's the unified-scale convention.
+function autoDetectCollectionCategories(tokens) {
+  if (!tokens || !tokens.length) return [];
+  const buckets = tokens.map(t => classifyTokenHaystack(tokenHaystack(t)));
+  const SPECIFIC = [
+    "radius","font-size","font-weight","line-height","letter-spacing",
+    "paragraph-spacing","stroke-weight","opacity"
+  ];
+  // Specific category needs at least half the tokens to agree.
+  const half = Math.ceil(buckets.length / 2);
+  for (const cat of SPECIFIC) {
+    const n = buckets.filter(b => b === cat).length;
+    if (n >= half) return [cat];
+  }
+  const out = [];
+  if (buckets.includes("spacing")) out.push("spacing");
+  if (buckets.includes("size")) out.push("size");
+  return out;
 }
 
 // Filter numeric tokens for a dimensional rule.
 //
-// Category compatibility table — which categories each rule accepts:
-//   padding/spacing rule ← spacing, both
-//   size rule            ← size, both
-//   radius rule          ← radius
-//
-// 1. If the user has set an override for the token's collection, that decides
-//    purely via the table above. The rejectlist is NOT applied — the user has
-//    explicitly declared intent and we trust them.
-// 2. Without an override, fall back to default heuristics:
-//    - padding/spacing rules require a spacing-keyword match
-//    - radius rule requires a radius-keyword match
-//    - size accepts everything except the SIZE_REJECT_RE haystack (which
-//      includes radius/typography/elevation/etc.)
+// 1. Each rule has a list of categories it accepts (RULE_ACCEPTED_CATEGORIES).
+// 2. Each token belongs to a collection that has either an override-array
+//    (user-set) or auto-detected categories. If the intersection with the
+//    rule's accepted-categories list is non-empty, the token is eligible.
+// 3. With an override the rejectlist is NOT applied — the user has explicitly
+//    declared intent and we trust them. Without an override the auto-detected
+//    categories already encode the rejectlist (radius/typography never auto-
+//    classify as size), so the token is gated cleanly either way.
 function filterDimensionTokensForRule(numberVariables, rule, overrides) {
   overrides = overrides || {};
-  const keywords = DIMENSION_RULE_KEYWORDS[rule];
+  const accepted = RULE_ACCEPTED_CATEGORIES[rule] || [];
+  if (!accepted.length) return [];
+  // Cache per-collection category arrays so we don't re-classify each token
+  // when several share a collection. Auto-detection requires the full token
+  // list per collection, so we partition first.
+  const collTokens = new Map();
+  for (const v of (numberVariables || [])) {
+    const k = tokenCollectionKey(v.libraryName, v.collectionName);
+    if (!collTokens.has(k)) collTokens.set(k, []);
+    collTokens.get(k).push(v);
+  }
+  const collCategories = new Map();
+  for (const [k, toks] of collTokens) {
+    const override = overrides[k];
+    collCategories.set(k, Array.isArray(override) ? override : autoDetectCollectionCategories(toks));
+  }
   const out = [];
   for (const v of (numberVariables || [])) {
-    const collKey = tokenCollectionKey(v.libraryName, v.collectionName);
-    const override = overrides[collKey];
-
-    if (override === "ignore") continue;
-
-    if (override) {
-      // Explicit user category — gate by the rule being checked. No rejectlist.
-      const accept = (
-        (rule === "padding" && (override === "spacing" || override === "both")) ||
-        (rule === "spacing" && (override === "spacing" || override === "both")) ||
-        (rule === "size"    && (override === "size"    || override === "both")) ||
-        (rule === "radius"  && override === "radius")
-      );
-      if (!accept) continue;
-      out.push(v);
-      continue;
-    }
-
-    // No override — apply default heuristics.
-    const hay = tokenHaystack(v);
-    if (keywords) {
-      // padding/spacing/radius: require a keyword match in the haystack.
-      if (!keywords.some(k => hay.includes(k))) continue;
-    }
-    if (rule === "size") {
-      // size: rejectlist on the full haystack.
-      if (SIZE_REJECT_RE.test(hay)) continue;
-    }
+    const k = tokenCollectionKey(v.libraryName, v.collectionName);
+    const cats = collCategories.get(k) || [];
+    if (!cats.some(c => accepted.includes(c))) continue;
     out.push(v);
   }
   return out;

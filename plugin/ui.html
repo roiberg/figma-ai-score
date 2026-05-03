@@ -1674,31 +1674,76 @@
         color: var(--text-secondary);
         white-space: nowrap;
       }
-      .token-cat-pills {
+      /* Dropdown trigger button */
+      .token-cat-trigger {
         display: flex;
-        gap: 4px;
-        flex-wrap: wrap;
-      }
-      .token-cat-pill {
-        flex: 1 1 0;
-        min-width: 0;
-        font-size: 10px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+        width: 100%;
+        font-size: 11px;
         font-weight: 600;
-        padding: 5px 8px;
+        padding: 7px 10px;
         border: 1px solid var(--border);
         border-radius: var(--radius-sm);
         background: var(--bg);
-        color: var(--text-secondary);
+        color: var(--text);
         cursor: pointer;
-        text-align: center;
-        white-space: nowrap;
-        transition: background 0.12s, color 0.12s, border-color 0.12s;
+        text-align: left;
+        transition: background 0.12s, border-color 0.12s;
       }
-      .token-cat-pill:hover { background: var(--bg-secondary); }
-      .token-cat-pill.is-active {
-        background: var(--text);
-        color: var(--bg);
-        border-color: var(--text);
+      .token-cat-trigger:hover { background: var(--bg-secondary); }
+      .token-cat-trigger.is-open { border-color: var(--text); }
+      .token-cat-trigger-label {
+        flex: 1;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .token-cat-trigger-label.is-empty { color: var(--text-secondary); font-weight: 500; }
+      .token-cat-trigger-caret {
+        flex-shrink: 0;
+        opacity: 0.6;
+      }
+      /* Popover (anchored under the trigger) */
+      .token-cat-popover {
+        position: relative;
+        margin-top: 4px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        background: var(--bg);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        padding: 4px 0;
+        z-index: 5;
+      }
+      .token-cat-popover-group-label {
+        font-size: 9px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--text-secondary);
+        padding: 6px 12px 4px;
+      }
+      .token-cat-popover-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px;
+        font-size: 11px;
+        color: var(--text);
+        cursor: pointer;
+        user-select: none;
+      }
+      .token-cat-popover-item:hover { background: var(--bg-secondary); }
+      .token-cat-popover-item input[type="checkbox"] {
+        margin: 0;
+        cursor: pointer;
+      }
+      .token-cat-popover-divider {
+        height: 1px;
+        background: var(--border);
+        margin: 4px 0;
       }
       .token-cat-row-foot {
         display: flex;
@@ -3068,7 +3113,7 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
 
       let availableLibraries = []; // [{ name, collectionCount }]
       let selectedLibraries = []; // [name, ...]
-      let tokenCategoryCollections = []; // [{ key, collectionName, libraryName, tokenCount, autoCategory, override }]
+      let tokenCategoryCollections = []; // [{ key, collectionName, libraryName, tokenCount, autoCategories: [...], override: [...] | null }]
 
       // Show a dot on the libraries button until the user opens it at least once.
       // Uses clientStorage (via sandbox) so it persists across plugin sessions.
@@ -3154,21 +3199,54 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
       }
 
       // ── Token categories (per-collection mapping) ──
-      // The user can override the auto-detected category for each numeric-token
-      // collection. Default behavior (no override) matches the legacy heuristics,
-      // so users who never open this section see no change.
+      // The user can override the auto-detected categories for each numeric-
+      // token collection. A collection can hold multiple categories (e.g. a
+      // unified scale used as both Spacing and Size). Default behavior (no
+      // override) uses auto-detection, so users who never open this section
+      // see no change.
       const TOKEN_CAT_LABELS = {
         spacing: "Spacing",
         size: "Size",
-        both: "Both",
         radius: "Radius",
-        ignore: "—"
+        "stroke-weight": "Stroke weight",
+        "font-size": "Font size",
+        "font-weight": "Font weight",
+        "line-height": "Line height",
+        "letter-spacing": "Letter spacing",
+        "paragraph-spacing": "Paragraph spacing",
+        opacity: "Opacity"
       };
+      // Grouped category list for the dropdown popover. Order within each
+      // group is preserved; groups are visually separated by a divider.
+      const TOKEN_CAT_GROUPS = [
+        { label: "Layout",     items: ["spacing", "size", "radius", "stroke-weight"] },
+        { label: "Typography", items: ["font-size", "font-weight", "line-height", "letter-spacing", "paragraph-spacing"] },
+        { label: "Other",      items: ["opacity"] }
+      ];
+      // Two arrays are equal if they hold the same set of strings (order-
+      // independent). Used to detect "user picked the auto-detected default."
+      function arraysEqualAsSets(a, b) {
+        if (!Array.isArray(a) || !Array.isArray(b)) return false;
+        if (a.length !== b.length) return false;
+        const sa = new Set(a);
+        for (const x of b) if (!sa.has(x)) return false;
+        return true;
+      }
+      function summarizeCategories(cats) {
+        if (!cats || !cats.length) return "Not used";
+        if (cats.length === 1) return TOKEN_CAT_LABELS[cats[0]] || cats[0];
+        if (cats.length <= 2) return cats.map(c => TOKEN_CAT_LABELS[c] || c).join(", ");
+        return `${cats.length} categories`;
+      }
+
+      let openPopoverKey = null; // collection key whose popover is open
+
+      function effectiveCategoriesFor(coll) {
+        return coll.override !== null ? coll.override : (coll.autoCategories || []);
+      }
+
       function renderTokenCategoriesList() {
         tokenCategoriesList.innerHTML = "";
-        // Hide the whole section when there are no collections (e.g. no library
-        // selected and no local variables). Per spec: appears only after at
-        // least one library is connected OR local variables exist.
         if (!tokenCategoryCollections.length) {
           tokenCategoriesSection.style.display = "none";
           return;
@@ -3183,7 +3261,6 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
           head.className = "token-cat-row-head";
           const name = document.createElement("div");
           name.className = "token-cat-row-name";
-          // Local collections have no library prefix; library ones are scoped.
           name.textContent = coll.libraryName
             ? `${coll.libraryName} · ${coll.collectionName}`
             : coll.collectionName;
@@ -3194,60 +3271,120 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
           head.appendChild(name);
           head.appendChild(meta);
 
-          // Pills: spacing | size | both | —. Active = current effective category.
-          const pills = document.createElement("div");
-          pills.className = "token-cat-pills";
-          const effective = coll.override || coll.autoCategory;
-          ["spacing", "size", "both", "radius", "ignore"].forEach(cat => {
-            const btn = document.createElement("button");
-            btn.className = "token-cat-pill" + (cat === effective ? " is-active" : "");
-            btn.type = "button";
-            btn.textContent = TOKEN_CAT_LABELS[cat];
-            btn.addEventListener("click", () => {
-              // If the clicked category equals the auto-detected one, clear
-              // the override ("auto"). Otherwise set it.
-              const newOverride = (cat === coll.autoCategory) ? null : cat;
-              coll.override = newOverride;
-              parent.postMessage({
-                pluginMessage: {
-                  type: "set-token-category",
-                  key: coll.key,
-                  category: newOverride || "auto"
-                }
-              }, "*");
-              renderTokenCategoriesList();
-            });
-            pills.appendChild(btn);
+          const effective = effectiveCategoriesFor(coll);
+          const isOpen = openPopoverKey === coll.key;
+
+          // Dropdown trigger button.
+          const trigger = document.createElement("button");
+          trigger.type = "button";
+          trigger.className = "token-cat-trigger" + (isOpen ? " is-open" : "");
+          const triggerLabel = document.createElement("span");
+          triggerLabel.className = "token-cat-trigger-label" + (effective.length ? "" : " is-empty");
+          triggerLabel.textContent = summarizeCategories(effective);
+          const caret = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+          caret.setAttribute("class", "token-cat-trigger-caret");
+          caret.setAttribute("width", "10");
+          caret.setAttribute("height", "10");
+          caret.setAttribute("viewBox", "0 0 12 12");
+          caret.setAttribute("fill", "none");
+          caret.setAttribute("stroke", "currentColor");
+          caret.setAttribute("stroke-width", "1.6");
+          caret.setAttribute("stroke-linecap", "round");
+          caret.innerHTML = '<path d="M3 4.5L6 7.5L9 4.5"/>';
+          trigger.appendChild(triggerLabel);
+          trigger.appendChild(caret);
+          trigger.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            openPopoverKey = isOpen ? null : coll.key;
+            renderTokenCategoriesList();
           });
+          row.appendChild(head);
+          row.appendChild(trigger);
+
+          // Popover (rendered inline below the trigger when open).
+          if (isOpen) {
+            const pop = document.createElement("div");
+            pop.className = "token-cat-popover";
+            pop.addEventListener("click", (ev) => ev.stopPropagation());
+            const selected = new Set(effective);
+            TOKEN_CAT_GROUPS.forEach((group, gi) => {
+              if (gi > 0) {
+                const div = document.createElement("div");
+                div.className = "token-cat-popover-divider";
+                pop.appendChild(div);
+              }
+              const gLabel = document.createElement("div");
+              gLabel.className = "token-cat-popover-group-label";
+              gLabel.textContent = group.label;
+              pop.appendChild(gLabel);
+              for (const cat of group.items) {
+                const item = document.createElement("label");
+                item.className = "token-cat-popover-item";
+                const cb = document.createElement("input");
+                cb.type = "checkbox";
+                cb.checked = selected.has(cat);
+                cb.addEventListener("change", () => {
+                  // Toggle the category and persist as a full-array override.
+                  const next = new Set(selected);
+                  if (cb.checked) next.add(cat); else next.delete(cat);
+                  const nextArr = Array.from(next);
+                  // If the resulting set equals the auto-detected categories,
+                  // clear the override so badge flips back to "Auto."
+                  const matchesAuto = arraysEqualAsSets(nextArr, coll.autoCategories || []);
+                  coll.override = matchesAuto ? null : nextArr;
+                  parent.postMessage({
+                    pluginMessage: {
+                      type: "set-token-category",
+                      key: coll.key,
+                      categories: matchesAuto ? null : nextArr
+                    }
+                  }, "*");
+                  renderTokenCategoriesList();
+                });
+                const text = document.createElement("span");
+                text.textContent = TOKEN_CAT_LABELS[cat] || cat;
+                item.appendChild(cb);
+                item.appendChild(text);
+                pop.appendChild(item);
+              }
+            });
+            row.appendChild(pop);
+          }
 
           // Footer: auto/custom badge + reset link when overridden.
           const foot = document.createElement("div");
           foot.className = "token-cat-row-foot";
           const badge = document.createElement("span");
           badge.className = "token-cat-badge";
-          badge.textContent = coll.override ? "Custom" : "Auto";
+          badge.textContent = coll.override !== null ? "Custom" : "Auto";
           foot.appendChild(badge);
-          if (coll.override) {
+          if (coll.override !== null) {
             const reset = document.createElement("button");
             reset.className = "token-cat-reset";
             reset.type = "button";
             reset.textContent = "Reset to auto";
-            reset.addEventListener("click", () => {
+            reset.addEventListener("click", (ev) => {
+              ev.stopPropagation();
               coll.override = null;
               parent.postMessage({
-                pluginMessage: { type: "set-token-category", key: coll.key, category: "auto" }
+                pluginMessage: { type: "set-token-category", key: coll.key, categories: null }
               }, "*");
               renderTokenCategoriesList();
             });
             foot.appendChild(reset);
           }
-
-          row.appendChild(head);
-          row.appendChild(pills);
           row.appendChild(foot);
+
           tokenCategoriesList.appendChild(row);
         }
       }
+      // Click anywhere outside a row's popover closes it.
+      document.addEventListener("click", () => {
+        if (openPopoverKey !== null) {
+          openPopoverKey = null;
+          renderTokenCategoriesList();
+        }
+      });
 
       // ── Design document (design.md) ──
       const mdFileInput  = document.getElementById("md-file-input");

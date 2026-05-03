@@ -584,37 +584,22 @@ figma.ui.onmessage = async (msg) => {
     }
     if (msg.type === "get-token-categories") {
       // Enumerate all numeric-token collections (local + selected libraries),
-      // attach the auto-detected categories and any user override. The UI uses
-      // this to populate the "Token categories" mapping section.
+      // attach auto-detected categories + any user override. METADATA ONLY —
+      // we never call importVariableByKeyAsync here. That import is the slow
+      // part of the full DS extraction (~20s per toggle on big libraries) and
+      // it's not needed to populate the categories panel: the auto-detect only
+      // reads token names + collection name + library name from the haystack.
       try {
-        const ds = await getDesignSystem();
-        const overrides = ds.categoryOverrides || {};
-        const byColl = new Map();
-        for (const t of (ds.numberVariables || [])) {
-          const key = tokenCollectionKey(t.libraryName, t.collectionName);
-          let bucket = byColl.get(key);
-          if (!bucket) {
-            bucket = {
-              key,
-              collectionName: t.collectionName || "(unnamed)",
-              libraryName: t.libraryName || null,
-              tokens: []
-            };
-            byColl.set(key, bucket);
-          }
-          bucket.tokens.push(t);
-        }
-        const collections = Array.from(byColl.values()).map(b => ({
+        const buckets = await listTokenCollectionsLight();
+        const overrides = await getTokenCategoryOverrides();
+        const collections = buckets.map(b => ({
           key: b.key,
           collectionName: b.collectionName,
           libraryName: b.libraryName,
           tokenCount: b.tokens.length,
           autoCategories: autoDetectCollectionCategories(b.tokens),
-          // Override may be an array (explicit) or null (no override).
-          // The empty array [] is a meaningful override: "no rule uses this."
           override: Array.isArray(overrides[b.key]) ? overrides[b.key] : null
         }));
-        // Sort: local first, then by library name, then by collection name.
         collections.sort((a, b) => {
           const aLib = a.libraryName || "";
           const bLib = b.libraryName || "";
@@ -2894,6 +2879,80 @@ function isPrimitiveTokenName(variableName, collectionName) {
 // tokens via Settings; we cache the choice in clientStorage and only
 // import variables from those libraries on review.
 // ──────────────────────────────────────────────────────────────────
+
+// Lightweight token-collection enumeration for the UI categories panel.
+// Returns one bucket per (libraryName, collectionName) with the list of
+// numeric-token names — name + collectionName + libraryName is everything
+// the auto-detection regexes need.
+//
+// Critically: NO importVariableByKeyAsync calls. That step is the bottleneck
+// (~20s per toggle on big libraries). We only need names, and metadata-only
+// APIs return them: getLocalVariablesAsync for local, getVariablesInLibrary
+// CollectionAsync for libraries.
+async function listTokenCollectionsLight() {
+  const buckets = new Map(); // key → { key, collectionName, libraryName, tokens: [{name,collectionName,libraryName}] }
+  function pushToken(libraryName, collectionName, name) {
+    const key = tokenCollectionKey(libraryName, collectionName);
+    let b = buckets.get(key);
+    if (!b) {
+      b = { key, collectionName: collectionName || "(unnamed)", libraryName: libraryName || null, tokens: [] };
+      buckets.set(key, b);
+    }
+    b.tokens.push({ name, collectionName, libraryName });
+  }
+
+  // ── Local FLOAT variables (cheap — no remote call) ──
+  try {
+    if (figma.variables && typeof figma.variables.getLocalVariablesAsync === "function") {
+      const locals = await figma.variables.getLocalVariablesAsync("FLOAT");
+      // Resolve collection names in parallel via cached lookups.
+      const collCache = new Map();
+      async function getCollName(id) {
+        if (collCache.has(id)) return collCache.get(id);
+        let name = null;
+        try {
+          const c = typeof figma.variables.getVariableCollectionByIdAsync === "function"
+            ? await figma.variables.getVariableCollectionByIdAsync(id)
+            : figma.variables.getVariableCollectionById(id);
+          name = c ? c.name : null;
+        } catch (e) {}
+        collCache.set(id, name);
+        return name;
+      }
+      for (const v of locals) {
+        const collName = await getCollName(v.variableCollectionId);
+        pushToken(null, collName, v.name);
+      }
+    }
+  } catch (e) {
+    console.warn("[figma-ai-score] local FLOAT enumeration failed:", e && e.message);
+  }
+
+  // ── Library FLOAT variables (one round trip per selected collection) ──
+  try {
+    const selected = await getSelectedTokenLibraries();
+    if (selected.length && figma.teamLibrary && typeof figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync === "function") {
+      const collections = await figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync();
+      const selectedSet = new Set(selected);
+      const matching = collections.filter(c => selectedSet.has(c.libraryName) || selectedSet.has(c.name));
+      // Fetch all matching collections' variable lists in parallel — each
+      // call is one round trip, no per-variable round trips.
+      await Promise.all(matching.map(async (coll) => {
+        try {
+          const items = await figma.teamLibrary.getVariablesInLibraryCollectionAsync(coll.key);
+          for (const it of items) {
+            if (it.resolvedType !== "FLOAT") continue;
+            pushToken(coll.libraryName || null, coll.name, it.name);
+          }
+        } catch (e) { /* skip — collection unreadable */ }
+      }));
+    }
+  } catch (e) {
+    console.warn("[figma-ai-score] library FLOAT enumeration failed:", e && e.message);
+  }
+
+  return Array.from(buckets.values());
+}
 
 async function listAvailableLibraries() {
   // Returns [{ name, kind, collectionCount, colorCount, numberCount }]

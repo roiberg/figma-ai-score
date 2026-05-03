@@ -3167,7 +3167,7 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
         // Always re-fetch so newly added libraries appear immediately.
         parent.postMessage({ pluginMessage: { type: "get-libraries" } }, "*");
         parent.postMessage({ pluginMessage: { type: "get-design-doc" } }, "*");
-        parent.postMessage({ pluginMessage: { type: "get-token-categories" } }, "*");
+        fetchTokenCategories();
       }
       function closeLibraries() {
         librariesScreen.style.display = "none";
@@ -3202,7 +3202,7 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
             }, "*");
             // Selected libraries changed — re-enumerate which collections
             // appear in the categories section.
-            parent.postMessage({ pluginMessage: { type: "get-token-categories" } }, "*");
+            fetchTokenCategories();
           });
 
           const info = document.createElement("div");
@@ -3288,8 +3288,27 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
         return coll.override !== null ? coll.override : (coll.autoCategories || []);
       }
 
+      let tokenCategoriesLoading = false;
+      function fetchTokenCategories() {
+        // Show a loading state until the result arrives. Even with the
+        // metadata-only sandbox path, big libraries still cost a couple
+        // seconds — without this the panel looks frozen during a toggle.
+        tokenCategoriesLoading = true;
+        renderTokenCategoriesList();
+        fetchTokenCategories();
+      }
       function renderTokenCategoriesList() {
         tokenCategoriesList.innerHTML = "";
+        if (tokenCategoriesLoading) {
+          tokenCategoriesSection.style.display = "";
+          const placeholder = document.createElement("div");
+          placeholder.className = "token-cat-row";
+          placeholder.style.color = "var(--text-secondary)";
+          placeholder.style.fontSize = "11px";
+          placeholder.textContent = "Loading token collections…";
+          tokenCategoriesList.appendChild(placeholder);
+          return;
+        }
         if (!tokenCategoryCollections.length) {
           tokenCategoriesSection.style.display = "none";
           return;
@@ -4888,9 +4907,10 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
           renderTokensLibList();
           // Library selection may have changed which collections are eligible
           // for the categories section; refresh it.
-          parent.postMessage({ pluginMessage: { type: "get-token-categories" } }, "*");
+          fetchTokenCategories();
         }
         if (msg.type === "token-categories-result") {
+          tokenCategoriesLoading = false;
           tokenCategoryCollections = Array.isArray(msg.collections) ? msg.collections : [];
           renderTokenCategoriesList();
         }

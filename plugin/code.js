@@ -119,7 +119,10 @@ Pre-computed offenders cover the boolean "is this node auto-layout?" check. ADD 
 - **Pathological structure** — auto-layout that's technically present but useless (e.g. a single wrapper with 50 absolutely-positioned children).
 - **Wrong direction** — HORIZONTAL where the layout reads VERTICAL (or vice versa); alignment that would break in code-gen; mismatched paddings between siblings that look broken.
 
-Decorative compositions (illustrations, vector groups not laid out) can be reasonable as non-autolayout — use judgment.
+**Never flag these — auto-layout adds no value and there's no reflow scenario:**
+- INSTANCE nodes (auto-layout is inherited from the main component; can't be toggled locally).
+- Icon / shape wrappers — frames whose only non-excluded child is a single VECTOR, BOOLEAN_OPERATION, RECTANGLE, ELLIPSE, POLYGON, STAR, or LINE. The wrapper has nothing to reflow.
+- Decorative compositions (illustrations, vector groups not laid out) — use judgment.
 
 Detail format:
 - "<type> isn't using auto layout." — deterministic case.
@@ -1898,7 +1901,22 @@ function lintSize(root, ds) {
 function lintAutolayoutSimple(root) {
   const offenders = [];
   let totalChecked = 0;
-  const eligibleTypes = new Set(["FRAME", "GROUP", "COMPONENT", "COMPONENT_SET", "INSTANCE"]);
+  // INSTANCE is intentionally NOT eligible: an instance's auto-layout is
+  // inherited from its main component. You can't toggle it locally on the
+  // instance — flagging it would produce a "fix" the user can't apply.
+  // The right place to fix a non-auto-layout library component is the main,
+  // and that lives outside this scan's scope.
+  const eligibleTypes = new Set(["FRAME", "GROUP", "COMPONENT", "COMPONENT_SET"]);
+  // Leaf shapes whose presence means there's nothing to reflow — a frame
+  // whose ONLY non-excluded child is one of these is an icon/shape wrapper,
+  // not a layout decision. Skip it.
+  const SHAPE_LEAF_TYPES = new Set([
+    "VECTOR", "BOOLEAN_OPERATION", "RECTANGLE", "ELLIPSE", "POLYGON", "STAR", "LINE"
+  ]);
+  function isSingleShapeWrapper(node) {
+    const kids = (node.children || []).filter(c => !isExcluded(c));
+    return kids.length === 1 && SHAPE_LEAF_TYPES.has(kids[0].type);
+  }
   (function recurse(node, isRoot) {
     if (!node) return;
     if (isExplicitlyIgnored(node)) return;
@@ -1914,6 +1932,14 @@ function lintAutolayoutSimple(root) {
     if (eligibleTypes.has(node.type)) {
       // COMPONENT_SET layout is canvas-only variant arrangement — not code output.
       if (node.type === "COMPONENT_SET") {
+        if (node.children) for (const c of node.children) recurse(c, false);
+        return;
+      }
+      // Icon / shape wrappers: a frame whose only child is a primitive shape
+      // has no reflow scenario. Auto-layout adds no programmability value
+      // here — the same code is generated either way.
+      if (isSingleShapeWrapper(node)) {
+        // Still recurse; the wrapper itself doesn't get checked or counted.
         if (node.children) for (const c of node.children) recurse(c, false);
         return;
       }

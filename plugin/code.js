@@ -588,11 +588,14 @@ figma.ui.onmessage = async (msg) => {
       // synchronous throw before postMessage would leave the UI stuck on
       // its loading spinner.
       let _replied = false;
+      // Echo reqId so the UI can drop stale results when concurrent
+      // requests overlap (open-Libraries vs libraries-result-arrives).
+      const reqId = typeof msg.reqId === "number" ? msg.reqId : null;
       const reply = (collections, partialError) => {
         if (_replied) return;
         _replied = true;
         try {
-          figma.ui.postMessage({ type: "token-categories-result", collections, partialError: partialError || null });
+          figma.ui.postMessage({ type: "token-categories-result", reqId, collections, partialError: partialError || null });
         } catch (e) {
           console.warn("[figma-ai-score] token-categories postMessage failed:", e && e.message);
         }
@@ -3545,7 +3548,7 @@ function findTokensByColor(ds, hex) {
 // Scoring:
 //   +10 per token-name word that appears in the node name
 //   +5  if the collection is named "main" (primary design system tokens)
-//   +2  if marked as a primitive token
+//   -2  if marked as a primitive token (prefer semantic over primitives)
 //   -1  per path segment (prefer simpler / shorter token names)
 function rankColorCandidates(candidates, nodeName, max) {
   if (!candidates || candidates.length === 0) return [];

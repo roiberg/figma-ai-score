@@ -2898,7 +2898,7 @@ Now that step 1 has produced the staged CLI, you can preview every change the po
 - \`cat /tmp/figma-ai-score-dl/expanded/Scripts/postinstall\` — the actual install logic.
 - \`/tmp/figma-ai-score-pkg/cli/launcher.sh integrate --tool claude-md\` — the exact CLAUDE.md block.
 - \`/tmp/figma-ai-score-pkg/cli/launcher.sh integrate --tool claude\` — the slash command body.
-- \`/tmp/figma-ai-score-pkg/cli/launcher.sh integrate --tool claude-permissions\` — the four allowlist entries as JSON.
+- \`/tmp/figma-ai-score-pkg/cli/launcher.sh integrate --tool claude-permissions\` — the five allowlist entries as JSON.
 
 If anything looks unfamiliar, summarize for me before continuing.
 
@@ -3295,20 +3295,31 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
       var tokenCategoriesLoading = false;
       var tokenCategoriesPartialError = null; // sandbox-side error, if any
       var tokenCategoriesFailsafeTimer = null;
+      // Monotonic request ID. Two ways stale results can race ahead of fresh
+      // ones: opening Libraries fires fetchTokenCategories() and a separate
+      // get-libraries; when libraries-result lands it fetches again. If the
+      // first request is slow and arrives AFTER the second's response, it
+      // would overwrite valid state with stale state. Tag every request and
+      // ignore late responses whose id < latest.
+      var tokenCategoriesNextReqId = 0;
+      var tokenCategoriesLatestReqId = -1;
       function fetchTokenCategories() {
-        // Show a loading state until the result arrives. Even with the
-        // metadata-only sandbox path, big libraries still cost a couple
-        // seconds — without this the panel looks frozen during a toggle.
+        const reqId = ++tokenCategoriesNextReqId;
+        tokenCategoriesLatestReqId = reqId;
         tokenCategoriesLoading = true;
         tokenCategoriesPartialError = null;
         renderTokenCategoriesList();
-        parent.postMessage({ pluginMessage: { type: "get-token-categories" } }, "*");
+        parent.postMessage({ pluginMessage: { type: "get-token-categories", reqId } }, "*");
         // Fail-safe: if the sandbox never replies (parse error, hang, message
         // dropped), surface a recoverable error instead of an indefinite
         // spinner. 8s gives the sandbox enough headroom past its own 5s
         // per-API timeout. Cleared on result arrival.
         if (tokenCategoriesFailsafeTimer) clearTimeout(tokenCategoriesFailsafeTimer);
         tokenCategoriesFailsafeTimer = setTimeout(() => {
+          // Only fire if THIS request is still the active one and we're
+          // still loading. A newer request (or a result already arriving)
+          // moots this fail-safe.
+          if (reqId !== tokenCategoriesLatestReqId) return;
           if (!tokenCategoriesLoading) return;
           tokenCategoriesLoading = false;
           tokenCategoriesPartialError = "Couldn't load collections — try toggling the library off and on, or reopen the plugin.";
@@ -3663,6 +3674,10 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
           clearTimeout(timer);
           lastSuggestionAt = Date.now();
           parent.postMessage({ pluginMessage: { type: "suggestion-sent" } }, "*");
+          // Best-effort label: a no-cors fetch returns an opaque response, so
+          // we can't actually confirm the endpoint accepted the payload. We
+          // know the request left the browser without a network error — that's
+          // all "Sent" claims.
           suggestionSend.textContent = "Sent";
           setTimeout(() => {
             suggestionSend.disabled = false;
@@ -4952,6 +4967,14 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
           fetchTokenCategories();
         }
         if (msg.type === "token-categories-result") {
+          // Drop stale results. A response whose reqId is older than the
+          // latest in-flight request is from a superseded fetch — applying
+          // it would overwrite the newer request's state with old data.
+          // (Pre-reqId responses without msg.reqId still apply, for
+          // backward compat with an older sandbox during plugin upgrades.)
+          if (typeof msg.reqId === "number" && msg.reqId < tokenCategoriesLatestReqId) {
+            return;
+          }
           if (tokenCategoriesFailsafeTimer) { clearTimeout(tokenCategoriesFailsafeTimer); tokenCategoriesFailsafeTimer = null; }
           tokenCategoriesLoading = false;
           tokenCategoryCollections = Array.isArray(msg.collections) ? msg.collections : [];

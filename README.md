@@ -28,7 +28,7 @@ Every CLI invocation:
 3. Sends one RPC, receives one response.
 4. Exits, releasing the port.
 
-Nothing leaves the machine. The plugin only talks to `localhost`. The CLI binds to loopback only.
+**Privacy:** review and design data stays local — the plugin only talks to `localhost`, and the CLI binds to loopback only. The one exception is the in-plugin "Send a suggestion" box: when (and only when) the user types feedback there and clicks Send, the typed text is POSTed to `https://script.google.com` (a developer-maintained Google Apps Script). No design content, file contents, selection data, telemetry, or analytics are transmitted.
 
 ## Repo layout
 

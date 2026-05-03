@@ -51,7 +51,7 @@ Now that step 1 has produced the staged CLI, you can preview every change the po
 - `cat /tmp/figma-ai-score-dl/expanded/Scripts/postinstall` — the actual install logic.
 - `/tmp/figma-ai-score-pkg/cli/launcher.sh integrate --tool claude-md` — the exact CLAUDE.md block.
 - `/tmp/figma-ai-score-pkg/cli/launcher.sh integrate --tool claude` — the slash command body.
-- `/tmp/figma-ai-score-pkg/cli/launcher.sh integrate --tool claude-permissions` — the four allowlist entries as JSON.
+- `/tmp/figma-ai-score-pkg/cli/launcher.sh integrate --tool claude-permissions` — the five allowlist entries as JSON.
 
 If anything looks unfamiliar, summarize for me before continuing.
 

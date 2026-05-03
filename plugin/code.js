@@ -3069,32 +3069,42 @@ function rankColorCandidates(candidates, nodeName, max) {
 }
 
 // Heuristic filter: which FLOAT variables are "appropriate" for a given
-// dimensional rule. Searches keywords in variable name + collection name.
-// Imperfect (a team's "layout/inset/m" wouldn't match "padding") — but
-// "no suggestion" is a safe failure mode. AI mode uses the catalog as-is
-// and lets Claude decide; this filter is for Simple-mode determinism only.
+// Filter numeric tokens to those relevant for a given dimensional rule.
+//
+// padding / spacing: keyword allowlist — these rules are specific enough that
+//   a token named "elevation-4" or "radius-sm" matching the same px value
+//   would be a genuinely misleading suggestion. Keep the allowlist narrow.
+//
+// size: NO keyword allowlist — only a rejectlist of obvious non-size tokens
+//   (typography, radius). Rationale: design systems name their dimensional
+//   scale in wildly different ways ("spacing", "primitive/size", "t-shirt",
+//   "numeric/48", …). An allowlist that doesn't know your naming convention
+//   produces false negatives (no fix button) which are worse than false
+//   positives (wrong-category button), because the exact value match is
+//   already a strong gate. If exactly one token in the DS is worth 48px and
+//   it's named "spacing-6xl", that IS the right suggestion for a 48px frame.
 const DIMENSION_RULE_KEYWORDS = {
-  // Padding tokens are commonly drawn from the same scale as gap/itemSpacing —
-  // most design systems have one spacing scale used for both. Accept tokens
-  // named after either concept; the value match still has to be exact.
+  // Padding/spacing tokens come from one shared scale in most design systems.
   padding: ["padding", "pad", "spacing", "gap", "space"],
   spacing: ["spacing", "gap", "space", "padding", "pad"],
-  // "size" excludes "font-size" / "line-height" by inspecting word boundaries
-  // in the post-filter step rather than the keywords themselves.
-  size: ["size", "height", "width", "dim"]
+  // size: no allowlist — see comment above.
+  size: null
 };
 function filterDimensionTokensForRule(numberVariables, rule) {
   const keywords = DIMENSION_RULE_KEYWORDS[rule];
-  if (!keywords) return [];
+  // size has no allowlist — start from the full set, only apply the rejectlist.
+  const candidates = (rule === "size") ? (numberVariables || []) : (numberVariables || []);
   const out = [];
-  for (const v of (numberVariables || [])) {
-    const hay = ((v.name || "") + " " + (v.collectionName || "")).toLowerCase();
-    const matches = keywords.some(k => hay.includes(k));
-    if (!matches) continue;
-    // For "size", reject obvious non-size dimension tokens whose names
-    // hint they're typography or radius, etc.
+  for (const v of candidates) {
+    // For padding/spacing: must match at least one keyword in name or collection.
+    if (keywords) {
+      const hay = ((v.name || "") + " " + (v.collectionName || "")).toLowerCase();
+      if (!keywords.some(k => hay.includes(k))) continue;
+    }
+    // For size (and as a safety net for all rules): reject tokens that are
+    // clearly typography or radius — these would never be a layout size fix.
     if (rule === "size") {
-      if (/font[-_/ ]?size|line[-_/ ]?height|letter[-_/ ]?spacing|font[-_/ ]?weight|radius|border[-_/ ]?radius/i.test(v.name)) continue;
+      if (/font[-_\/ ]?size|line[-_\/ ]?height|letter[-_\/ ]?spacing|font[-_\/ ]?weight|radius|border[-_\/ ]?radius/i.test(v.name)) continue;
     }
     out.push(v);
   }

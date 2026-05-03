@@ -583,10 +583,22 @@ figma.ui.onmessage = async (msg) => {
       return;
     }
     if (msg.type === "get-token-categories") {
-      // Enumerate all numeric-token collections (local + selected libraries),
-      // attach auto-detected categories + any user override. METADATA ONLY —
-      // see listTokenCollectionsLight for the timeout/allSettled hardening.
-      console.debug("[figma-ai-score] get-token-categories started");
+      console.log("[figma-ai-score:sb] ← get-token-categories");
+      // Reply-once guard: belt-and-suspenders so the UI ALWAYS gets a
+      // response no matter what code path errors below. Without this, a
+      // synchronous throw before postMessage would leave the UI stuck on
+      // its loading spinner.
+      let _replied = false;
+      const reply = (collections, partialError) => {
+        if (_replied) return;
+        _replied = true;
+        console.log("[figma-ai-score:sb] → token-categories-result", { count: collections.length, partialError });
+        try {
+          figma.ui.postMessage({ type: "token-categories-result", collections, partialError: partialError || null });
+        } catch (e) {
+          console.error("[figma-ai-score:sb] postMessage failed:", e && e.message);
+        }
+      };
       try {
         const { buckets, errors } = await listTokenCollectionsLight();
         const overrides = await getTokenCategoryOverrides();
@@ -604,27 +616,10 @@ figma.ui.onmessage = async (msg) => {
           if (aLib !== bLib) return aLib.localeCompare(bLib);
           return a.collectionName.localeCompare(b.collectionName);
         });
-        if (errors && errors.length) {
-          console.warn("[figma-ai-score] get-token-categories partial:", errors);
-        }
-        console.debug("[figma-ai-score] get-token-categories done", { count: collections.length, errors: errors.length });
-        figma.ui.postMessage({
-          type: "token-categories-result",
-          collections,
-          // Surface to the UI when at least one source failed but we still
-          // returned partial results. The UI shows a small recoverable banner.
-          partialError: errors && errors.length ? errors[0] : null
-        });
+        reply(collections, errors && errors.length ? errors[0] : null);
       } catch (e) {
-        // Should be unreachable now that listTokenCollectionsLight catches
-        // its own failures, but kept as last-ditch insurance — never let the
-        // UI hang on Loading…
-        console.warn("[figma-ai-score] get-token-categories unexpected failure:", e && e.message);
-        figma.ui.postMessage({
-          type: "token-categories-result",
-          collections: [],
-          partialError: (e && e.message) || "unexpected error"
-        });
+        console.warn("[figma-ai-score:sb] get-token-categories unexpected failure:", e && e.message);
+        reply([], (e && e.message) || "unexpected error");
       }
       return;
     }

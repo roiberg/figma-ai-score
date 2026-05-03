@@ -3175,19 +3175,27 @@ async function setTokenCategoryOverride(key, category) {
     console.warn("[figma-ai-score] couldn't persist token category:", e && e.message);
   }
 }
+// Tokens that are clearly NOT layout-size candidates. Tested against the full
+// haystack (name + collection name + library name) so a "Radiuses" collection
+// with tokens named "sm"/"md"/"lg" is correctly rejected even though the
+// individual token names don't contain "radius".
+const SIZE_REJECT_RE = /font[-_\/ ]?size|line[-_\/ ]?height|letter[-_\/ ]?spacing|font[-_\/ ]?weight|radius|radii|border[-_\/ ]?radius|elevation|shadow|opacity|z[-_\/ ]?index/i;
+const SPACING_KEYWORDS = ["padding", "pad", "spacing", "gap", "space"];
+function tokenHaystack(t) {
+  return ((t.name || "") + " " + (t.collectionName || "") + " " + (t.libraryName || "")).toLowerCase();
+}
+
 // Auto-detect what category a collection would be classified as by the
-// current default rules (mirrors the logic in filterDimensionTokensForRule
-// when no override is present). Returns "spacing" | "size" | "both" | "ignore".
+// default rules (mirrors filterDimensionTokensForRule when no override is
+// present). Returns "spacing" | "size" | "both" | "ignore".
 function autoDetectCollectionCategory(tokens) {
   if (!tokens || !tokens.length) return "ignore";
-  const SIZE_REJECT = /font[-_\/ ]?size|line[-_\/ ]?height|letter[-_\/ ]?spacing|font[-_\/ ]?weight|radius|border[-_\/ ]?radius/i;
-  const SPACING_KEYWORDS = ["padding", "pad", "spacing", "gap", "space"];
   let anySpacing = false;
   let anySize = false;
   for (const t of tokens) {
-    const hay = ((t.name || "") + " " + (t.collectionName || "")).toLowerCase();
+    const hay = tokenHaystack(t);
     if (SPACING_KEYWORDS.some(k => hay.includes(k))) anySpacing = true;
-    if (!SIZE_REJECT.test(t.name || "")) anySize = true;
+    if (!SIZE_REJECT_RE.test(hay)) anySize = true;
   }
   if (anySpacing && anySize) return "both";
   if (anySpacing) return "spacing";
@@ -3201,10 +3209,14 @@ function autoDetectCollectionCategory(tokens) {
 //    - "ignore"  → drop
 //    - "spacing" → only spacing/padding rules accept it
 //    - "size"    → only size rule accepts it
-//    - "both"    → all three rules accept it (rejectlist still applies for size)
+//    - "both"    → all three rules accept it
+//    With an override, the rejectlist is NOT applied — the user has explicitly
+//    declared intent and we trust them.
 // 2. Without an override, fall back to the default heuristics:
 //    - padding/spacing rules require a keyword match
-//    - size accepts everything except a typography/radius rejectlist
+//    - size accepts everything except a typography/radius/elevation rejectlist
+//      (haystack includes name + collection name so a "Radiuses" collection
+//      with tokens named "sm"/"md" is correctly rejected)
 function filterDimensionTokensForRule(numberVariables, rule, overrides) {
   overrides = overrides || {};
   const keywords = DIMENSION_RULE_KEYWORDS[rule];
@@ -3216,23 +3228,23 @@ function filterDimensionTokensForRule(numberVariables, rule, overrides) {
     if (override === "ignore") continue;
 
     if (override) {
-      // Explicit user category — gate by the rule being checked.
+      // Explicit user category — gate by the rule being checked. No rejectlist.
       if (override === "spacing" && rule === "size") continue;
       if (override === "size" && (rule === "padding" || rule === "spacing")) continue;
-      // "both" or matching category: pass through to the rejectlist below.
-    } else {
-      // No override — apply the default keyword allowlist (padding/spacing only).
-      if (keywords) {
-        const hay = ((v.name || "") + " " + (v.collectionName || "")).toLowerCase();
-        if (!keywords.some(k => hay.includes(k))) continue;
-      }
+      // "both" or matching category: accept.
+      out.push(v);
+      continue;
     }
 
-    // Rejectlist for size — always applies. Even if the user tagged a
-    // collection as "size", a token literally named "fontSize-12" inside it
-    // is almost certainly a typography token slipped into the wrong bucket.
+    // No override — apply the default heuristics.
+    const hay = tokenHaystack(v);
+    if (keywords) {
+      // padding/spacing rules: require a keyword match in name or collection.
+      if (!keywords.some(k => hay.includes(k))) continue;
+    }
     if (rule === "size") {
-      if (/font[-_\/ ]?size|line[-_\/ ]?height|letter[-_\/ ]?spacing|font[-_\/ ]?weight|radius|border[-_\/ ]?radius/i.test(v.name)) continue;
+      // size: rejectlist on the full haystack (name + collection + library).
+      if (SIZE_REJECT_RE.test(hay)) continue;
     }
     out.push(v);
   }

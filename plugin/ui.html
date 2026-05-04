@@ -4341,8 +4341,17 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
             .filter(([, r]) => r.enabled !== false)
             .map(([rule, r]) => {
               const offenders = r.offenders || [];
-              const count = offenders.length;
-              const hasOffenders = !r.passed && count > 0;
+              const informational = r.informational || [];
+              // Display count includes informational entries — they're real
+              // issues that hurt the score, just shown in the separate
+              // "Instances with issues" section below the breakdown rather
+              // than as click-to-expand offender rows. Without them, a rule
+              // with only instance issues rendered "0 issues" (in red),
+              // which contradicted itself.
+              const count = offenders.length + informational.length;
+              // Only the offender list is click-to-expand; informational
+              // entries don't get an inline dropdown here.
+              const hasOffenders = offenders.length > 0;
               const chevron = hasOffenders
                 ? '<svg class="row-chevron" width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 1.5l3 2.5-3 2.5"/></svg>'
                 : '';
@@ -4670,7 +4679,9 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
               const offendersEl = ruleItem.querySelector(".breakdown-offenders");
               if (offendersEl) offendersEl.remove();
             } else {
-              const count = updatedRule.offenders.length;
+              // Match the initial-render formula: include informational so a
+              // rule with only instance issues never reads "0 issues."
+              const count = updatedRule.offenders.length + (updatedRule.informational ? updatedRule.informational.length : 0);
               if (resultEl) resultEl.textContent = count + " issue" + (count === 1 ? "" : "s");
             }
           }

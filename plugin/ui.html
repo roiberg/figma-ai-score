@@ -3156,6 +3156,8 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
 
       let availableLibraries = []; // [{ name, collectionCount }]
       let selectedLibraries = []; // [name, ...]
+      let localVariablesEnabled = true; // synthetic "Local" row in the libs list (default on)
+      const LOCAL_LIBRARY_KEY = "__local__"; // matches sandbox-side constant
       let tokenCategoryCollections = []; // [{ key, collectionName, libraryName, tokenCount, autoCategories: [...], override: [...] | null }]
 
       // Show a dot on the libraries button until the user opens it at least once.
@@ -3185,23 +3187,35 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
           return;
         }
         for (const lib of availableLibraries) {
+          const isLocal = lib.kind === "local" || lib.name === LOCAL_LIBRARY_KEY;
           const item = document.createElement("label");
           item.className = "lib-card";
 
           const cb = document.createElement("input");
           cb.type = "checkbox";
-          cb.checked = selectedLibraries.indexOf(lib.name) !== -1;
+          // Local row is backed by its own flag; team libraries by the
+          // selectedLibraries array.
+          cb.checked = isLocal
+            ? localVariablesEnabled
+            : selectedLibraries.indexOf(lib.name) !== -1;
           cb.addEventListener("change", () => {
-            if (cb.checked) {
-              if (selectedLibraries.indexOf(lib.name) === -1) selectedLibraries.push(lib.name);
+            if (isLocal) {
+              localVariablesEnabled = cb.checked;
+              parent.postMessage({
+                pluginMessage: { type: "set-local-variables-enabled", enabled: localVariablesEnabled }
+              }, "*");
             } else {
-              selectedLibraries = selectedLibraries.filter(n => n !== lib.name);
+              if (cb.checked) {
+                if (selectedLibraries.indexOf(lib.name) === -1) selectedLibraries.push(lib.name);
+              } else {
+                selectedLibraries = selectedLibraries.filter(n => n !== lib.name);
+              }
+              parent.postMessage({
+                pluginMessage: { type: "set-token-libraries", libraries: selectedLibraries }
+              }, "*");
             }
-            parent.postMessage({
-              pluginMessage: { type: "set-token-libraries", libraries: selectedLibraries }
-            }, "*");
-            // Selected libraries changed — re-enumerate which collections
-            // appear in the categories section.
+            // Either toggle changes which collections feed the categories
+            // section — re-enumerate.
             fetchTokenCategories();
           });
 
@@ -3210,7 +3224,7 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
 
           const nameEl = document.createElement("div");
           nameEl.className = "lib-card-name";
-          nameEl.textContent = lib.name;
+          nameEl.textContent = isLocal ? (lib.displayName || "Local variables") : lib.name;
 
           const stats = [];
           if (lib.colorCount) stats.push(`${lib.colorCount} color${lib.colorCount !== 1 ? "s" : ""}`);
@@ -4961,6 +4975,9 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         if (msg.type === "libraries-result") {
           availableLibraries = Array.isArray(msg.libraries) ? msg.libraries : [];
           selectedLibraries = Array.isArray(msg.selected) ? msg.selected.slice() : [];
+          // Default to true if older sandbox without the flag — preserves
+          // legacy behavior where local was always on.
+          localVariablesEnabled = msg.localEnabled !== false;
           renderTokensLibList();
           // Library selection may have changed which collections are eligible
           // for the categories section; refresh it.

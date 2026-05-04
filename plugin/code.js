@@ -562,13 +562,16 @@ figma.ui.onmessage = async (msg) => {
     if (msg.type === "get-libraries") {
       // Enumerate libraries enabled in this file (via Assets > Libraries)
       // and report which ones the user has picked as their tokens source.
+      // Also surface localEnabled so the UI can reflect the synthetic
+      // "Local" row's checkbox state without a separate fetch.
       try {
         const libs = await listAvailableLibraries();
         const selected = await getSelectedTokenLibraries();
-        figma.ui.postMessage({ type: "libraries-result", libraries: libs, selected });
+        const localEnabled = await getLocalVariablesEnabled();
+        figma.ui.postMessage({ type: "libraries-result", libraries: libs, selected, localEnabled });
       } catch (e) {
         console.warn("[figma-ai-score] get-libraries failed:", e && e.message);
-        figma.ui.postMessage({ type: "libraries-result", libraries: [], selected: [] });
+        figma.ui.postMessage({ type: "libraries-result", libraries: [], selected: [], localEnabled: true });
       }
       return;
     }
@@ -579,6 +582,18 @@ figma.ui.onmessage = async (msg) => {
         _invalidateDesignSystemCache();
       } catch (e) {
         console.warn("[figma-ai-score] couldn't persist token libraries:", e && e.message);
+      }
+      return;
+    }
+    if (msg.type === "set-local-variables-enabled") {
+      // Toggles the synthetic "Local" row in the Token-libraries panel.
+      // Invalidate the DS cache so the next review re-extracts (or skips)
+      // local variables according to the new flag.
+      try {
+        await setLocalVariablesEnabled(!!msg.enabled);
+        _invalidateDesignSystemCache();
+      } catch (e) {
+        console.warn("[figma-ai-score] couldn't persist local-variables-enabled:", e && e.message);
       }
       return;
     }
@@ -2945,7 +2960,9 @@ async function listTokenCollectionsLight() {
   // getLocalVariablesAsync gives us the variables; we then need each one's
   // collection name. We resolve all collection IDs in parallel (allSettled
   // + timeout each) so a single sluggish lookup can't strand the rest.
-  if (figma.variables && typeof figma.variables.getLocalVariablesAsync === "function") {
+  // Skip entirely when the user has unchecked the Local row in Token libraries.
+  const localEnabled = await getLocalVariablesEnabled();
+  if (localEnabled && figma.variables && typeof figma.variables.getLocalVariablesAsync === "function") {
     const localsRes = await withTimeout(
       figma.variables.getLocalVariablesAsync("FLOAT"),
       TOKEN_CATEGORIES_API_TIMEOUT_MS,
@@ -3158,7 +3175,60 @@ async function listAvailableLibraries() {
   }
 
   result.sort((a, b) => a.name.localeCompare(b.name));
+
+  // ── Source 3: local file variables ──────────────────────────────
+  // Synthetic "Local" entry alongside the team libraries. Counts the
+  // FLOAT and COLOR variables defined directly in this file (not via
+  // any library). Surfaced so the user can include/exclude them like
+  // any other library.
+  try {
+    let localColors = 0;
+    let localNumbers = 0;
+    if (figma.variables && typeof figma.variables.getLocalVariablesAsync === "function") {
+      try { localColors  = (await figma.variables.getLocalVariablesAsync("COLOR")).length; } catch (e) {}
+      try { localNumbers = (await figma.variables.getLocalVariablesAsync("FLOAT")).length; } catch (e) {}
+    }
+    if (localColors || localNumbers) {
+      // Pin Local to the top of the list — most users think of it as the
+      // "this file" baseline before reaching for team libraries.
+      result.unshift({
+        name: LOCAL_LIBRARY_KEY,
+        displayName: "Local variables",
+        kind: "local",
+        collectionCount: 1, // sentinel — UI doesn't render this
+        colorCount:  localColors,
+        numberCount: localNumbers
+      });
+    }
+  } catch (e) {
+    console.warn("[figma-ai-score] local variable enumeration failed:", e && e.message);
+  }
+
   return result;
+}
+
+// Sentinel name used in the Token-libraries list to represent the file's
+// local (non-library) variables. Stored in clientStorage like any other
+// library selection so the UI can surface a checkbox alongside the
+// team libraries.
+const LOCAL_LIBRARY_KEY = "__local__";
+const LOCAL_VARS_ENABLED_KEY = "figma-ai-score.local-variables-enabled";
+
+// Local variables default to enabled (true) for both fresh installs and
+// existing users who never see the toggle. Returns true unless the user
+// has explicitly unchecked the Local row.
+async function getLocalVariablesEnabled() {
+  try {
+    const v = await figma.clientStorage.getAsync(LOCAL_VARS_ENABLED_KEY);
+    return v === false ? false : true;
+  } catch (e) { return true; }
+}
+async function setLocalVariablesEnabled(enabled) {
+  try {
+    await figma.clientStorage.setAsync(LOCAL_VARS_ENABLED_KEY, !!enabled);
+  } catch (e) {
+    console.warn("[figma-ai-score] couldn't persist local-variables-enabled:", e && e.message);
+  }
 }
 
 async function getSelectedTokenLibraries() {
@@ -3420,8 +3490,12 @@ async function _getDesignSystemUncached() {
     return c;
   }
 
+  // User-toggleable: when "Local" is unchecked in Token libraries, skip the
+  // entire local-variable + paint-style block. Team-library data still flows.
+  const localEnabled = await getLocalVariablesEnabled();
+
   // ── Color variables ──
-  try {
+  if (localEnabled) try {
     if (figma.variables && typeof figma.variables.getLocalVariablesAsync === "function") {
       const vars = await figma.variables.getLocalVariablesAsync("COLOR");
       for (const v of vars) {
@@ -3459,7 +3533,7 @@ async function _getDesignSystemUncached() {
   }
 
   // ── Number (FLOAT) variables — used by padding/spacing/size rules ──
-  try {
+  if (localEnabled) try {
     if (figma.variables && typeof figma.variables.getLocalVariablesAsync === "function") {
       const vars = await figma.variables.getLocalVariablesAsync("FLOAT");
       for (const v of vars) {
@@ -3494,7 +3568,7 @@ async function _getDesignSystemUncached() {
   }
 
   // ── Paint styles (the older style system) ──
-  try {
+  if (localEnabled) try {
     let styles = [];
     if (typeof figma.getLocalPaintStylesAsync === "function") {
       styles = await figma.getLocalPaintStylesAsync();

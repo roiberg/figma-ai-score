@@ -102,11 +102,32 @@ const CANCEL_CLEARING_METHODS = new Set([
 
 const RULE_DESCRIPTIONS = {
   components: `### components (smart)
-Pre-computed offenders cover Check 1 (orphan raw layers), Check 2 (over-instancing), Check 3 (repeated siblings) — pass through, with one exception:
+Pre-computed offenders cover Check 1 (orphan raw layers), Check 2 (over-instancing), Check 3 (repeated siblings).
 
-**Drop any Check 3 offender where the flagged siblings are all INSTANCE nodes sharing the same \`mainComponentId\`.** They are already using a shared component correctly — repeated instances of the same component is valid, intentional reuse, not a signal to "extract a shared component." Passing this through would be nonsensical.
+**Hard rule: never flag a node that lives inside a COMPONENT_SET.** Its children are variants by definition. If the root frame IS a COMPONENT_SET, return zero offenders.
 
-**Hard rule (applies to every check below): never flag a node that lives inside a COMPONENT_SET.** Its children are variants of one component by definition; shared structure across variants is the correct pattern, not duplication. "Extract a shared component" makes no sense when the siblings ARE the variants. If the root frame you're reviewing IS a COMPONENT_SET, skip ALL checks and return zero component offenders.
+---
+
+**Check 1 roll-up (apply before passing through Check 1 results).**
+The lint emits one offender per raw node — every TEXT, RECTANGLE, inner FRAME, etc. Most are internals of a single future component, not separate candidates. Collapse them:
+
+1. Use the thumbnail to identify discrete UI regions (empty states, cards, list rows, toolbars, dialogs, etc.).
+2. For each region, keep ONE offender — the outermost raw FRAME/GROUP that wraps it.
+3. Drop everything that would become an internal once that wrapper is promoted:
+   - Raw TEXT / VECTOR / RECTANGLE / ELLIPSE descendants of any kept offender.
+   - Raw FRAME/GROUP descendants that are purely structural sub-layout of the same region (e.g. a Stack or inner column inside an Empty state container).
+4. Keep a nested raw FRAME only when it represents a *separate* component-worthy region inside a generic shell — e.g. a Search row and a Filters row inside a generic "Page content" wrapper. The shell is not the component; the rows are. In that case drop the shell and keep the rows.
+
+Rule of thumb: **one offender per future component.** If promoting node X absorbs node Y, drop Y.
+
+Worked example — "Empty state" screen:
+- Raw nodes: Empty state (FRAME) → Stack (FRAME) → "No recipes yet" (TEXT), "Click Add recipes…" (TEXT)
+- Correct output: one offender — Stack (or Empty state if that's the discrete region).
+- Wrong output: three offenders (Stack + both texts) — the texts are Stack's internals.
+
+**Check 3 exception:** Drop any Check 3 offender where all flagged siblings are INSTANCE nodes sharing the same \`mainComponentId\`. Repeated instances of the same component is correct reuse, not a signal to extract anything.
+
+---
 
 ADD these from the thumbnail:
 
@@ -115,6 +136,8 @@ A raw FRAME/GROUP (NOT INSTANCE/COMPONENT) whose name (case-insensitive, partial
 
 **Vision check — discrete UI regions.**
 Enumerate every distinct visual region in the thumbnail (banners, search bars, filter rows, section containers, CTA blocks, list rows, cards, toolbars, etc.). For each, verify there's a corresponding INSTANCE node. If a region maps to a raw FRAME/GROUP, flag that node — INDEPENDENT of Check 1. An orphan parent does NOT absolve its visually-component-worthy children; do not skip children of flagged parents.
+
+After all checks, dedup the final offender list by nodeId.
 
 Be specific in the detail: reference what you see in the screenshot AND the node that should have been a component.`,
 

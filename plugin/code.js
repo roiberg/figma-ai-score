@@ -2198,19 +2198,19 @@ function lintSize(root, ds) {
           });
         } else {
           const sug = buildDimensionalSuggestion(ds, "size", "width", node.width);
-          // Only flag when the DS has an exact token for this value — for both
-          // FRAMEs and COMPONENTs. A component master's width is its intrinsic
-          // definition; without a matching DS token there's nothing to bind it
-          // to, so the flag is not actionable.
-          if (!sug) {
-            totalChecked--; // undo the check — not a real candidate
+          // For plain FRAMEs: only flag when there's an exact DS token match.
+          // This suppresses device canvases and scaffolding that have no
+          // corresponding token.
+          if (isFrame && !sug) {
+            totalChecked--; // undo the check — this isn't a real candidate
           } else {
-            offenders.push({
+            const o = {
               nodeId: node.id,
               name: node.name,
               detail: `width ${node.width}px is not using a size token.`,
-              suggestedTokens: [sug],
-            });
+            };
+            if (sug) o.suggestedTokens = [sug];
+            offenders.push(o);
           }
         }
       }
@@ -2227,9 +2227,9 @@ function lintSize(root, ds) {
           });
         } else {
           const sug = buildDimensionalSuggestion(ds, "size", "height", node.height);
-          // Same policy as width: only flag when the DS has a matching token.
-          if (!sug) {
-            totalChecked--; // undo the check — not a real candidate
+          // For plain FRAMEs: only flag when there's an exact DS token match.
+          if (isFrame && !sug) {
+            totalChecked--; // undo the check — this isn't a real candidate
           } else {
             const o = {
               nodeId: node.id,

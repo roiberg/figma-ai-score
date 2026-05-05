@@ -102,7 +102,9 @@ const CANCEL_CLEARING_METHODS = new Set([
 
 const RULE_DESCRIPTIONS = {
   components: `### components (smart)
-Pre-computed offenders cover Check 1 (orphan raw layers), Check 2 (over-instancing), Check 3 (repeated siblings) — pass through unchanged.
+Pre-computed offenders cover Check 1 (orphan raw layers), Check 2 (over-instancing), Check 3 (repeated siblings) — pass through, with one exception:
+
+**Drop any Check 3 offender where the flagged siblings are all INSTANCE nodes sharing the same \`mainComponentId\`.** They are already using a shared component correctly — repeated instances of the same component is valid, intentional reuse, not a signal to "extract a shared component." Passing this through would be nonsensical.
 
 **Hard rule (applies to every check below): never flag a node that lives inside a COMPONENT_SET.** Its children are variants of one component by definition; shared structure across variants is the correct pattern, not duplication. "Extract a shared component" makes no sense when the siblings ARE the variants. If the root frame you're reviewing IS a COMPONENT_SET, skip ALL checks and return zero component offenders.
 

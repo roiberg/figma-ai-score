@@ -939,62 +939,6 @@ figma.ui.onmessage = async (msg) => {
       }
       return;
     }
-    if (msg.type === "open-master") {
-      // Navigate to the master component of an INSTANCE. Used by the
-      // "Open master" button on instance issues — the user can't fix the
-      // problem from the instance, so we send them where the fix actually
-      // lives. For library (remote) components we can't navigate (Figma
-      // plugins can't switch files); send a notice instead.
-      try {
-        const inst = await figma.getNodeByIdAsync(msg.nodeId);
-        if (!inst || inst.type !== "INSTANCE") {
-          figma.ui.postMessage({ type: "open-master-result", ok: false, nodeId: msg.nodeId, error: "Not an instance" });
-          return;
-        }
-        let main = null;
-        try {
-          main = typeof inst.getMainComponentAsync === "function"
-            ? await inst.getMainComponentAsync()
-            : inst.mainComponent;
-        } catch (e) {}
-        if (!main) {
-          figma.ui.postMessage({ type: "open-master-result", ok: false, nodeId: msg.nodeId, error: "Master not found" });
-          return;
-        }
-        if (main.remote) {
-          figma.ui.postMessage({
-            type: "open-master-result",
-            ok: false,
-            nodeId: msg.nodeId,
-            error: "library",
-            masterName: main.name,
-          });
-          return;
-        }
-        // Prefer navigating to the parent COMPONENT_SET when this main is a
-        // variant — selecting the whole "Button" rather than just the
-        // variant gives the user better context to fix.
-        const target = (main.parent && main.parent.type === "COMPONENT_SET") ? main.parent : main;
-        if ("setCurrentPageAsync" in figma && target.parent) {
-          let p = target.parent;
-          while (p && p.type !== "PAGE") p = p.parent;
-          if (p && p !== figma.currentPage) {
-            await figma.setCurrentPageAsync(p);
-          }
-        }
-        figma.currentPage.selection = [target];
-        figma.viewport.scrollAndZoomIntoView([target]);
-        figma.ui.postMessage({ type: "open-master-result", ok: true, nodeId: msg.nodeId, masterName: main.name });
-      } catch (e) {
-        figma.ui.postMessage({
-          type: "open-master-result",
-          ok: false,
-          nodeId: msg.nodeId,
-          error: (e && e.message) ? e.message : String(e)
-        });
-      }
-      return;
-    }
     if (msg.type === "create-component") {
       try {
         const offenderNode = figma.getNodeById(msg.nodeId);
@@ -1966,10 +1910,13 @@ function lintSpacing(root, ds) {
   const offenders = [];
   const informational = [];
   let totalChecked = 0;
-  walkDesignerNodes(root, (node) => {
+  walkDesignerNodes(root, (node, _isRoot, ancestors) => {
     if (!node.autolayout) return;
     // COMPONENT_SET padding/spacing is canvas-only variant arrangement — not code output.
     if (node.type === "COMPONENT_SET") return;
+    // COMPONENT children of a COMPONENT_SET are variants — skip their spacing too.
+    const parent = ancestors[ancestors.length - 1];
+    if (node.type === "COMPONENT" && parent && parent.type === "COMPONENT_SET") return;
     const al = node.autolayout;
     const b = al.bound || {};
     // "Auto" gap = SPACE_BETWEEN mode — algorithmically distributed, no fixed value to tokenize.
@@ -2051,10 +1998,13 @@ function lintPadding(root, ds) {
     return paddingMin === paddingMax && gravity === "CENTER";
   }
 
-  walkDesignerNodes(root, (node) => {
+  walkDesignerNodes(root, (node, _isRoot, ancestors) => {
     if (!node.autolayout) return;
     // COMPONENT_SET padding is canvas-only variant arrangement — not code output.
     if (node.type === "COMPONENT_SET") return;
+    // COMPONENT children of a COMPONENT_SET are variants — skip their padding too.
+    const parent = ancestors[ancestors.length - 1];
+    if (node.type === "COMPONENT" && parent && parent.type === "COMPONENT_SET") return;
     const al = node.autolayout;
     const b  = al.bound || {};
 
@@ -2196,7 +2146,7 @@ function lintSize(root, ds) {
   const offenders = [];
   const informational = [];
   let totalChecked = 0;
-  walkDesignerNodes(root, (node) => {
+  walkDesignerNodes(root, (node, _isRoot, ancestors) => {
     // Eligible types:
     // - COMPONENT, COMPONENT_SET, INSTANCE: always checked — atoms like buttons,
     //   chips, avatars, icons where size tokens earn their keep.
@@ -2211,6 +2161,10 @@ function lintSize(root, ds) {
     // box of all variants arranged for editing, not a rendered dimension. Never flag it.
     const eligibleTypes = new Set(["COMPONENT", "INSTANCE", "FRAME"]);
     if (!eligibleTypes.has(node.type)) return;
+    // COMPONENT children of a COMPONENT_SET are variants — their dimensions are
+    // canvas-arrangement values, not placed design decisions. Skip them.
+    const parent = ancestors[ancestors.length - 1];
+    if (node.type === "COMPONENT" && parent && parent.type === "COMPONENT_SET") return;
     const isFrame = node.type === "FRAME";
     const isInst = isInstance(node);
     const sb = node.sizeBound || {};
@@ -2226,6 +2180,12 @@ function lintSize(root, ds) {
       hCheck = true;
       vCheck = true;
     }
+    // Constraints-based stretch: the node's size on that axis is driven by its
+    // parent frame, not a standalone design decision — skip it.
+    // LEFT_RIGHT = pin to both sides (stretches); SCALE = scale with parent.
+    const con = node.constraints || {};
+    if (con.horizontal === "LEFT_RIGHT" || con.horizontal === "SCALE") hCheck = false;
+    if (con.vertical   === "TOP_BOTTOM" || con.vertical   === "SCALE") vCheck = false;
     if (hCheck) {
       totalChecked++;
       if (!sb.width && typeof node.width === "number") {
@@ -2752,6 +2712,14 @@ function extractNode(node, depth = 0, maxDepth = 64) {
   const sbW = boundVarId(node, "width");
   const sbH = boundVarId(node, "height");
   if (sbW || sbH) out.sizeBound = { width: sbW, height: sbH };
+  // Constraints — used by the size rule to skip axes whose size is driven by
+  // the parent (LEFT_RIGHT / SCALE stretch) rather than a fixed design decision.
+  if (node.constraints) {
+    out.constraints = {
+      horizontal: node.constraints.horizontal,
+      vertical:   node.constraints.vertical,
+    };
+  }
 
   // Corner radii — for the radius rule. Captures per-corner numeric values
   // (Figma exposes them whether or not corners are uniform). Bound variables

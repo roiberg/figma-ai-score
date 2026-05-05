@@ -279,10 +279,10 @@ If \`selection.capped\` is true, warn the user only the first 10 frames are revi
 - **COMPONENT_SET nodes are skipped entirely by**: colors, spacing, padding, autolayout, effects, radius, size.
 
 ## DESIGN SYSTEM HEALTH CHECK
-Before processing any rule, check \`designSystem.numberVariables\` (the token table used for spacing/padding/size suggestions):
-- If it is **empty or absent**, token suggestions will be missing for ALL dimensional rules (spacing, padding, size) even though offenders are still detected. In this case, add a warning to the top of your review message:
-  > ⚠️ Design system tokens didn't load this run — spacing, padding, and size offenders will be listed without token suggestions. Try re-running the review to get suggestions.
-- If it is **populated**, proceed normally — \`suggestedTokens\` on offenders should be present wherever a match exists.
+After calling \`begin-and-scan\` for a frame, check \`designSystem.numberVariables\` in the response (the token table used for spacing/padding/size suggestions):
+- If it is **empty or absent**, call \`begin-and-scan\` again for that frame immediately — this is a timing/API hiccup and almost always resolves on retry. You may notify the user that the first scan came back without tokens and you're retrying, so they know the review is taking slightly longer than usual.
+- If the retry also returns empty, proceed with the scan results you have, note in the report that token suggestions are unavailable for this frame due to a design system loading issue, and continue to the next frame.
+- If it is **populated** (first attempt or after retry), proceed normally.
 
 ## PRE-COMPUTED LINT RESULTS
 The scan response includes \`lintResults\` — deterministic offenders + token suggestions, computed server-side.

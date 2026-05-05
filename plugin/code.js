@@ -138,7 +138,16 @@ Pre-computed (offenders + \`suggestedTokens\`). Pass through unchanged.`,
 Pre-computed. Each offender may carry \`suggestedTokens\` (un-tokenized padding) and/or \`zeroActions\` (fixed-axis padding with no visual effect). Pass both through unchanged.`,
 
   size: `### size
-Pre-computed (offenders + \`suggestedTokens\`). Pass through unchanged.`,
+Pre-computed (offenders + \`suggestedTokens\`). Pass through, but apply one filter before including an offender:
+
+**Drop any COMPONENT master flagged for width if it is a fill-parent component.** A fill-parent component (snackbar, app bar, banner, divider, full-width card, etc.) stretches to fill whatever container it is placed in — its pixel width on the canvas is a canvas-editing artefact, not a fixed design decision. Use the component name and thumbnail to judge:
+- If the component clearly spans the full frame width with no breathing room on either side → fill-parent → drop the width offender.
+- If the component has a self-contained fixed width (button, chip, avatar, icon, badge, FAB, dialog, bottom sheet with a fixed width) → fixed → keep the offender.
+- When ambiguous, look at the thumbnail: does the component hug its content or span wall-to-wall?
+
+Height offenders on COMPONENT masters follow the same logic: a full-height side drawer's height is not a design token candidate.
+
+All other offenders (INSTANCE, FRAME) pass through unchanged.`,
 
   radius: `### radius
 Pre-computed (offenders + \`suggestedTokens\`). Pass through unchanged. Each offender represents a node with one or more hardcoded corner radii; \`suggestedTokens\` may contain per-corner bindings.`,

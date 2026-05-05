@@ -278,6 +278,12 @@ If \`selection.capped\` is true, warn the user only the first 10 frames are revi
 - **Repeated component instances**: GOOD — same instance across variants is correct reuse, never flag.
 - **COMPONENT_SET nodes are skipped entirely by**: colors, spacing, padding, autolayout, effects, radius, size.
 
+## DESIGN SYSTEM HEALTH CHECK
+Before processing any rule, check \`designSystem.numberVariables\` (the token table used for spacing/padding/size suggestions):
+- If it is **empty or absent**, token suggestions will be missing for ALL dimensional rules (spacing, padding, size) even though offenders are still detected. In this case, add a warning to the top of your review message:
+  > ⚠️ Design system tokens didn't load this run — spacing, padding, and size offenders will be listed without token suggestions. Try re-running the review to get suggestions.
+- If it is **populated**, proceed normally — \`suggestedTokens\` on offenders should be present wherever a match exists.
+
 ## PRE-COMPUTED LINT RESULTS
 The scan response includes \`lintResults\` — deterministic offenders + token suggestions, computed server-side.
 

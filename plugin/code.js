@@ -234,7 +234,11 @@ Pre-computed offenders cover Check 1 (regex defaults + placeholders). ADD from t
 
 Don't flag style choices (lowercase, hyphen, underscore) or valid-but-unusual names.
 
-**suggestedName**: every naming offender carries a pre-computed \`suggestedName\` derived from the layer's structural content (TEXT content, single-shape children, autolayout direction). For most offenders, the pre-computed value is good enough — pass it through unchanged. Only override when the thumbnail clearly disagrees with the structural guess (e.g. a layer the heuristic called "Stack" is actually a "Card" based on visual context). When overriding, write a short, semantic name with no trailing punctuation. Never strip the field — if no \`suggestedName\` was pre-computed, write your own best guess.`
+**suggestedName**: every naming offender carries a pre-computed \`suggestedName\` derived from the layer's structural content (TEXT content, single-shape children, autolayout direction). **Always look at the thumbnail before passing a suggestedName through.** The pre-computed value is structural — it describes layout shape, not purpose. Replace it with a semantic name (Product info, Book gallery, Thumbnail list, Search bar, Empty state) whenever the visual role is identifiable from the thumbnail. Pass through unchanged only when the layer truly has no identifiable semantic role.
+
+**Anti-pattern — layout words are never acceptable final names:** "Stack", "Row", "Column", "Group", "Frame", "Container", "Wrapper", "Inner" describe structure, not purpose. If you are about to emit one of these as a suggestedName, look at the thumbnail harder and find the semantic role. There is almost always one.
+
+When overriding, write a short, semantic name with no trailing punctuation. Never strip the field — if no \`suggestedName\` was pre-computed, write your own best guess.`
 };
 
 function buildInstructions(enabledRules) {
@@ -290,6 +294,7 @@ The scan response includes \`lintResults\` — deterministic offenders + token s
 
 **Saturation mode — read this first.** If \`lintResults.saturated\` is \`true\`, the frame has more than 50 pre-computed offenders. The lint has already capped each rule to its top 7 actionable issues; the rest are elided. In this mode:
 - **Skip ALL vision augmentation** — no Check 2 naming, no Check 4 components, no autolayout quality vision. The capped offenders are enough; finding 5 more issues won't change the verdict.
+- **Exception — suggestedName quality is NOT skipped by saturation.** Saturation skips adding new offenders via vision; it does not skip reviewing the semantic quality of suggestedName on offenders that already exist. Still open the thumbnail and replace structural guesses ("Stack", "Row") with semantic names for every pre-computed naming offender.
 - Copy the capped offenders into the report unchanged.
 - The UI shows a banner with the original counts (\`originalOffenderCounts\`) automatically; you do NOT need to enumerate elided offenders in your prose.
 - Keep your message short: name the worst 2-3 rules by count, recommend fixing the highlighted issues, and note that re-running after fixes will surface the next batch.

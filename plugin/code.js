@@ -279,10 +279,7 @@ If \`selection.capped\` is true, warn the user only the first 10 frames are revi
 - **COMPONENT_SET nodes are skipped entirely by**: colors, spacing, padding, autolayout, effects, radius, size.
 
 ## DESIGN SYSTEM HEALTH CHECK
-After calling \`begin-and-scan\` for a frame, check \`designSystem.numberVariables\` in the response (the token table used for spacing/padding/size suggestions):
-- If it is **empty or absent**, call \`begin-and-scan\` again for that frame immediately — this is a timing/API hiccup and almost always resolves on retry. You may notify the user that the first scan came back without tokens and you're retrying, so they know the review is taking slightly longer than usual.
-- If the retry also returns empty, proceed with the scan results you have, note in the report that token suggestions are unavailable for this frame due to a design system loading issue, and continue to the next frame.
-- If it is **populated** (first attempt or after retry), proceed normally.
+If \`designSystem.numberVariables\` is still empty after the scan (the plugin already retried once automatically), note in the report that token suggestions are unavailable for this frame — likely the token library is not selected in the plugin settings — and continue.
 
 ## PRE-COMPUTED LINT RESULTS
 The scan response includes \`lintResults\` — deterministic offenders + token suggestions, computed server-side.
@@ -1257,6 +1254,11 @@ async function handleRpc(method, params) {
       let designSystem = null;
       const _t0Ds = Date.now();
       try { designSystem = await getDesignSystem(); } catch (e) {}
+      // If number variables came back empty (likely a timeout on the library
+      // API), retry once automatically before handing results to the AI.
+      if (!designSystem || !Array.isArray(designSystem.numberVariables) || !designSystem.numberVariables.length) {
+        try { designSystem = await getDesignSystem(); } catch (e) {}
+      }
       _markPhase("designSystem", _t0Ds);
       if (designSystem && Array.isArray(designSystem.variables) && designSystem.variables.length) {
         const frameHexes = extractFrameHexColors(tree);

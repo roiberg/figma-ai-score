@@ -253,30 +253,29 @@ function buildInstructions(enabledRules) {
   }
 
   return `
-You are reviewing Figma designs for AI Programmability — how well they're structured for AI tools to convert into clean code. Follow this protocol exactly.
+Task: Score Figma frames for AI Programmability (code-generation readiness).
 ${disabledNote}
-## FLOW — execute in this exact order, no skipping
-
-0. announce_review_start → use its \`selection.frames\` list (skip get_selection).
-1. get_preferences → read \`instructions\` fully (you are reading them now). If \`designDoc.content\` is non-null, use it throughout.
-2. For each frame at index i (1-based) of N total frames:
-   a. **announce_progress --step analyzing** — MANDATORY before every scan.
+## FLOW
+0. announce_review_start → use returned \`selection.frames\` (skip get_selection).
+1. get_preferences → read \`instructions\`. If \`designDoc.content\` non-null, use throughout.
+2. For each frame i of N (1-based):
+   a. announce_progress --step analyzing  (required before every scan)
    b. begin_and_scan --node-ids <id> --frame-index i --frame-count N
-   c. Apply enabled rules to the scan result. Compute score.
-3. **announce_progress --step submitting** — MANDATORY before submitting.
-4. Write report JSON to a temp file, call submit_report --report-file <path>.
+   c. Apply enabled rules. Compute score.
+3. announce_progress --step submitting  (required before submit)
+4. Write report JSON to temp file → submit_report --report-file <path>
 
-If any tool returns \`{ cancelled: true }\`, stop and say "Review cancelled."
-If \`selection.capped\` is true, warn the user only the first 10 frames are reviewed.
+Abort on \`{cancelled: true}\` with "Review cancelled."
+Warn user if \`selection.capped\` (only first 10 frames reviewed).
 
-## SCOPING (applies to ALL rules)
-- **Ignored nodes**: \`"ignored": true\` excludes the node and its entire subtree. Don't walk in, don't count.
-- **INSTANCE children**: evaluate the INSTANCE node itself (name, own fills/strokes/styles) but NOT its descendants — internals are library-defined.
-- **Root frame**: exempt from the components rule (it's the canvas, not a component candidate). All other rules evaluate it.
-- **Off-screen layers**: still scored; mention in detail so the designer knows.
-- **Scrollable / overflow content**: NOT issues (intentional scroll prototyping).
-- **Repeated component instances**: GOOD — same instance across variants is correct reuse, never flag.
-- **COMPONENT_SET nodes are skipped entirely by**: colors, spacing, padding, autolayout, effects, radius, size.
+## SCOPING (all rules)
+- \`ignored: true\` → exclude node and entire subtree.
+- INSTANCE: evaluate node itself only; not descendants.
+- Root frame: exempt from components rule; evaluated by all others.
+- Off-screen: scored; mention in detail.
+- Scrollable / overflow: not an issue.
+- Repeated INSTANCE siblings of same component: correct reuse, never flag.
+- COMPONENT_SET: skipped by colors, spacing, padding, autolayout, effects, radius, size.
 
 ## DESIGN SYSTEM HEALTH CHECK
 If \`designSystem.numberVariables\` is still empty after the scan (the plugin already retried once automatically), note in the report that token suggestions are unavailable for this frame — likely the token library is not selected in the plugin settings — and continue.

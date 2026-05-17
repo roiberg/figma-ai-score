@@ -1960,9 +1960,12 @@ function lintSpacing(root, ds) {
     if (!node.autolayout) return;
     // COMPONENT_SET padding/spacing is canvas-only variant arrangement — not code output.
     if (node.type === "COMPONENT_SET") return;
-    // COMPONENT children of a COMPONENT_SET are variants — skip their spacing too.
+    // COMPONENT children of a COMPONENT_SET are variants — exempt them only when
+    // the COMPONENT_SET is NESTED inside a larger design (canvas noise). When the
+    // user selects the COMPONENT_SET directly as the scan root, they are auditing
+    // the design system itself, so variants ARE checked.
     const parent = ancestors[ancestors.length - 1];
-    if (node.type === "COMPONENT" && parent && parent.type === "COMPONENT_SET") return;
+    if (node.type === "COMPONENT" && parent && parent.type === "COMPONENT_SET" && ancestors.length > 1) return;
     const al = node.autolayout;
     const b = al.bound || {};
     // "Auto" gap = SPACE_BETWEEN mode — algorithmically distributed, no fixed value to tokenize.
@@ -2048,9 +2051,12 @@ function lintPadding(root, ds) {
     if (!node.autolayout) return;
     // COMPONENT_SET padding is canvas-only variant arrangement — not code output.
     if (node.type === "COMPONENT_SET") return;
-    // COMPONENT children of a COMPONENT_SET are variants — skip their padding too.
+    // COMPONENT children of a COMPONENT_SET are variants — exempt them only when
+    // the COMPONENT_SET is NESTED inside a larger design (canvas noise). When the
+    // user selects the COMPONENT_SET directly as the scan root, they are auditing
+    // the design system itself, so variants ARE checked.
     const parent = ancestors[ancestors.length - 1];
-    if (node.type === "COMPONENT" && parent && parent.type === "COMPONENT_SET") return;
+    if (node.type === "COMPONENT" && parent && parent.type === "COMPONENT_SET" && ancestors.length > 1) return;
     const al = node.autolayout;
     const b  = al.bound || {};
 
@@ -2207,10 +2213,12 @@ function lintSize(root, ds) {
     // box of all variants arranged for editing, not a rendered dimension. Never flag it.
     const eligibleTypes = new Set(["COMPONENT", "INSTANCE", "FRAME"]);
     if (!eligibleTypes.has(node.type)) return;
-    // COMPONENT children of a COMPONENT_SET are variants — their dimensions are
-    // canvas-arrangement values, not placed design decisions. Skip them.
+    // COMPONENT children of a COMPONENT_SET are variants — exempt them only when
+    // the COMPONENT_SET is NESTED inside a larger design (canvas noise). When the
+    // user selects the COMPONENT_SET directly as the scan root, they are auditing
+    // the design system itself, so variants ARE checked.
     const parent = ancestors[ancestors.length - 1];
-    if (node.type === "COMPONENT" && parent && parent.type === "COMPONENT_SET") return;
+    if (node.type === "COMPONENT" && parent && parent.type === "COMPONENT_SET" && ancestors.length > 1) return;
     const isFrame = node.type === "FRAME";
     const isInst = isInstance(node);
     const sb = node.sizeBound || {};

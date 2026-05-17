@@ -2288,6 +2288,19 @@ function lintSize(root, ds) {
     const con = node.constraints || {};
     if (con.horizontal === "LEFT_RIGHT" || con.horizontal === "SCALE") hCheck = false;
     if (con.vertical   === "TOP_BOTTOM" || con.vertical   === "SCALE") vCheck = false;
+    // Fill-parent COMPONENT masters: a Bottom sheet / Snackbar / App bar /
+    // Banner etc. stretches to fill its container when placed in a design.
+    // Its canvas width/height is a Figma-editing artefact, not a fixed design
+    // decision worth tokenizing. Skip the size check entirely on COMPONENT
+    // and INSTANCE nodes whose name matches a known fill-parent pattern.
+    // This is the deterministic counterpart of the AI-mode instruction —
+    // simple-mode reviews don't run vision, so they need a pattern fallback.
+    if (node.type === "COMPONENT" || node.type === "INSTANCE") {
+      if (FILL_PARENT_NAME_RE.test(node.name || "")) {
+        hCheck = false;
+        vCheck = false;
+      }
+    }
     if (hCheck) {
       totalChecked++;
       if (!sb.width && typeof node.width === "number") {
@@ -2548,6 +2561,13 @@ const NAMING_PLACEHOLDER_RE = /^(untitled|new\s+frame|copy|copy\s+\d+|asdf|test|
 // Default name Figma assigns to component-set variant properties before the
 // designer renames them: "Property 1", "Property_2", "property-3", etc.
 const NAMING_DEFAULT_VARIANT_PROP_RE = /^property[\s_-]?\d+$/i;
+
+// Component name patterns that strongly indicate "fill-parent" semantics —
+// the component stretches to fill its container when placed. Their canvas
+// dimensions are editing artefacts, not design decisions to tokenize.
+// Matches anywhere in the name, case-insensitive. Used by the size rule's
+// simple-mode fallback (smart mode does the same judgment via thumbnail).
+const FILL_PARENT_NAME_RE = /\b(snackbar|toast|app[\s_-]?bar|top[\s_-]?bar|bottom[\s_-]?bar|bottom[\s_-]?sheet|nav(?:igation)?[\s_-]?bar|tab[\s_-]?bar|toolbar|action[\s_-]?bar|sidebar|side[\s_-]?nav|drawer|banner|divider|header|footer|modal|dialog)\b/i;
 // Cheap heuristic name suggester. Used to pre-fill `suggestedName` on naming
 // offenders so the AI either accepts our guess or overrides via vision —
 // either way it writes fewer tokens. Vision is still better than this for

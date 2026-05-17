@@ -240,12 +240,19 @@ Don't flag style choices (lowercase, hyphen, underscore) or valid-but-unusual na
 
 When overriding, write a short, semantic name with no trailing punctuation. Never strip the field — if no \`suggestedName\` was pre-computed, write your own best guess.
 
-**Variant property naming (COMPONENT_SET / COMPONENT only).** Each component-set carries a \`componentPropertyDefinitions\` object: \`{ "<propName>": { type, variantOptions? }, ... }\`. The deterministic lint already flags \`Property 1\` / \`Property 2\` / etc. (Figma defaults). ADD smart-mode offenders for any property where the NAME or the VALUES aren't semantic:
-- **Bad property names** (not caught by regex): \`Stuff\`, \`Type1\`, \`Variant\`, \`Group\`, \`Option\`, single letters. Good: \`Size\`, \`State\`, \`Tone\`, \`Density\`, \`With color\`.
+**Variant property naming (COMPONENT_SET / COMPONENT only).** Each component-set carries a \`componentPropertyDefinitions\` object: \`{ "<displayName>": { type, variantOptions?, rawKey }, ... }\`. The deterministic lint already flags \`Property 1\` / \`Property 2\` / etc. (Figma defaults). Smart-mode work:
+
+1. **Enrich every pre-flagged property offender with a \`suggestedName\`.** The deterministic offender carries \`propertyKey\` and \`detail\` but no name suggestion. Look at \`variantOptions\` and the thumbnail to infer the right semantic name — e.g., values \`Small/Big\` → \`Size\`; \`Light/Dark\` → \`Theme\`; \`Default/Hover/Pressed\` → \`State\`. If ambiguous, write your best concise guess. NEVER leave the field empty on a property offender — the UI uses it to render the rename button.
+
+2. **ADD smart-mode offenders** for any property where the NAME or the VALUES aren't semantic:
+- **Bad property names** (not caught by regex): \`Stuff\`, \`Type1\`, \`Variant\`, \`Group\`, \`Option\`, \`Text\` for non-text-content, single letters. Good: \`Size\`, \`State\`, \`Tone\`, \`Density\`, \`With color\`, \`Number\`.
 - **Bad variant values**: \`a\` / \`b\`, \`v1\` / \`v2\`, \`default\` / \`variant2\`. Good: \`Small\` / \`Big\`, \`Yes\` / \`No\`, \`Primary\` / \`Secondary\` / \`Tertiary\`.
 - **Name/value mismatch**: a property called \`Size\` whose values are \`Yes\` / \`No\` — the name doesn't describe what varies.
 
-For each offending property, push one offender on the COMPONENT_SET (not on a variant): \`{ nodeId: <component-set-id>, name, detail: 'Variant property "<propName>" — values "<csv of values>" — not semantic.' }\`. No \`suggestedName\` (the fix is in Figma's variant-property panel, not a layer rename).`
+Each property offender shape (deterministic OR smart-mode) — push one offender on the COMPONENT_SET:
+\`{ nodeId: <component-set-id>, name, detail: '...', propertyKey: <rawKey from componentPropertyDefinitions>, suggestedName: '<new semantic name>' }\`
+
+The \`propertyKey\` is the rawKey from \`componentPropertyDefinitions[displayName].rawKey\` — it has a hash suffix Figma uses internally (e.g. \`"Property 1#5678:0"\`). The UI uses it to call \`editComponentProperty()\`. Without it the rename button won't appear.`
 };
 
 function buildInstructions(enabledRules) {
@@ -802,6 +809,40 @@ figma.ui.onmessage = async (msg) => {
         figma.ui.postMessage({ type: "rename-done", nodeId: msg.nodeId, newName: msg.newName });
       } catch (e) {
         figma.ui.postMessage({ type: "rename-failed", nodeId: msg.nodeId, error: String(e && e.message || e) });
+      }
+      return;
+    }
+    if (msg.type === "rename-component-property") {
+      // Rename a variant/component property on a COMPONENT_SET or COMPONENT.
+      // The Figma API for this is editComponentProperty(rawKey, { name }),
+      // NOT setting `node.name`. The rawKey carries the hash suffix Figma
+      // uses internally (e.g. "Property 1#5678:0").
+      try {
+        let node = null;
+        if (typeof figma.getNodeByIdAsync === "function") {
+          try { node = await figma.getNodeByIdAsync(msg.nodeId); } catch (e) {}
+        }
+        if (!node) node = figma.getNodeById(msg.nodeId);
+        if (!node) throw new Error("node not found");
+        if (typeof node.editComponentProperty !== "function") {
+          throw new Error("node does not support editComponentProperty");
+        }
+        if (typeof msg.propertyKey !== "string" || !msg.propertyKey) throw new Error("propertyKey missing");
+        if (typeof msg.newName !== "string" || !msg.newName.trim()) throw new Error("newName missing");
+        node.editComponentProperty(msg.propertyKey, { name: msg.newName });
+        figma.ui.postMessage({
+          type: "rename-component-property-done",
+          nodeId: msg.nodeId,
+          oldPropertyKey: msg.propertyKey,
+          newName: msg.newName,
+        });
+      } catch (e) {
+        figma.ui.postMessage({
+          type: "rename-component-property-failed",
+          nodeId: msg.nodeId,
+          propertyKey: msg.propertyKey,
+          error: String(e && e.message || e)
+        });
       }
       return;
     }
@@ -2570,10 +2611,16 @@ function lintNaming(root) {
       for (const propName of Object.keys(node.componentPropertyDefinitions)) {
         totalChecked++;
         if (NAMING_DEFAULT_VARIANT_PROP_RE.test(propName.trim())) {
+          const def = node.componentPropertyDefinitions[propName];
           offenders.push({
             nodeId: node.id,
             name: node.name,
             detail: `Variant property "${propName}" uses a Figma default name.`,
+            // propertyKey lets the rename action target this specific property
+            // via editComponentProperty(). The AI is expected to ALSO add a
+            // suggestedName based on the variant values + thumbnail; without
+            // suggestedName the UI shows the offender but no rename button.
+            propertyKey: def && def.rawKey,
           });
         }
       }
@@ -2708,6 +2755,7 @@ function extractNode(node, depth = 0, maxDepth = 64) {
           simplified[displayName] = {
             type: def.type, // VARIANT | BOOLEAN | TEXT | INSTANCE_SWAP
             variantOptions: Array.isArray(def.variantOptions) ? def.variantOptions.slice() : undefined,
+            rawKey, // pass through so editComponentProperty() can target this prop at rename time
           };
         }
         if (Object.keys(simplified).length) out.componentPropertyDefinitions = simplified;

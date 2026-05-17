@@ -4362,7 +4362,13 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
                       applyParts.push(`<button class="apply-rename-btn create-component-btn" data-create-component="${esc(o.nodeId)}" data-frame-id="${esc(f.nodeId)}">Create component</button>`);
                     }
                     if (rule === "naming" && o.suggestedName) {
-                      applyParts.push(`<button class="apply-rename-btn" data-apply-rename="${esc(o.nodeId)}" data-new-name="${esc(o.suggestedName)}">Rename to "${esc(o.suggestedName)}"</button>`);
+                      if (o.propertyKey) {
+                        // Variant / component-property rename — uses Figma's
+                        // editComponentProperty() API, not node.name.
+                        applyParts.push(`<button class="apply-rename-btn" data-rename-property="${esc(o.nodeId)}" data-property-key="${esc(o.propertyKey)}" data-new-name="${esc(o.suggestedName)}">Rename to "${esc(o.suggestedName)}"</button>`);
+                      } else {
+                        applyParts.push(`<button class="apply-rename-btn" data-apply-rename="${esc(o.nodeId)}" data-new-name="${esc(o.suggestedName)}">Rename to "${esc(o.suggestedName)}"</button>`);
+                      }
                     }
                     // Defend against malformed suggestedTokens — the AI sometimes
                     // submits bare strings instead of {id, name, kind, slot}
@@ -4555,6 +4561,20 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
             applyBtn.textContent = "Renaming…";
             parent.postMessage({ pluginMessage: { type: "rename-node", nodeId: renameId, newName } }, "*");
             return;
+          }
+          // Variant / component-property rename (naming rule, COMPONENT_SET / COMPONENT)
+          const renamePropId = applyBtn.getAttribute("data-rename-property");
+          if (renamePropId) {
+            const propertyKey = applyBtn.getAttribute("data-property-key");
+            const newPropName = applyBtn.getAttribute("data-new-name");
+            if (propertyKey && newPropName) {
+              applyBtn.disabled = true;
+              applyBtn.textContent = "Renaming…";
+              parent.postMessage({
+                pluginMessage: { type: "rename-component-property", nodeId: renamePropId, propertyKey, newName: newPropName }
+              }, "*");
+              return;
+            }
           }
           // Token-binding suggestion — works for color paints (slot
           // "fill"/"stroke") and dimensional node properties (slot
@@ -4797,6 +4817,54 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         }
       }
 
+      // Called when a variant / component-property rename succeeded. Removes
+      // the specific property offender (matched by nodeId + propertyKey, since
+      // one COMPONENT_SET can host multiple property offenders). Bumps the
+      // frame score and patches the UI in place.
+      function handlePropertyRenameDone(nodeId, oldPropertyKey, newName) {
+        if (!lastReport || !lastReport.frames) return;
+        for (const frame of lastReport.frames) {
+          const naming = frame.breakdown && frame.breakdown.naming;
+          if (!naming || !Array.isArray(naming.offenders)) continue;
+          const before = naming.offenders.length;
+          const idx = naming.offenders.findIndex(o => o.nodeId === nodeId && o.propertyKey === oldPropertyKey);
+          if (idx === -1) continue;
+          naming.offenders.splice(idx, 1);
+          const justEmptied = before > 0 && naming.offenders.length === 0;
+          if (justEmptied) naming.passed = true;
+          if (frame.issues) {
+            // We only remove the issue entry that corresponds to this exact
+            // property — match on rule + nodeId + the detail substring that
+            // mentions the old property's display name (everything before "#").
+            const oldDisplay = (oldPropertyKey || "").split("#")[0];
+            frame.issues = frame.issues.filter(i =>
+              !(i.rule === "naming" && i.nodeId === nodeId && i.detail && i.detail.indexOf('"' + oldDisplay + '"') !== -1)
+            );
+          }
+          // Score bump — mirrors handleRenameDone math
+          const rules = frame.breakdown ? Object.values(frame.breakdown).filter(r => r.enabled !== false) : [];
+          const ruleShare = rules.length ? 100 / rules.length : 0;
+          const current = frame.score || 0;
+          let next = current;
+          if (justEmptied) {
+            next = current + Math.round(ruleShare * 0.6);
+          } else {
+            next = current + Math.max(1, Math.round(ruleShare / (before + 1)));
+          }
+          frame.perfect = rules.every(r => r.passed);
+          if (frame.perfect) {
+            frame.score = 100;
+          } else {
+            frame.score = Math.max(current, Math.min(100, next));
+          }
+          // Full re-render — patchOffenderRemoved disambiguates by nodeId+rule,
+          // which can't tell two property offenders on the same COMPONENT_SET
+          // apart. Re-rendering reads the now-correct in-memory state.
+          renderReport(lastReport);
+          updateAcceptAllBtn();
+        }
+      }
+
       // Called when a color-token binding succeeded. Mirrors handleRenameDone
       // — removes the color offender from the report, bumps the frame score,
       // and re-renders. Native Figma undo handles rollback if the user regrets.
@@ -4930,6 +4998,16 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         if (!msg) return;
         if (msg.type === "rename-done") { handleRenameDone(msg.nodeId, msg.newName); onBulkActionComplete(); }
         if (msg.type === "rename-failed") { onBulkActionComplete(); }
+        if (msg.type === "rename-component-property-done") {
+          handlePropertyRenameDone(msg.nodeId, msg.oldPropertyKey, msg.newName);
+          onBulkActionComplete();
+        }
+        if (msg.type === "rename-component-property-failed") {
+          onBulkActionComplete();
+          console.error("[figma-ai-score] rename-component-property failed:", msg.error);
+          alert("Couldn't rename property: " + (msg.error || "unknown error"));
+          if (lastReport) renderReport(lastReport);
+        }
         if (msg.type === "apply-token-done") { handleTokenApplied(msg.nodeId, msg.slot); onBulkActionComplete(); }
         if (msg.type === "apply-token-failed") {
           onBulkActionComplete();

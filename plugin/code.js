@@ -238,7 +238,14 @@ Don't flag style choices (lowercase, hyphen, underscore) or valid-but-unusual na
 
 **Anti-pattern — layout words are never acceptable final names:** "Stack", "Row", "Column", "Group", "Frame", "Container", "Wrapper", "Inner" describe structure, not purpose. If you are about to emit one of these as a suggestedName, look at the thumbnail harder and find the semantic role. There is almost always one.
 
-When overriding, write a short, semantic name with no trailing punctuation. Never strip the field — if no \`suggestedName\` was pre-computed, write your own best guess.`
+When overriding, write a short, semantic name with no trailing punctuation. Never strip the field — if no \`suggestedName\` was pre-computed, write your own best guess.
+
+**Variant property naming (COMPONENT_SET / COMPONENT only).** Each component-set carries a \`componentPropertyDefinitions\` object: \`{ "<propName>": { type, variantOptions? }, ... }\`. The deterministic lint already flags \`Property 1\` / \`Property 2\` / etc. (Figma defaults). ADD smart-mode offenders for any property where the NAME or the VALUES aren't semantic:
+- **Bad property names** (not caught by regex): \`Stuff\`, \`Type1\`, \`Variant\`, \`Group\`, \`Option\`, single letters. Good: \`Size\`, \`State\`, \`Tone\`, \`Density\`, \`With color\`.
+- **Bad variant values**: \`a\` / \`b\`, \`v1\` / \`v2\`, \`default\` / \`variant2\`. Good: \`Small\` / \`Big\`, \`Yes\` / \`No\`, \`Primary\` / \`Secondary\` / \`Tertiary\`.
+- **Name/value mismatch**: a property called \`Size\` whose values are \`Yes\` / \`No\` — the name doesn't describe what varies.
+
+For each offending property, push one offender on the COMPONENT_SET (not on a variant): \`{ nodeId: <component-set-id>, name, detail: 'Variant property "<propName>" — values "<csv of values>" — not semantic.' }\`. No \`suggestedName\` (the fix is in Figma's variant-property panel, not a layer rename).`
 };
 
 function buildInstructions(enabledRules) {
@@ -2497,6 +2504,9 @@ function lintEffects(root) {
 // ── naming rule (naive — regex for defaults, short/placeholder names) ──
 const NAMING_DEFAULT_RE = /^(frame|rectangle|ellipse|polygon|star|line|vector|group|component|instance|text|image)\s*\d*$/i;
 const NAMING_PLACEHOLDER_RE = /^(untitled|new\s+frame|copy|copy\s+\d+|asdf|test|temp|foo|bar|baz|placeholder|thing|stuff|element|new|item)$/i;
+// Default name Figma assigns to component-set variant properties before the
+// designer renames them: "Property 1", "Property_2", "property-3", etc.
+const NAMING_DEFAULT_VARIANT_PROP_RE = /^property[\s_-]?\d+$/i;
 // Cheap heuristic name suggester. Used to pre-fill `suggestedName` on naming
 // offenders so the AI either accepts our guess or overrides via vision —
 // either way it writes fewer tokens. Vision is still better than this for
@@ -2550,6 +2560,23 @@ function lintNaming(root) {
       const suggested = suggestNameHeuristic(node);
       if (suggested) o.suggestedName = suggested;
       offenders.push(o);
+    }
+    // Variant property naming (COMPONENT_SET / COMPONENT). Counts each
+    // property as a separate check so the score reflects how many were
+    // examined. Deterministic flag here is the "Property N" default;
+    // semantic quality (e.g. "Stuff" / "Variant" / unclear values) is
+    // for the AI smart-mode review to add via vision.
+    if (node.componentPropertyDefinitions) {
+      for (const propName of Object.keys(node.componentPropertyDefinitions)) {
+        totalChecked++;
+        if (NAMING_DEFAULT_VARIANT_PROP_RE.test(propName.trim())) {
+          offenders.push({
+            nodeId: node.id,
+            name: node.name,
+            detail: `Variant property "${propName}" uses a Figma default name.`,
+          });
+        }
+      }
     }
   });
   return {
@@ -2666,7 +2693,27 @@ function extractNode(node, depth = 0, maxDepth = 64) {
     }
   } catch (e) {}
 
-  if (node.type === "COMPONENT" || node.type === "COMPONENT_SET") out.isComponent = true;
+  if (node.type === "COMPONENT" || node.type === "COMPONENT_SET") {
+    out.isComponent = true;
+    // Capture variant / component-property definitions for the naming rule.
+    // Figma keys variant property names with a unique suffix ("Size#1234:0");
+    // we strip it so the lint can match against the display name.
+    try {
+      const defs = node.componentPropertyDefinitions;
+      if (defs && typeof defs === "object") {
+        const simplified = {};
+        for (const rawKey of Object.keys(defs)) {
+          const def = defs[rawKey];
+          const displayName = rawKey.split("#")[0];
+          simplified[displayName] = {
+            type: def.type, // VARIANT | BOOLEAN | TEXT | INSTANCE_SWAP
+            variantOptions: Array.isArray(def.variantOptions) ? def.variantOptions.slice() : undefined,
+          };
+        }
+        if (Object.keys(simplified).length) out.componentPropertyDefinitions = simplified;
+      }
+    } catch (e) {}
+  }
   if (node.type === "INSTANCE") {
     out.isInstance = true;
     try {
@@ -2824,6 +2871,9 @@ function slimTreeForAI(node, depth = 0) {
   };
   if (node.isComponent) slim.isComponent = true;
   if (node.isInstance) slim.isInstance = true;
+  // Carry variant property definitions through to the AI so smart-mode
+  // naming can evaluate semantic quality of property names + values.
+  if (node.componentPropertyDefinitions) slim.componentPropertyDefinitions = node.componentPropertyDefinitions;
   if (node.mainComponentId) slim.mainComponentId = node.mainComponentId;
   if (node.ignored) slim.ignored = true;
   if (node.ignoredInherited) slim.ignoredInherited = true;

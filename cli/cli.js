@@ -37,6 +37,7 @@ const SUBCOMMAND_TO_METHOD = {
   "submit-report":         "submit_report",
   "is-cancelled":          "is_cancelled",
   "dismiss-review":        "dismiss_review",
+  "create-swatch-frame":   "create_swatch_frame",
   // Internal tuning instruments — not user-facing, will be removed when
   // we're done analyzing ETA accuracy.
   "eta-stats":             "get_eta_stats",
@@ -210,6 +211,31 @@ async function buildParams(subcommand, flags) {
         throw err;
       }
       return { report };
+    }
+    case "create-swatch-frame": {
+      if (typeof flags["tokens-file"] !== "string") {
+        const err = new Error("Missing --tokens-file for create-swatch-frame (use - for stdin).");
+        err.code = "BAD_ARGS";
+        throw err;
+      }
+      const path = flags["tokens-file"];
+      const txt = path === "-" ? await readStdinAsync() : readFileSync(path, "utf8");
+      let tokens;
+      try { tokens = JSON.parse(txt); }
+      catch (e) {
+        const err = new Error("Couldn't parse tokens JSON: " + e.message);
+        err.code = "BAD_INPUT";
+        throw err;
+      }
+      if (!Array.isArray(tokens)) {
+        const err = new Error("tokens-file must be a JSON array of {group, name, hex, alpha?, alias?} objects.");
+        err.code = "BAD_INPUT";
+        throw err;
+      }
+      const params = { tokens };
+      if (typeof flags.title === "string") params.title = flags.title;
+      if (typeof flags["page-name"] === "string") params.pageName = flags["page-name"];
+      return params;
     }
     default:
       return {};

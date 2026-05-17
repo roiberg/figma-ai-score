@@ -1419,6 +1419,155 @@ async function handleRpc(method, params) {
       try { await figma.clientStorage.deleteAsync(ETA_LOG_KEY); } catch (e) {}
       return { ok: true };
     }
+    case "create_swatch_frame": {
+      // Build a reference swatch sheet from a flat array of design tokens.
+      // Each token: { group, name, hex, alpha?, alias? }. Tokens are grouped
+      // by `group` (first-occurrence order preserved). The frame is placed at
+      // the current viewport center on the current page (or the named page
+      // when `pageName` is provided), with each token rendered as a row:
+      // colored swatch + token name + hex + alias arrow. Pure auto-layout.
+      const tokens = params.tokens;
+      if (!Array.isArray(tokens) || !tokens.length) {
+        throw new Error("tokens must be a non-empty array of {group, name, hex, alpha?, alias?}");
+      }
+      const title = (typeof params.title === "string" && params.title) ? params.title : "Semantic tokens";
+      if (params.pageName) {
+        const page = figma.root.children.find(p => p.name === params.pageName || p.id === params.pageName);
+        if (!page) throw new Error("Page not found: " + params.pageName);
+        if (typeof figma.setCurrentPageAsync === "function") await figma.setCurrentPageAsync(page);
+      }
+      // Font load: prefer Inter, fall back to Roboto.
+      let fontFamily = "Inter";
+      let boldStyle = "Semi Bold";
+      try {
+        await figma.loadFontAsync({ family: "Inter", style: "Regular" });
+        await figma.loadFontAsync({ family: "Inter", style: "Semi Bold" });
+      } catch (e) {
+        fontFamily = "Roboto";
+        boldStyle = "Medium";
+        await figma.loadFontAsync({ family: "Roboto", style: "Regular" });
+        await figma.loadFontAsync({ family: "Roboto", style: "Medium" });
+      }
+      function hexToRgb(hex) {
+        const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || "");
+        if (!m) return { r: 0.5, g: 0.5, b: 0.5 };
+        return { r: parseInt(m[1], 16) / 255, g: parseInt(m[2], 16) / 255, b: parseInt(m[3], 16) / 255 };
+      }
+      function makeText(content, size, weight) {
+        const t = figma.createText();
+        t.fontName = { family: fontFamily, style: weight === "bold" ? boldStyle : "Regular" };
+        t.characters = String(content);
+        t.fontSize = size;
+        return t;
+      }
+      // Group by `group` field; first-occurrence order.
+      const groups = {}; const order = [];
+      for (const tok of tokens) {
+        const g = tok.group || "Tokens";
+        if (!groups[g]) { groups[g] = []; order.push(g); }
+        groups[g].push(tok);
+      }
+      const root = figma.createFrame();
+      root.name = title;
+      root.layoutMode = "VERTICAL";
+      root.primaryAxisSizingMode = "AUTO";
+      root.counterAxisSizingMode = "FIXED";
+      root.resize(640, root.height);
+      root.itemSpacing = 32;
+      root.paddingTop = 40; root.paddingBottom = 40; root.paddingLeft = 40; root.paddingRight = 40;
+      root.fills = [{ type: "SOLID", color: { r: 1, g: 1, b: 1 } }];
+      root.cornerRadius = 16;
+      root.strokes = [{ type: "SOLID", color: { r: 0.9, g: 0.9, b: 0.9 } }];
+      root.strokeWeight = 1;
+
+      const titleText = makeText(title, 24, "bold");
+      titleText.layoutAlign = "STRETCH";
+      root.appendChild(titleText);
+      const subtitle = makeText(tokens.length + " tokens across " + order.length + " group" + (order.length === 1 ? "" : "s"), 12, "regular");
+      subtitle.fills = [{ type: "SOLID", color: { r: 0.45, g: 0.45, b: 0.47 } }];
+      subtitle.layoutAlign = "STRETCH";
+      root.appendChild(subtitle);
+
+      for (const groupName of order) {
+        const section = figma.createFrame();
+        section.name = groupName;
+        section.layoutMode = "VERTICAL";
+        section.primaryAxisSizingMode = "AUTO";
+        section.counterAxisSizingMode = "FIXED";
+        section.layoutAlign = "STRETCH";
+        section.itemSpacing = 8;
+        section.paddingTop = 12; section.paddingBottom = 12;
+        section.fills = [];
+
+        const header = makeText(groupName, 14, "bold");
+        header.layoutAlign = "STRETCH";
+        section.appendChild(header);
+
+        for (const tok of groups[groupName]) {
+          const row = figma.createFrame();
+          row.name = tok.name || "(unnamed)";
+          row.layoutMode = "HORIZONTAL";
+          row.primaryAxisSizingMode = "FIXED";
+          row.counterAxisSizingMode = "AUTO";
+          row.layoutAlign = "STRETCH";
+          row.counterAxisAlignItems = "CENTER";
+          row.itemSpacing = 12;
+          row.paddingTop = 8; row.paddingBottom = 8; row.paddingLeft = 8; row.paddingRight = 12;
+          row.cornerRadius = 8;
+          row.fills = [{ type: "SOLID", color: { r: 0.98, g: 0.98, b: 0.98 } }];
+
+          const swatch = figma.createRectangle();
+          swatch.resize(40, 40);
+          swatch.cornerRadius = 6;
+          swatch.fills = [{
+            type: "SOLID",
+            color: hexToRgb(tok.hex),
+            opacity: typeof tok.alpha === "number" ? tok.alpha : 1
+          }];
+          swatch.strokes = [{ type: "SOLID", color: { r: 0.85, g: 0.85, b: 0.87 } }];
+          swatch.strokeWeight = 1;
+          row.appendChild(swatch);
+
+          const meta = figma.createFrame();
+          meta.layoutMode = "VERTICAL";
+          meta.primaryAxisSizingMode = "AUTO";
+          meta.counterAxisSizingMode = "AUTO";
+          meta.layoutGrow = 1;
+          meta.itemSpacing = 2;
+          meta.fills = [];
+
+          const nameText = makeText(tok.name || "(unnamed)", 12, "bold");
+          meta.appendChild(nameText);
+
+          const parts = [];
+          if (tok.hex) parts.push(tok.alpha != null && tok.alpha !== 1 ? tok.hex + " · " + Math.round(tok.alpha * 100) + "%" : tok.hex);
+          if (tok.alias) parts.push("→ " + tok.alias);
+          if (parts.length) {
+            const detail = makeText(parts.join("   "), 10, "regular");
+            detail.fills = [{ type: "SOLID", color: { r: 0.45, g: 0.45, b: 0.47 } }];
+            meta.appendChild(detail);
+          }
+          row.appendChild(meta);
+          section.appendChild(row);
+        }
+        root.appendChild(section);
+      }
+
+      // Park at viewport center; select + zoom.
+      const vp = figma.viewport.center;
+      root.x = Math.round(vp.x - root.width / 2);
+      root.y = Math.round(vp.y - root.height / 2);
+      figma.currentPage.appendChild(root);
+      figma.currentPage.selection = [root];
+      figma.viewport.scrollAndZoomIntoView([root]);
+      return {
+        ok: true,
+        nodeId: root.id,
+        page: figma.currentPage.name,
+        groups: order,
+        totalTokens: tokens.length,
+      };
+    }
     default:
       throw new Error("unknown method: " + method);
   }

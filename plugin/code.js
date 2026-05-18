@@ -2730,7 +2730,12 @@ function lintEffects(root) {
 }
 
 // ── naming rule (naive — regex for defaults, short/placeholder names) ──
-const NAMING_DEFAULT_RE = /^(frame|rectangle|ellipse|polygon|star|line|vector|group|component|instance|text|image)\s*\d*$/i;
+// Most type-words match with optional digits ("Frame", "Frame 1", "Rectangle 5").
+// Exception: "Vector" alone is a plausible intentional name for an SVG /
+// illustration layer, so we only flag the numbered variants ("Vector 1",
+// "Vector 12") which are unambiguous Figma auto-imports. Smart mode can still
+// flag a misleading bare "Vector" via the Check 2 semantic-accuracy review.
+const NAMING_DEFAULT_RE = /^(?:(?:frame|rectangle|ellipse|polygon|star|line|group|component|instance|text|image)\s*\d*|vector\s*\d+)$/i;
 const NAMING_PLACEHOLDER_RE = /^(untitled|new\s+frame|copy|copy\s+\d+|asdf|test|temp|foo|bar|baz|placeholder|thing|stuff|element|new|item)$/i;
 // Default name Figma assigns to component-set variant properties before the
 // designer renames them: "Property 1", "Property_2", "property-3", etc.

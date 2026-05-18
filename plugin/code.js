@@ -782,7 +782,7 @@ figma.ui.onmessage = async (msg) => {
         const node = figma.getNodeById(f.id);
         if (!node) continue;
         const tree = extractNode(node);
-        const result = lintFrame(tree, lintRules, ds);
+        const result = lintFrame(tree, lintRules, ds, { mode: "simple" });
         frameReports.push({
           nodeId: f.id,
           name: f.name,
@@ -1323,7 +1323,7 @@ async function handleRpc(method, params) {
       }
       let lintResults = null;
       const _t0Lint = Date.now();
-      try { lintResults = lintFrame(tree, prefs, designSystem, { keepInternalFields: true }); } catch (e) {}
+      try { lintResults = lintFrame(tree, prefs, designSystem, { keepInternalFields: true, mode: "ai" }); } catch (e) {}
       _markPhase("lint", _t0Lint);
       const nodeStats = computeNodeStats(tree);
       figma.ui.postMessage({ type: "eta-update", eta: estimateEta(nodeStats.total) });
@@ -2485,19 +2485,22 @@ function lintSize(root, ds) {
           });
         } else {
           const sug = buildDimensionalSuggestion(ds, "size", "width", node.width);
-          // For plain FRAMEs: only flag when there's an exact DS token match.
-          // This suppresses device canvases and scaffolding that have no
-          // corresponding token.
-          if (isFrame && !sug) {
+          // Only flag when the DS has a matching token for this width — the
+          // flag is only actionable if the user can one-click bind it.
+          // Without a token the offender becomes noise: a fixed-width COMPONENT
+          // variant (e.g. a 115px toggle whose width is content-driven) has no
+          // sensible token to bind to, so flagging it just clutters the report.
+          // Applies to both FRAME (device canvases, scaffolding) and COMPONENT
+          // (variants whose width is content-derived).
+          if (!sug) {
             totalChecked--; // undo the check — this isn't a real candidate
           } else {
-            const o = {
+            offenders.push({
               nodeId: node.id,
               name: node.name,
               detail: `width ${node.width}px is not using a size token.`,
-            };
-            if (sug) o.suggestedTokens = [sug];
-            offenders.push(o);
+              suggestedTokens: [sug],
+            });
           }
         }
       }
@@ -2514,17 +2517,16 @@ function lintSize(root, ds) {
           });
         } else {
           const sug = buildDimensionalSuggestion(ds, "size", "height", node.height);
-          // For plain FRAMEs: only flag when there's an exact DS token match.
-          if (isFrame && !sug) {
+          // Same policy as width: only flag when the DS has a matching token.
+          if (!sug) {
             totalChecked--; // undo the check — this isn't a real candidate
           } else {
-            const o = {
+            offenders.push({
               nodeId: node.id,
               name: node.name,
               detail: `height ${node.height}px is not using a size token.`,
-            };
-            if (sug) o.suggestedTokens = [sug];
-            offenders.push(o);
+              suggestedTokens: [sug],
+            });
           }
         }
       }
@@ -2771,9 +2773,15 @@ function suggestNameHeuristic(node) {
   return null;
 }
 
-function lintNaming(root) {
+function lintNaming(root, { mode = "simple" } = {}) {
   const offenders = [];
   let totalChecked = 0;
+  // Heuristic name suggestions are only useful in AI mode — the AI can vet
+  // them against the thumbnail and override garbage. In simple mode the
+  // suggestion is the only fix offered, and a bad suggestion (e.g. "Text" → "Text")
+  // shows up as a one-click "fix" that doesn't fix anything. So in simple
+  // mode we just flag the issue and let the user pick a real name in Figma.
+  const wantSuggestions = mode === "ai";
   walkDesignerNodes(root, (node /* isRoot — not skipped for naming */) => {
     totalChecked++;
     const name = (node.name || "").trim();
@@ -2790,20 +2798,22 @@ function lintNaming(root) {
     }
     if (reason) {
       const o = { nodeId: node.id, name: node.name, detail: reason };
-      const suggested = suggestNameHeuristic(node);
-      // Only attach a suggestion if it's actually a fix:
-      //   - different from the current name (case-insensitive)
-      //   - wouldn't itself trigger any of the same lint regexes
-      // Avoids the absurd "Rename to 'Text'" loop where a TEXT layer named
-      // "Text" with content "Text" suggests its own name back.
-      if (suggested) {
-        const sTrim = suggested.trim();
-        const isSelfRename = sTrim.toLowerCase() === name.toLowerCase();
-        const isStillBad =
-          NAMING_DEFAULT_RE.test(sTrim) ||
-          NAMING_PLACEHOLDER_RE.test(sTrim) ||
-          (/^[^A-Za-z]*$/.test(sTrim) || sTrim.length < 2);
-        if (!isSelfRename && !isStillBad) o.suggestedName = suggested;
+      if (wantSuggestions) {
+        const suggested = suggestNameHeuristic(node);
+        // Only attach a suggestion if it's actually a fix:
+        //   - different from the current name (case-insensitive)
+        //   - wouldn't itself trigger any of the same lint regexes
+        // Avoids the absurd "Rename to 'Text'" loop where a TEXT layer named
+        // "Text" with content "Text" suggests its own name back.
+        if (suggested) {
+          const sTrim = suggested.trim();
+          const isSelfRename = sTrim.toLowerCase() === name.toLowerCase();
+          const isStillBad =
+            NAMING_DEFAULT_RE.test(sTrim) ||
+            NAMING_PLACEHOLDER_RE.test(sTrim) ||
+            (/^[^A-Za-z]*$/.test(sTrim) || sTrim.length < 2);
+          if (!isSelfRename && !isStillBad) o.suggestedName = suggested;
+        }
       }
       offenders.push(o);
     }
@@ -2841,9 +2851,9 @@ function lintNaming(root) {
 }
 
 // ── orchestrator ──
-function lintFrame(tree, enabledRules, ds, { keepInternalFields = false } = {}) {
+function lintFrame(tree, enabledRules, ds, { keepInternalFields = false, mode = "simple" } = {}) {
   const breakdown = {};
-  if (enabledRules.naming) breakdown.naming = lintNaming(tree);
+  if (enabledRules.naming) breakdown.naming = lintNaming(tree, { mode });
   if (enabledRules.components) breakdown.components = lintComponents(tree);
   if (enabledRules.autolayout) breakdown.autolayout = lintAutolayoutSimple(tree);
   if (enabledRules.colors) breakdown.colors = lintColors(tree, ds);

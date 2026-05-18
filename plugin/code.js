@@ -2431,6 +2431,19 @@ function lintSize(root, ds) {
     if (al) {
       hCheck = al.sizingHorizontal === "FIXED";
       vCheck = al.sizingVertical === "FIXED";
+      // Also honour the node's OWN axis sizing — primaryAxisSizingMode "AUTO"
+      // (or counterAxisSizingMode "AUTO") means the corresponding visual axis
+      // hugs its content, so its size is content-driven, not a fixed design
+      // value. This catches top-level hug frames where layoutSizing* defaults
+      // to FIXED for lack of a parent auto-layout context.
+      // Axis mapping depends on layoutMode:
+      //   VERTICAL   layout → primary axis = vertical, counter axis = horizontal
+      //   HORIZONTAL layout → primary axis = horizontal, counter axis = vertical
+      const isVert = al.mode === "VERTICAL";
+      const widthMode  = isVert ? al.counterAxisSizingMode : al.primaryAxisSizingMode;
+      const heightMode = isVert ? al.primaryAxisSizingMode : al.counterAxisSizingMode;
+      if (widthMode  === "AUTO") hCheck = false;
+      if (heightMode === "AUTO") vCheck = false;
     } else {
       // Non-autolayout COMPONENT/COMPONENT_SET/INSTANCE: dimensions are intrinsically fixed.
       hCheck = true;
@@ -3017,6 +3030,15 @@ function extractNode(node, depth = 0, maxDepth = 64) {
     const sh = ("layoutSizingHorizontal" in node) ? node.layoutSizingHorizontal : null;
     if (sv !== null) al.sizingVertical = sv;
     if (sh !== null) al.sizingHorizontal = sh;
+    // Internal axis sizing — describes how the node's OWN auto-layout decides
+    // its size on each axis (FIXED vs AUTO/hug). Distinct from layoutSizing*
+    // which is about how the node behaves within its PARENT's auto-layout —
+    // for a top-level scanned frame, layoutSizing* defaults to FIXED even when
+    // the node visually hugs its content, so we need the internal axes too.
+    const pas = ("primaryAxisSizingMode" in node) ? node.primaryAxisSizingMode : null;
+    const cas = ("counterAxisSizingMode" in node) ? node.counterAxisSizingMode : null;
+    if (pas !== null) al.primaryAxisSizingMode = pas;
+    if (cas !== null) al.counterAxisSizingMode = cas;
     // Flag if any direct child fills a given axis — padding on that axis
     // constrains the fill-child's size, so it's NOT safe to zero it.
     if (Array.isArray(node.children) && node.children.length) {
@@ -3118,6 +3140,8 @@ function slimTreeForAI(node, depth = 0) {
     if (al.counterAxisAlignItems) slimAl.counterAxisAlignItems = al.counterAxisAlignItems;
     if (al.sizingHorizontal) slimAl.sizingHorizontal = al.sizingHorizontal;
     if (al.sizingVertical) slimAl.sizingVertical = al.sizingVertical;
+    if (al.primaryAxisSizingMode) slimAl.primaryAxisSizingMode = al.primaryAxisSizingMode;
+    if (al.counterAxisSizingMode) slimAl.counterAxisSizingMode = al.counterAxisSizingMode;
     slim.autolayout = slimAl;
   }
   if (Array.isArray(node.children) && depth < SLIM_MAX_DEPTH) {

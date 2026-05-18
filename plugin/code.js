@@ -2058,7 +2058,12 @@ function lintColors(root, ds) {
         // displays these as pick buttons. All candidates are stored in
         // _allTokenCandidates so AI mode can make a more informed single choice.
         if (hasDs && !node.hasMultipleFills) {
-          const all = findTokensByColor(ds, f.color);
+          // Filter by scope: only tokens whose scopes match this node's fill
+          // slot (TEXT_FILL for text, FRAME_FILL for frames/components,
+          // SHAPE_FILL for shapes) are eligible. ALL_FILLS and ALL_SCOPES
+          // are universal. Stops "Surface" being suggested for an icon stroke,
+          // or "on-primary" for a card background.
+          const all = findTokensByColor(ds, f.color, { slot: "fill", nodeType: node.type });
           if (all.length > 0) {
             const top = rankColorCandidates(all, node.name);
             o.suggestedTokens = top.map(m => Object.assign({}, m, { slot: "fill", reason: "Exact match." }));
@@ -2089,7 +2094,7 @@ function lintColors(root, ds) {
           detail: `Stroke does not use a token or style.`,
         };
         if (hasDs && !node.hasMultipleStrokes) {
-          const all = findTokensByColor(ds, s.color);
+          const all = findTokensByColor(ds, s.color, { slot: "stroke", nodeType: node.type });
           if (all.length > 0) {
             const top = rankColorCandidates(all, node.name);
             o.suggestedTokens = top.map(m => Object.assign({}, m, { slot: "stroke", reason: "Exact match." }));
@@ -3675,6 +3680,7 @@ async function getLibraryDesignSystem(getColl) {
         id: v.id,
         name: v.name,
         color: hex,
+        scopes: Array.isArray(v.scopes) && v.scopes.length ? v.scopes.slice() : ["ALL_SCOPES"],
         collectionName: m.collectionName,
         libraryName: m.libraryName,
         isPrimitive: isPrimitiveTokenName(v.name, m.collectionName)
@@ -3874,6 +3880,10 @@ async function _getDesignSystemUncached() {
           id: v.id,
           name: v.name,
           color: hex,
+          // scopes restrict where a token is allowed (FRAME_FILL, SHAPE_FILL,
+          // TEXT_FILL, STROKE_COLOR, ALL_FILLS, ALL_SCOPES, EFFECT_COLOR, …).
+          // Default to ALL_SCOPES when absent — matches Figma's own default.
+          scopes: Array.isArray(v.scopes) && v.scopes.length ? v.scopes.slice() : ["ALL_SCOPES"],
           collectionName: coll ? coll.name : null,
           isPrimitive: isPrimitiveTokenName(v.name, coll ? coll.name : null)
         });
@@ -3956,12 +3966,43 @@ async function _getDesignSystemUncached() {
 // Find tokens (variable preferred over style when both match).
 // Returns { kind: "variable"|"style", id, name, color, isPrimitive? } or null.
 // Returns an array of all tokens whose resolved color matches `hex`.
-function findTokensByColor(ds, hex) {
+// Sets of node types that take frame-style fills vs shape-style fills.
+// Paint scopes in Figma are: FRAME_FILL, SHAPE_FILL, TEXT_FILL, STROKE_COLOR,
+// EFFECT_COLOR, plus the umbrellas ALL_FILLS and ALL_SCOPES.
+const FRAME_FILL_NODE_TYPES = new Set(["FRAME", "COMPONENT", "COMPONENT_SET", "INSTANCE", "SECTION"]);
+const SHAPE_FILL_NODE_TYPES = new Set(["RECTANGLE", "ELLIPSE", "POLYGON", "STAR", "LINE", "VECTOR", "BOOLEAN_OPERATION"]);
+
+// Returns the set of scope strings that are valid for this slot/nodeType.
+// A token matching ANY of these scopes can be suggested.
+function allowedColorScopes(slot, nodeType) {
+  if (slot === "stroke") return new Set(["STROKE_COLOR", "ALL_SCOPES"]);
+  if (slot === "fill") {
+    if (nodeType === "TEXT") return new Set(["TEXT_FILL", "ALL_FILLS", "ALL_SCOPES"]);
+    if (FRAME_FILL_NODE_TYPES.has(nodeType)) return new Set(["FRAME_FILL", "ALL_FILLS", "ALL_SCOPES"]);
+    if (SHAPE_FILL_NODE_TYPES.has(nodeType)) return new Set(["SHAPE_FILL", "ALL_FILLS", "ALL_SCOPES"]);
+    // Fallback: anything goes (rare node types).
+    return new Set(["FRAME_FILL", "SHAPE_FILL", "TEXT_FILL", "ALL_FILLS", "ALL_SCOPES"]);
+  }
+  // Unknown slot — be permissive.
+  return new Set(["ALL_SCOPES"]);
+}
+
+// True when the token's scopes intersect the allowed set, OR the token has no
+// scopes recorded (paint styles, library variables without scope metadata).
+function tokenInScope(token, allowed) {
+  if (!token.scopes || !token.scopes.length) return true;
+  for (const s of token.scopes) if (allowed.has(s)) return true;
+  return false;
+}
+
+function findTokensByColor(ds, hex, { slot, nodeType } = {}) {
   const norm = (c) => (c || "").toLowerCase();
   const target = norm(hex);
+  const allowed = slot ? allowedColorScopes(slot, nodeType) : null;
   const varMatches = (ds.variables || [])
     .filter(v => norm(v.color) === target)
-    .map(v => ({ kind: "variable", id: v.id, name: v.name, color: v.color, isPrimitive: v.isPrimitive, collectionName: v.collectionName }));
+    .filter(v => !allowed || tokenInScope(v, allowed))
+    .map(v => ({ kind: "variable", id: v.id, name: v.name, color: v.color, isPrimitive: v.isPrimitive, collectionName: v.collectionName, scopes: v.scopes }));
   const styleMatches = (ds.paintStyles || [])
     .filter(s => norm(s.color) === target)
     .map(s => ({ kind: "style", id: s.id, name: s.name, color: s.color }));

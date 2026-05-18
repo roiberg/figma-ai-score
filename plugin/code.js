@@ -229,6 +229,11 @@ Pre-computed. Pass through unchanged.`,
   naming: `### naming (smart)
 Pre-computed offenders cover Check 1 (regex defaults + placeholders). ADD from the thumbnail (Check 2 — semantic accuracy):
 - **Misleading**: name suggests one thing but the content is different (a "Button" that's plain text, an "Avatar" with a plain rectangle).
+- **Role mismatch — name should describe the layer's own role, not the parent's.** A child layer that duplicates its component / frame ancestor's name conveys nothing about what THAT layer is. Walk every TEXT / VECTOR / RECTANGLE / inner FRAME inside a COMPONENT or COMPONENT_SET and check: does the name describe this specific layer's role, or is it a copy of the wider component's name?
+  - TEXT "Button" inside a Button component → flag; the role is \`Label\` (or \`Title\` / \`Text\`).
+  - VECTOR "Avatar" inside an Avatar component → flag; the role is \`Image\` / \`Initials\` / \`Photo\`.
+  - FRAME "Card" inside a Card component → flag; the role is \`Header\` / \`Body\` / \`Media\`.
+  Always emit a \`suggestedName\` for these.
 - **Meaningless on purposeful layers**: "Container 2", "Thing", "Stuff", "New", "Element" on layers with clear specific purpose.
 - **Unambiguous typos**: "Hedaer" → "Header", "Naviagtion" → "Navigation". Only when the intended word is obvious.
 

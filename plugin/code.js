@@ -3244,10 +3244,13 @@ function rgbToHex(c, opacity) {
 // ──────────────────────────────────────────────────────────────────
 function isPrimitiveTokenName(variableName, collectionName) {
   const hay = ((variableName || "") + " " + (collectionName || "")).toLowerCase();
-  if (/\bprimitive(s)?\b|\braw\b|\bcore\b|\bbase\b/.test(hay)) return true;
-  // Leaf segment like "blue-500", "gray-100" — classic primitive scale.
+  if (/\bprimitive(s)?\b|\braw\b|\bcore\b|\btonal\b|\bpalette(s)?\b|\bscale(s)?\b|\bref(erence)?\b|\bbase\b/.test(hay)) return true;
+  // Single-segment palette name like "blue-500", "gray-100".
   const lastSeg = (variableName || "").split("/").pop() || "";
-  if (/^[a-z]+-?\d{2,4}$/i.test(lastSeg)) return true;
+  if (/^[a-z]+-?\d{1,4}$/i.test(lastSeg)) return true;
+  // Slash-separated palette/level — "neutrals/40", "clay/96", "blue/500".
+  // The leading group is a palette name; the trailing group is a numeric step.
+  if (/^[a-z]+\/\d{1,4}(\/[a-z0-9_-]+)?$/i.test(variableName || "")) return true;
   return false;
 }
 
@@ -3681,6 +3684,7 @@ async function getLibraryDesignSystem(getColl) {
         name: v.name,
         color: hex,
         scopes: Array.isArray(v.scopes) && v.scopes.length ? v.scopes.slice() : ["ALL_SCOPES"],
+        hiddenFromPublishing: v.hiddenFromPublishing === true,
         collectionName: m.collectionName,
         libraryName: m.libraryName,
         isPrimitive: isPrimitiveTokenName(v.name, m.collectionName)
@@ -3884,6 +3888,10 @@ async function _getDesignSystemUncached() {
           // TEXT_FILL, STROKE_COLOR, ALL_FILLS, ALL_SCOPES, EFFECT_COLOR, …).
           // Default to ALL_SCOPES when absent — matches Figma's own default.
           scopes: Array.isArray(v.scopes) && v.scopes.length ? v.scopes.slice() : ["ALL_SCOPES"],
+          // hiddenFromPublishing is the user's explicit "not for direct use"
+          // signal (typical for primitive palette tokens that exist only as
+          // aliases for semantic tokens).
+          hiddenFromPublishing: v.hiddenFromPublishing === true,
           collectionName: coll ? coll.name : null,
           isPrimitive: isPrimitiveTokenName(v.name, coll ? coll.name : null)
         });
@@ -4001,6 +4009,10 @@ function findTokensByColor(ds, hex, { slot, nodeType } = {}) {
   const allowed = slot ? allowedColorScopes(slot, nodeType) : null;
   const varMatches = (ds.variables || [])
     .filter(v => norm(v.color) === target)
+    // Hidden-from-publishing tokens are explicitly not for direct use — the
+    // designer's signal that this is a primitive that should only be reached
+    // via a semantic alias. Never suggest them.
+    .filter(v => !v.hiddenFromPublishing)
     .filter(v => !allowed || tokenInScope(v, allowed))
     .map(v => ({ kind: "variable", id: v.id, name: v.name, color: v.color, isPrimitive: v.isPrimitive, collectionName: v.collectionName, scopes: v.scopes }));
   const styleMatches = (ds.paintStyles || [])
@@ -4028,9 +4040,12 @@ function rankColorCandidates(candidates, nodeName, max) {
     const parts = (t.name || "").toLowerCase().split(/[\s\-_\/]+/);
     for (const w of parts) if (nodeWords.has(w)) s += 10;
     if ((t.collectionName || t.name || "").toLowerCase().startsWith("main")) s += 5;
-    // Penalize primitives — semantic tokens (e.g. surface/primary) should win
-    // over raw palette tokens (blue-500) when both have the matching value.
-    if (t.isPrimitive) s -= 2;
+    // Penalize primitives strongly — semantic tokens (e.g. surface/primary)
+    // should always win over raw palette tokens (clay/40, blue-500) when both
+    // have the matching value. -10 is big enough to overcome the per-segment
+    // length penalty below for any realistic name (semantic names rarely
+    // exceed 5 path segments).
+    if (t.isPrimitive) s -= 10;
     s -= parts.length; // prefer shorter names
     return s;
   }

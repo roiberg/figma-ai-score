@@ -809,7 +809,12 @@ figma.ui.onmessage = async (msg) => {
           node = await figma.getNodeByIdAsync(msg.nodeId);
         }
         if (!node) node = figma.getNodeById(msg.nodeId);
-        if (!node || typeof msg.newName !== "string" || !msg.newName.trim()) return;
+        // Throw on bad inputs so the UI's "Renaming…" button doesn't get
+        // stuck waiting for a rename-done that will never come.
+        if (!node) throw new Error("node not found");
+        if (typeof msg.newName !== "string" || !msg.newName.trim()) {
+          throw new Error("newName missing or empty");
+        }
         node.name = msg.newName;
         figma.ui.postMessage({ type: "rename-done", nodeId: msg.nodeId, newName: msg.newName });
       } catch (e) {
@@ -2786,7 +2791,20 @@ function lintNaming(root) {
     if (reason) {
       const o = { nodeId: node.id, name: node.name, detail: reason };
       const suggested = suggestNameHeuristic(node);
-      if (suggested) o.suggestedName = suggested;
+      // Only attach a suggestion if it's actually a fix:
+      //   - different from the current name (case-insensitive)
+      //   - wouldn't itself trigger any of the same lint regexes
+      // Avoids the absurd "Rename to 'Text'" loop where a TEXT layer named
+      // "Text" with content "Text" suggests its own name back.
+      if (suggested) {
+        const sTrim = suggested.trim();
+        const isSelfRename = sTrim.toLowerCase() === name.toLowerCase();
+        const isStillBad =
+          NAMING_DEFAULT_RE.test(sTrim) ||
+          NAMING_PLACEHOLDER_RE.test(sTrim) ||
+          (/^[^A-Za-z]*$/.test(sTrim) || sTrim.length < 2);
+        if (!isSelfRename && !isStillBad) o.suggestedName = suggested;
+      }
       offenders.push(o);
     }
     // Variant property naming (COMPONENT_SET / COMPONENT). Counts each

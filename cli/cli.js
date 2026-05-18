@@ -193,6 +193,10 @@ async function buildParams(subcommand, flags) {
       const params = { nodeIds };
       if (flags["frame-index"] !== undefined) params.frameIndex = parseInt(flags["frame-index"], 10);
       if (flags["frame-count"] !== undefined) params.frameCount = parseInt(flags["frame-count"], 10);
+      // --quiet: backend probe / inspection. Skips the lock + "Reviewing…"
+      // banner so a CLI scan for debugging doesn't make the plugin look like
+      // it's stuck in a review. Scan output is unchanged.
+      if (flags.quiet === true) params.quiet = true;
       return params;
     }
     case "submit-report": {

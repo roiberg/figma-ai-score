@@ -1262,39 +1262,46 @@ async function handleRpc(method, params) {
       const _scanStartedAt = Date.now();
       const _phaseTimings = {};
       const _markPhase = (label, t0) => { _phaseTimings[label] = Date.now() - t0; };
+      // Quiet mode: caller is inspecting (not running a user-facing review).
+      // Skip lock state, banner, and progress messages so the plugin UI
+      // doesn't flip into "Reviewing…" for what's really a backend probe.
+      // Scan output is unchanged.
+      const quiet = params.quiet === true;
       // Lock phase
       const ids = Array.isArray(params.nodeIds) ? params.nodeIds : [];
       // NB: do NOT clear `cancelled` here. begin_and_scan runs mid-review;
       // a Stop click between frames must persist so subsequent begin_and_scan
       // calls short-circuit. The flag is cleared only on announce_review_start.
-      locked = true;
-      lockedIds = ids;
       const names = ids.map(id => {
         const n = figma.getNodeById(id);
         return n ? n.name : "(missing)";
       });
-      figma.ui.postMessage({ type: "locked", data: { nodeIds: ids, names } });
-      // Auto-fire banner messages — works regardless of whether the AI
-      // calls announce_progress. ai-progress sets the progress line text;
-      // scan-progress sets the bold title (frame name + index) and arms
-      // the fun-sentence ticker in the UI.
-      figma.ui.postMessage({ type: "ai-progress", message: "Analyzing." });
-      figma.ui.postMessage({
-        type: "scan-progress",
-        frameName: names[0] || null,
-        frameIndex: typeof params.frameIndex === "number" ? params.frameIndex : null,
-        frameCount: typeof params.frameCount === "number" ? params.frameCount : null,
-      });
+      if (!quiet) {
+        locked = true;
+        lockedIds = ids;
+        figma.ui.postMessage({ type: "locked", data: { nodeIds: ids, names } });
+        // Auto-fire banner messages — works regardless of whether the AI
+        // calls announce_progress. ai-progress sets the progress line text;
+        // scan-progress sets the bold title (frame name + index) and arms
+        // the fun-sentence ticker in the UI.
+        figma.ui.postMessage({ type: "ai-progress", message: "Analyzing." });
+        figma.ui.postMessage({
+          type: "scan-progress",
+          frameName: names[0] || null,
+          frameIndex: typeof params.frameIndex === "number" ? params.frameIndex : null,
+          frameCount: typeof params.frameCount === "number" ? params.frameCount : null,
+        });
+      }
 
       // Scan phase: extract tree, export thumbnail, lint.
       const scanNodeId = ids[0];
-      if (!scanNodeId) return { locked: true, ok: true, count: ids.length };
+      if (!scanNodeId) return { locked: !quiet, ok: true, count: ids.length };
       let node = null;
       try {
         if (typeof figma.getNodeByIdAsync === "function") node = await figma.getNodeByIdAsync(scanNodeId);
       } catch (e) {}
       if (!node) node = figma.getNodeById(scanNodeId);
-      if (!node) return { locked: true, error: "node not found: " + scanNodeId };
+      if (!node) return { locked: !quiet, error: "node not found: " + scanNodeId };
       const _t0Extract = Date.now();
       const tree = extractNode(node);
       _markPhase("extract", _t0Extract);
@@ -1326,11 +1333,14 @@ async function handleRpc(method, params) {
       try { lintResults = lintFrame(tree, prefs, designSystem, { keepInternalFields: true, mode: "ai" }); } catch (e) {}
       _markPhase("lint", _t0Lint);
       const nodeStats = computeNodeStats(tree);
-      figma.ui.postMessage({ type: "eta-update", eta: estimateEta(nodeStats.total) });
-      // Accumulate plugin-side work for ETA stats.
-      if (_etaInFlight) {
-        _etaInFlight.pluginWorkMs += Date.now() - _scanStartedAt;
-        _etaInFlight.phaseTimings = _phaseTimings;
+      if (!quiet) {
+        figma.ui.postMessage({ type: "eta-update", eta: estimateEta(nodeStats.total) });
+        // Accumulate plugin-side work for ETA stats. Skip in quiet mode —
+        // inspection calls would pollute the ETA dataset with non-review work.
+        if (_etaInFlight) {
+          _etaInFlight.pluginWorkMs += Date.now() - _scanStartedAt;
+          _etaInFlight.phaseTimings = _phaseTimings;
+        }
       }
       // Phase timings are surfaced in eta-stats entries — no console noise.
       // Slim the tree before sending: every per-node field consumed only by
@@ -1339,7 +1349,7 @@ async function handleRpc(method, params) {
       // Cuts the AI-bound payload by ~50-70% on typical screens.
       const slimTree = slimTreeForAI(tree);
       return {
-        locked: true,
+        locked: !quiet,
         fileName: figma.root.name,
         pageName: figma.currentPage.name,
         root: { id: node.id, name: node.name, type: node.type },

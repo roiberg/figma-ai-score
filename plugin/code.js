@@ -337,10 +337,10 @@ Proportional across the ${enabledNames.length} enabled rule${enabledNames.length
 - \`rule_score = (totalChecked - offenderCount) / totalChecked * 100\`
 - \`final_score = round(average of enabled rule scores)\`
 - \`perfect = true\` only if ALL enabled rules have zero offenders.
-- **Saturation override**: if \`lintResults.saturated\` is \`true\`, set \`final_score = 0\` regardless of the proportional calculation. A frame with 50+ unresolved issues is in crisis — a proportional score makes it look "decent" when it isn't.
+- **Saturation override**: if \`lintResults.saturated\` is \`true\`, set \`final_score = 0\` regardless of the proportional calculation (individual rule scores remain proportional — only the top-level \`final_score\` is overridden to 0). A frame with 50+ unresolved issues is in crisis — a proportional score makes it look "decent" when it isn't.
 - A rule with zero nodes to check scores 100.
 
-Strict consistency: rule scores 100 ⇔ zero offenders. < 100 requires offenders listed. "Feels like a small deduction" is invalid.
+Strict consistency: a rule scores 100 if and only if both \`offenders\` and \`informational\` are empty (offenderCount = 0). < 100 requires offenders listed. "Feels like a small deduction" is invalid.
 
 ## REPORT FORMAT
 submit_report expects:

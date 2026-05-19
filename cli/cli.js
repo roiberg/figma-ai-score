@@ -258,7 +258,8 @@ function unpackThumbnail(result, params) {
   }
   const dir = join(tmpdir(), `figma-ai-score-${process.pid}`);
   try { mkdirSync(dir, { recursive: true }); } catch {}
-  const safeId = String(params.nodeId || "scan").replace(/[^a-zA-Z0-9_-]/g, "_");
+  const firstNodeId = params.nodeId || (Array.isArray(params.nodeIds) ? params.nodeIds[0] : null) || "scan";
+  const safeId = String(firstNodeId).replace(/[^a-zA-Z0-9_-]/g, "_");
   // The plugin emits JPEG (small + good enough for vision rules). Match the
   // extension so file-readers can sniff confidently.
   const path = join(dir, `${safeId}.jpg`);

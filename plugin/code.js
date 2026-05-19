@@ -314,8 +314,7 @@ The scan response includes \`lintResults\` — deterministic offenders + token s
 - autolayout: ADD quality offenders (pathological structure, wrong direction).
 
 **Saturation mode — read this first.** If \`lintResults.saturated\` is \`true\`, the frame has more than 50 pre-computed offenders. The lint has already capped each rule to its top 7 actionable issues; the rest are elided. In this mode:
-- **Skip ALL vision augmentation** — no Check 2 naming, no Check 4 components, no autolayout quality vision. The capped offenders are enough; finding 5 more issues won't change the verdict.
-- **Exception — suggestedName quality is NOT skipped by saturation.** Saturation skips adding new offenders via vision; it does not skip reviewing the semantic quality of suggestedName on offenders that already exist. Still open the thumbnail and replace structural guesses ("Stack", "Row") with semantic names for every pre-computed naming offender.
+- **Skip ALL vision augmentation** — no Check 2 naming, no Check 4 components, no autolayout quality vision, no suggestedName enrichment. The capped offenders are enough; finding 5 more issues won't change the verdict. Pass pre-computed suggestedName values through unchanged.
 - Copy the capped offenders into the report unchanged.
 - The UI shows a banner with the original counts (\`originalOffenderCounts\`) automatically; you do NOT need to enumerate elided offenders in your prose.
 - Keep your message short: name the worst 2-3 rules by count, recommend fixing the highlighted issues, and note that re-running after fixes will surface the next batch.
@@ -1318,9 +1317,10 @@ async function handleRpc(method, params) {
       let designSystem = null;
       const _t0Ds = Date.now();
       try { designSystem = await getDesignSystem(); } catch (e) {}
-      // If number variables came back empty (likely a timeout on the library
-      // API), retry once automatically before handing results to the AI.
-      if (!designSystem || !Array.isArray(designSystem.numberVariables) || !designSystem.numberVariables.length) {
+      // If the first call threw (library API timeout or permission error),
+      // retry once. Do NOT retry a valid-but-empty result — it's already
+      // cached and a second call returns the same empty value instantly.
+      if (!designSystem) {
         try { designSystem = await getDesignSystem(); } catch (e) {}
       }
       _markPhase("designSystem", _t0Ds);

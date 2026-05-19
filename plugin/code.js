@@ -1304,16 +1304,8 @@ async function handleRpc(method, params) {
       const _t0Extract = Date.now();
       const tree = extractNode(node);
       _markPhase("extract", _t0Extract);
-      let thumbnail = null;
-      let thumbError = null;
-      const _t0Thumb = Date.now();
-      try {
-        if (typeof node.exportAsync === "function") {
-          const bytes = await node.exportAsync({ format: "JPG", constraint: { type: "WIDTH", value: 384 } });
-          thumbnail = bytesToBase64(bytes);
-        }
-      } catch (e) { thumbError = String(e && e.message || e); }
-      _markPhase("thumbnail", _t0Thumb);
+      // Design system + lint run BEFORE thumbnail export so we can skip the
+      // export entirely for saturated frames (vision is skipped for those).
       let designSystem = null;
       const _t0Ds = Date.now();
       try { designSystem = await getDesignSystem(); } catch (e) {}
@@ -1332,6 +1324,23 @@ async function handleRpc(method, params) {
       const _t0Lint = Date.now();
       try { lintResults = lintFrame(tree, prefs, designSystem, { keepInternalFields: true, mode: "ai" }); } catch (e) {}
       _markPhase("lint", _t0Lint);
+      // Skip thumbnail export for saturated frames — vision augmentation is
+      // skipped for those anyway, so the image would never be used.
+      // For non-saturated frames, use a dynamic scale constraint: cap width at
+      // 320px but never upscale (small components export at their native size).
+      let thumbnail = null;
+      let thumbError = null;
+      const _t0Thumb = Date.now();
+      if (!lintResults?.saturated) {
+        try {
+          if (typeof node.exportAsync === "function") {
+            const scale = node.width > 0 ? Math.min(1.0, 320 / node.width) : 1.0;
+            const bytes = await node.exportAsync({ format: "JPG", constraint: { type: "SCALE", value: scale } });
+            thumbnail = bytesToBase64(bytes);
+          }
+        } catch (e) { thumbError = String(e && e.message || e); }
+      }
+      _markPhase("thumbnail", _t0Thumb);
       const nodeStats = computeNodeStats(tree);
       if (!quiet) {
         figma.ui.postMessage({ type: "eta-update", eta: estimateEta(nodeStats.total) });

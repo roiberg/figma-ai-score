@@ -2412,6 +2412,20 @@ function lintPadding(root, ds) {
 }
 
 // ── size rule — fixed dimensions ──
+// "Design-system-shaped" value: integer on a 4px grid in a reasonable range.
+// Used by lintSize to decide whether to flag a fixed dimension that has no
+// matching DS token. Round values like 32 / 36 / 40 / 48 are likely deliberate
+// design steps (a missing token's worth flagging so the designer can either
+// add a token or step to an adjacent one). Irregular values like 115 are
+// almost always content-driven (a button width = text + padding) and flagging
+// them adds noise.
+function looksLikeGridValue(value) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return false;
+  if (!Number.isInteger(value)) return false;
+  if (value > 256) return false; // beyond typical component dimensions
+  return value % 4 === 0;
+}
+
 // Flags any FIXED width/height that isn't bound to a variable.
 // - Auto-layout child: sizingHorizontal/Vertical === "FIXED" → check that axis.
 // - Non-autolayout eligible nodes (FRAME/GROUP/COMPONENT/INSTANCE):
@@ -2500,22 +2514,22 @@ function lintSize(root, ds) {
           });
         } else {
           const sug = buildDimensionalSuggestion(ds, "size", "width", node.width);
-          // Only flag when the DS has a matching token for this width — the
-          // flag is only actionable if the user can one-click bind it.
-          // Without a token the offender becomes noise: a fixed-width COMPONENT
-          // variant (e.g. a 115px toggle whose width is content-driven) has no
-          // sensible token to bind to, so flagging it just clutters the report.
-          // Applies to both FRAME (device canvases, scaffolding) and COMPONENT
-          // (variants whose width is content-derived).
-          if (!sug) {
+          // Flag when the value is "design-system-shaped" — either a DS token
+          // exists for it (one-click bind), OR the value is on a 4px grid (a
+          // standard design-decision step like 32, 36, 40 — the user might
+          // want a new token for it). Skip otherwise: irregular values like
+          // 115px are usually content-driven (button width = text + padding),
+          // and flagging them with no actionable fix just clutters the report.
+          if (!sug && !looksLikeGridValue(node.width)) {
             totalChecked--; // undo the check — this isn't a real candidate
           } else {
-            offenders.push({
+            const o = {
               nodeId: node.id,
               name: node.name,
               detail: `width ${node.width}px is not using a size token.`,
-              suggestedTokens: [sug],
-            });
+            };
+            if (sug) o.suggestedTokens = [sug];
+            offenders.push(o);
           }
         }
       }
@@ -2532,16 +2546,18 @@ function lintSize(root, ds) {
           });
         } else {
           const sug = buildDimensionalSuggestion(ds, "size", "height", node.height);
-          // Same policy as width: only flag when the DS has a matching token.
-          if (!sug) {
+          // Same policy as width: flag when token matches OR value is on a
+          // 4px design grid (likely a deliberate step missing from the DS).
+          if (!sug && !looksLikeGridValue(node.height)) {
             totalChecked--; // undo the check — this isn't a real candidate
           } else {
-            offenders.push({
+            const o = {
               nodeId: node.id,
               name: node.name,
               detail: `height ${node.height}px is not using a size token.`,
-              suggestedTokens: [sug],
-            });
+            };
+            if (sug) o.suggestedTokens = [sug];
+            offenders.push(o);
           }
         }
       }

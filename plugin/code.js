@@ -1999,8 +1999,13 @@ function lintComponents(root) {
     }
     for (const kids of groups.values()) {
       if (kids.length < 3) continue;
-      const mainIds = new Set(kids.map(k => k.mainComponentId || null));
-      const allSameInstance = kids.every(isInstance) && mainIds.size === 1 && !mainIds.has(null);
+      // Treat sibling instances as "correct reuse" when they all share either
+      // the same main component OR the same parent COMPONENT_SET. Different
+      // variants of one component-set (e.g. State=Default vs State=Selected)
+      // are still the same shared component — don't flag them for "extract".
+      const sharedKey = k => k.mainComponentSetId || k.mainComponentId || null;
+      const ids = new Set(kids.map(sharedKey));
+      const allSameInstance = kids.every(isInstance) && ids.size === 1 && !ids.has(null);
       if (allSameInstance) continue;
       for (let i = 1; i < kids.length; i++) {
         addOffense(kids[i], "repeated", `Sibling ${i + 1} of ${kids.length} with matching structure — extract a shared component.`);
@@ -3019,6 +3024,13 @@ function extractNode(node, depth = 0, maxDepth = 64) {
       const main = node.mainComponent;
       if (main) {
         out.mainComponentId = main.id;
+        // When the master is a variant inside a COMPONENT_SET, also capture
+        // the set's id. Sibling instances pointing at different variants of
+        // the SAME set are still correct reuse — without this they look like
+        // different mainComponentIds to Check 3 and get falsely flagged.
+        if (main.parent && main.parent.type === "COMPONENT_SET") {
+          out.mainComponentSetId = main.parent.id;
+        }
         // Inheritance: if the master component (or its parent COMPONENT_SET)
         // is flagged, the instance is treated as ignored too.
         if (!out.ignored && typeof main.getPluginData === "function" && main.getPluginData(IGNORE_PDATA_KEY) === "1") {

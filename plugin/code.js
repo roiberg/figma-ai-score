@@ -2012,6 +2012,35 @@ function lintComponents(root) {
     }
   });
 
+  // Check 3b: name-based duplicate siblings.
+  // Three or more direct sibling raw FRAMEs/GROUPs sharing a name almost
+  // always mean "this should be a separate component" — even when their
+  // internal structures differ slightly (e.g. one variant has an extra
+  // inline indicator). Catches cases Check 3 misses due to structSig
+  // sensitivity. Naming intent is a stronger signal than exact structure.
+  walkDesignerNodes(root, (node) => {
+    if (!node.children || node.children.length < 3) return;
+    if (node.type === "COMPONENT_SET") return; // variants share names by design
+    const byName = new Map();
+    for (const c of node.children) {
+      if (isExcluded(c)) continue;
+      // Raw layers only — INSTANCE is already shared; COMPONENT/COMPONENT_SET
+      // shouldn't be wrapped again.
+      if (isComponentContainer(c)) continue;
+      if (c.type !== "FRAME" && c.type !== "GROUP") continue;
+      const name = (c.name || "").trim();
+      if (!name) continue;
+      if (!byName.has(name)) byName.set(name, []);
+      byName.get(name).push(c);
+    }
+    for (const [name, kids] of byName.entries()) {
+      if (kids.length < 3) continue;
+      for (let i = 1; i < kids.length; i++) {
+        addOffense(kids[i], "repeated", `Sibling ${i + 1} of ${kids.length} named "${name}" — extract a shared component.`);
+      }
+    }
+  });
+
   const offenders = [];
   for (const o of seen.values()) {
     // Pick the single most informative reason

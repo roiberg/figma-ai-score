@@ -1387,6 +1387,14 @@ async function handleRpc(method, params) {
       if (!rpt || !Array.isArray(rpt.frames) || rpt.frames.length === 0) {
         return { ok: false, error: "Invalid report format: expected { frames: [...] }. Check that the report JSON matches the schema in get_preferences instructions." };
       }
+      for (let i = 0; i < rpt.frames.length; i++) {
+        const f = rpt.frames[i];
+        if (!f.nodeId) return { ok: false, error: "frames[" + i + "] is missing nodeId." };
+        if (typeof f.score !== "number") return { ok: false, error: "frames[" + i + "] is missing a numeric score." };
+        if (!f.breakdown || typeof f.breakdown !== "object" || Object.keys(f.breakdown).length === 0) {
+          return { ok: false, error: "frames[" + i + "] is missing breakdown. The report must include a breakdown object with per-rule results (offenders, informational, passed, enabled). See the schema in get_preferences instructions." };
+        }
+      }
       figma.ui.postMessage({ type: "ai-progress", message: "Submitting report…" });
       figma.ui.postMessage({ type: "analyzing-done" });
       figma.ui.postMessage({ type: "report", data: rpt });

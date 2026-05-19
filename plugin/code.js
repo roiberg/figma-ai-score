@@ -1383,9 +1383,13 @@ async function handleRpc(method, params) {
       return { ok: true, found: nodes.length };
     }
     case "submit_report": {
+      const rpt = params.report;
+      if (!rpt || !Array.isArray(rpt.frames) || rpt.frames.length === 0) {
+        return { ok: false, error: "Invalid report format: expected { frames: [...] }. Check that the report JSON matches the schema in get_preferences instructions." };
+      }
       figma.ui.postMessage({ type: "ai-progress", message: "Submitting report…" });
       figma.ui.postMessage({ type: "analyzing-done" });
-      figma.ui.postMessage({ type: "report", data: params.report });
+      figma.ui.postMessage({ type: "report", data: rpt });
       locked = false;
       lockedIds = [];
       // Finalize ETA stats for this review.

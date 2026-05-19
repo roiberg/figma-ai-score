@@ -489,7 +489,8 @@ async function pushSelection() {
     const node = capped[0];
     try {
       if (typeof node.exportAsync === "function") {
-        const bytes = await node.exportAsync({ format: "JPG", constraint: { type: "SCALE", value: 1 } });
+        const scale = node.width > 0 ? Math.min(1.0, 160 / node.width) : 1.0;
+        const bytes = await node.exportAsync({ format: "JPG", constraint: { type: "SCALE", value: scale } });
         thumbnail = bytesToBase64(bytes);
       }
     } catch (e) {

@@ -1332,7 +1332,7 @@ async function handleRpc(method, params) {
       let thumbnail = null;
       let thumbError = null;
       const _t0Thumb = Date.now();
-      if (!lintResults?.saturated) {
+      if (!(lintResults && lintResults.saturated)) {
         try {
           if (typeof node.exportAsync === "function") {
             const scale = node.width > 0 ? Math.min(1.0, 320 / node.width) : 1.0;

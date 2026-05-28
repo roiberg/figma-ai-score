@@ -3943,11 +3943,20 @@ async function _getDesignSystemUncached() {
   // entire local-variable + paint-style block. Team-library data still flows.
   const localEnabled = await getLocalVariablesEnabled();
 
+  // Yield helper — gives the Figma event loop a breath every 20 iterations
+  // so enumeration of large design systems doesn't freeze the editor.
+  let _yieldN = 0;
+  async function _yield() {
+    _yieldN++;
+    if (_yieldN % 20 === 0) await new Promise(function(r) { setTimeout(r, 0); });
+  }
+
   // ── Color variables ──
   if (localEnabled) try {
     if (figma.variables && typeof figma.variables.getLocalVariablesAsync === "function") {
       const vars = await figma.variables.getLocalVariablesAsync("COLOR");
       for (const v of vars) {
+        await _yield();
         const coll = await getColl(v.variableCollectionId);
         const modeId = coll && coll.defaultModeId;
         let raw = v.valuesByMode && modeId ? v.valuesByMode[modeId] : null;
@@ -3994,6 +4003,7 @@ async function _getDesignSystemUncached() {
     if (figma.variables && typeof figma.variables.getLocalVariablesAsync === "function") {
       const vars = await figma.variables.getLocalVariablesAsync("FLOAT");
       for (const v of vars) {
+        await _yield();
         const coll = await getColl(v.variableCollectionId);
         const modeId = coll && coll.defaultModeId;
         let raw = v.valuesByMode && modeId ? v.valuesByMode[modeId] : null;

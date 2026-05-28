@@ -1315,13 +1315,13 @@ async function handleRpc(method, params) {
       // variables can make hundreds of sequential Figma API calls. If it
       // hasn't finished in 12s the scan continues without token suggestions
       // rather than blocking until the bridge times out the whole call.
-      const _dsTimeout = new Promise(r => setTimeout(() => r(null), 12_000));
+      const _dsTimeout = new Promise(r => setTimeout(() => r(null), 12000));
       try { designSystem = await Promise.race([getDesignSystem(), _dsTimeout]); } catch (e) {}
       // If the first call threw (library API timeout or permission error),
       // retry once. Do NOT retry a valid-but-empty result — it's already
       // cached and a second call returns the same empty value instantly.
       if (!designSystem) {
-        try { designSystem = await Promise.race([getDesignSystem(), new Promise(r => setTimeout(() => r(null), 12_000))]); } catch (e) {}
+        try { designSystem = await Promise.race([getDesignSystem(), new Promise(r => setTimeout(() => r(null), 12000))]); } catch (e) {}
       }
       _markPhase("designSystem", _t0Ds);
       if (designSystem && Array.isArray(designSystem.variables) && designSystem.variables.length) {

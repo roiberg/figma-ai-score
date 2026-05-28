@@ -286,6 +286,7 @@ ${disabledNote}
 
 Abort on \`{cancelled: true}\` with "Review cancelled."
 Warn user if \`selection.capped\` (only first 10 frames reviewed).
+If a scan result contains \`instanceWarning\`, relay it verbatim to the user after the review — don't skip it.
 
 ## SCOPING (all rules)
 - \`ignored: true\` → exclude node and entire subtree.
@@ -1304,6 +1305,10 @@ async function handleRpc(method, params) {
       } catch (e) {}
       if (!node) node = figma.getNodeById(scanNodeId);
       if (!node) return { locked: !quiet, error: "node not found: " + scanNodeId };
+      // Warn when the scan root is a component instance — scanning an instance
+      // directly is slower and less accurate than scanning the parent frame.
+      // Surface the hint in the scan result so the AI can relay it to the user.
+      const isInstanceRoot = node.type === "INSTANCE";
       const _t0Extract = Date.now();
       const tree = extractNode(node);
       _markPhase("extract", _t0Extract);
@@ -1376,6 +1381,9 @@ async function handleRpc(method, params) {
         designSystem,
         lintResults,
         nodeStats,
+        instanceWarning: isInstanceRoot
+          ? "You scanned a component instance directly. For best results, select the parent screen frame instead — instance scans are slower and less complete."
+          : null,
       };
     }
     case "highlight_nodes": {
@@ -3746,7 +3754,9 @@ async function getLibraryDesignSystem(getColl) {
     }
   }));
 
+  let _libYieldN = 0;
   for (const entry of imported) {
+    if (++_libYieldN % 20 === 0) await new Promise(function(r) { setTimeout(r, 0); });
     if (!entry) continue;
     const { meta: m, variable: v } = entry;
     const coll = await getColl(v.variableCollectionId);

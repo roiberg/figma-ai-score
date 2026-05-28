@@ -3701,8 +3701,8 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
           clearTimeout(timer);
           console.error("Suggestion send failed:", e);
           suggestionSend.disabled = false;
-          suggestionSend.textContent = originalLabel;
-          alert("Couldn't send: " + (e && e.message ? e.message : "unknown error"));
+          suggestionSend.textContent = "Failed — try again";
+          setTimeout(() => { suggestionSend.textContent = originalLabel; }, 2500);
         }
       });
       setupCopyButton(document.getElementById("copy-review-main"), "review my design");

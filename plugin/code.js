@@ -476,7 +476,33 @@ function decorateFrameWithIgnored(frame, node) {
   });
 }
 
+// Export a node thumbnail (JPEG, base64) with a hard timeout. Returns
+// { thumbnail, error }. exportAsync isn't cancellable — on timeout the orphaned
+// export resolves into the void (nothing awaits it), but because export cost is
+// mostly off-thread render latency, racing it frees the sandbox to proceed.
+async function exportThumbnail(node, maxWidth, ms) {
+  if (typeof node.exportAsync !== "function") return { thumbnail: null, error: null };
+  const scale = node.width > 0 ? Math.min(1.0, maxWidth / node.width) : 1.0;
+  const TIMED_OUT = { __timedOut: true };
+  try {
+    const result = await Promise.race([
+      node.exportAsync({ format: "JPG", constraint: { type: "SCALE", value: scale } }),
+      new Promise(r => setTimeout(() => r(TIMED_OUT), ms)),
+    ]);
+    if (result === TIMED_OUT) return { thumbnail: null, error: "export timed out" };
+    return { thumbnail: bytesToBase64(result), error: null };
+  } catch (e) {
+    return { thumbnail: null, error: String(e && e.message || e) };
+  }
+}
+
+// Monotonic selection token. Incremented on every pushSelection so the deferred
+// ETA + thumbnail follow-ups can detect that the selection has moved on and skip
+// posting stale data. The UI mirrors this token to reject late thumbnails.
+let _selectionSeq = 0;
+
 async function pushSelection() {
+  const seq = ++_selectionSeq;
   const sel = figma.currentPage.selection;
   const max = currentMaxSelection();
   const capped = sel.slice(0, max);
@@ -485,23 +511,8 @@ async function pushSelection() {
     n
   ));
 
-  // With exactly 1 frame selected, export a thumbnail for the selection preview.
-  // Shown in both Simple and AI modes.
-  let thumbnail = null;
-  if (capped.length === 1) {
-    const node = capped[0];
-    try {
-      if (typeof node.exportAsync === "function") {
-        const scale = node.width > 0 ? Math.min(1.0, 160 / node.width) : 1.0;
-        const bytes = await node.exportAsync({ format: "JPG", constraint: { type: "SCALE", value: scale } });
-        thumbnail = bytesToBase64(bytes);
-      }
-    } catch (e) {
-      // Thumbnail is best-effort — don't block selection update.
-    }
-  }
-
-  // 1. Send selection immediately so the UI snaps without waiting for node counting.
+  // 1. Send selection IMMEDIATELY — no thumbnail, no node counting. The UI
+  //    snaps to the new selection without waiting on the JPEG export.
   figma.ui.postMessage({
     type: "selection",
     data: frames,
@@ -510,24 +521,46 @@ async function pushSelection() {
     maxSelection: max,
     fileName: figma.root.name,
     pageName: figma.currentPage.name,
-    thumbnail,
+    selectionSeq: seq,
   });
 
-  // 2. Yield to let Figma process other work, then count nodes and send ETA
-  //    separately. shallowCountNodes does many cross-thread .children accesses
-  //    so keeping it off the hot path prevents UI jank on large selections.
+  // 2. Count nodes off the hot path and send ETA separately. shallowCountNodes
+  //    does many cross-thread .children accesses, so keeping it off the immediate
+  //    path prevents UI jank on large selections. Skip if the selection moved on.
   if (capped.length > 0) {
     await new Promise(r => setTimeout(r, 0));
-    let totalNodes = 0;
-    for (const n of capped) totalNodes += shallowCountNodes(n);
-    // If we hit the cap the formula would be meaningless — use the fixed label.
-    const eta = totalNodes >= SHALLOW_COUNT_CAP
-      ? "More than 5 minutes"
-      : estimateEta(totalNodes);
-    if (eta) figma.ui.postMessage({ type: "selection-eta", eta });
+    if (seq === _selectionSeq) {
+      let totalNodes = 0;
+      for (const n of capped) totalNodes += shallowCountNodes(n);
+      // If we hit the cap the formula would be meaningless — use the fixed label.
+      const eta = totalNodes >= SHALLOW_COUNT_CAP
+        ? "More than 5 minutes"
+        : estimateEta(totalNodes);
+      if (eta) figma.ui.postMessage({ type: "selection-eta", eta });
+    }
+  }
+
+  // 3. Export the single-selection thumbnail LAST, with a 2s hard timeout, and
+  //    deliver it as a follow-up keyed by seq + node id. The UI applies it only
+  //    if the selection hasn't moved on (guards the stale-thumbnail race).
+  if (capped.length === 1) {
+    const node = capped[0];
+    const { thumbnail } = await exportThumbnail(node, 160, 2000);
+    if (thumbnail && seq === _selectionSeq) {
+      figma.ui.postMessage({ type: "selection-thumbnail", nodeId: node.id, selectionSeq: seq, thumbnail });
+    }
   }
 }
-figma.on("selectionchange", pushSelection);
+
+// Trailing-edge debounce (~150ms, no leading edge, no maxWait → never double-fires)
+// so arrow-keying through nodes doesn't re-export on every keystroke. currentpagechange
+// stays non-debounced so the file/page name in the banner updates instantly.
+let _selDebounceTimer = null;
+function scheduleSelectionPush() {
+  if (_selDebounceTimer) clearTimeout(_selDebounceTimer);
+  _selDebounceTimer = setTimeout(() => { _selDebounceTimer = null; pushSelection(); }, 150);
+}
+figma.on("selectionchange", scheduleSelectionPush);
 figma.on("currentpagechange", pushSelection);
 
 // ------- UI messages (control + RPC) -------
@@ -1270,6 +1303,10 @@ async function handleRpc(method, params) {
       // doesn't flip into "Reviewing…" for what's really a backend probe.
       // Scan output is unchanged.
       const quiet = params.quiet === true;
+      // Per-phase banner progress (ai-progress sets the progress line). Gated by
+      // !quiet so inspection probes never touch the UI. Surfaces WHICH phase is
+      // running so a hang reports its phase instead of a bare timeout.
+      const _progress = (m) => { if (!quiet) figma.ui.postMessage({ type: "ai-progress", message: m }); };
       // Lock phase
       const ids = Array.isArray(params.nodeIds) ? params.nodeIds : [];
       // NB: do NOT clear `cancelled` here. begin_and_scan runs mid-review;
@@ -1283,11 +1320,10 @@ async function handleRpc(method, params) {
         locked = true;
         lockedIds = ids;
         figma.ui.postMessage({ type: "locked", data: { nodeIds: ids, names } });
-        // Auto-fire banner messages — works regardless of whether the AI
-        // calls announce_progress. ai-progress sets the progress line text;
-        // scan-progress sets the bold title (frame name + index) and arms
-        // the fun-sentence ticker in the UI.
-        figma.ui.postMessage({ type: "ai-progress", message: "Analyzing." });
+        // Auto-fire the scan-progress banner (bold title + fun-sentence ticker).
+        // The ai-progress line is driven per-phase below (Extracting/Loading/
+        // Linting/Rendering) instead of a single static "Analyzing." that would
+        // be overwritten instantly and flicker.
         figma.ui.postMessage({
           type: "scan-progress",
           frameName: names[0] || null,
@@ -1309,12 +1345,14 @@ async function handleRpc(method, params) {
       // directly is slower and less accurate than scanning the parent frame.
       // Surface the hint in the scan result so the AI can relay it to the user.
       const isInstanceRoot = node.type === "INSTANCE";
+      _progress("Extracting layers…");
       const _t0Extract = Date.now();
       const tree = extractNode(node);
       _markPhase("extract", _t0Extract);
       // Design system + lint run BEFORE thumbnail export so we can skip the
       // export entirely for saturated frames (vision is skipped for those).
       let designSystem = null;
+      _progress("Loading design system…");
       const _t0Ds = Date.now();
       // 12s timeout on design-system fetch — a large DS with many aliased
       // variables can make hundreds of sequential Figma API calls. If it
@@ -1334,6 +1372,7 @@ async function handleRpc(method, params) {
         designSystem.variables = designSystem.variables.filter(v => v.color && frameHexes.has(v.color));
       }
       let lintResults = null;
+      _progress("Linting…");
       const _t0Lint = Date.now();
       try { lintResults = lintFrame(tree, prefs, designSystem, { keepInternalFields: true, mode: "ai" }); } catch (e) {}
       _markPhase("lint", _t0Lint);
@@ -1345,13 +1384,15 @@ async function handleRpc(method, params) {
       let thumbError = null;
       const _t0Thumb = Date.now();
       if (!(lintResults && lintResults.saturated)) {
-        try {
-          if (typeof node.exportAsync === "function") {
-            const scale = node.width > 0 ? Math.min(1.0, 320 / node.width) : 1.0;
-            const bytes = await node.exportAsync({ format: "JPG", constraint: { type: "SCALE", value: scale } });
-            thumbnail = bytesToBase64(bytes);
-          }
-        } catch (e) { thumbError = String(e && e.message || e); }
+        _progress("Rendering preview…");
+        // Budget the export against the remaining call ceiling (55s bridge cap)
+        // so a slow export degrades to a null thumbnail (thumbError="export
+        // timed out") instead of timing out the whole scan. Leave ~5s margin for
+        // node stats + tree slimming + send. Floor at 1s so we always try.
+        const _exportBudget = Math.max(1000, Math.min(10000, 50000 - (Date.now() - _scanStartedAt)));
+        const _res = await exportThumbnail(node, 320, _exportBudget);
+        thumbnail = _res.thumbnail;
+        thumbError = _res.error;
       }
       _markPhase("thumbnail", _t0Thumb);
       const nodeStats = computeNodeStats(tree);
@@ -3699,6 +3740,22 @@ async function getSelectedTokenLibraries() {
 // the same shape as the local enumeration. Each variable is imported
 // into this file via importVariableByKeyAsync so its `.id` is a stable
 // reference we can later bind via setBoundVariable.
+// Order-preserving concurrency-limited map. Workers claim indices from a shared
+// cursor, so a slow item never stalls a whole batch (better tail latency than
+// chunked Promise.all). No deps — safe in the Figma sandbox.
+async function mapLimit(items, limit, fn) {
+  const results = new Array(items.length);
+  let i = 0;
+  async function worker() {
+    while (i < items.length) {
+      const idx = i++;
+      results[idx] = await fn(items[idx], idx);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
 async function getLibraryDesignSystem(getColl) {
   const variables = [];
   const numberVariables = [];
@@ -3744,15 +3801,16 @@ async function getLibraryDesignSystem(getColl) {
   const meta = allMeta.slice(0, CAP);
 
   // Step 2: import each variable so we can read its value and later bind.
-  // Run in parallel — Figma's import API handles this fine.
-  const imported = await Promise.all(meta.map(async (m) => {
+  // Bounded concurrency (not 1000-wide Promise.all) so a large DS doesn't flood
+  // Figma's import API and jank the main thread. Per-item failures → null.
+  const imported = await mapLimit(meta, 18, async (m) => {
     try {
       const v = await figma.variables.importVariableByKeyAsync(m.key);
       return { meta: m, variable: v };
     } catch (e) {
       return null;
     }
-  }));
+  });
 
   let _libYieldN = 0;
   for (const entry of imported) {

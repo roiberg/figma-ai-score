@@ -220,7 +220,7 @@ export class Bridge {
    * Send an RPC to the plugin and await one response.
    * Throws Error with .code = TIMEOUT | PLUGIN_NOT_CONNECTED | PLUGIN_DISCONNECTED | PLUGIN_ERROR
    */
-  async call(method, params = {}) {
+  async call(method, params = {}, { timeoutMs = CALL_TIMEOUT_MS } = {}) {
     if (!this.pluginSocket || this.pluginSocket.readyState !== this.pluginSocket.OPEN) {
       const err = new Error("Plugin is not connected.");
       err.code = "PLUGIN_NOT_CONNECTED";
@@ -240,10 +240,10 @@ export class Bridge {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        const err = new Error(`Plugin call '${method}' timed out after ${CALL_TIMEOUT_MS}ms.`);
+        const err = new Error(`Plugin call '${method}' timed out after ${timeoutMs}ms.`);
         err.code = "TIMEOUT";
         reject(err);
-      }, CALL_TIMEOUT_MS);
+      }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
       try {
         this.pluginSocket.send(JSON.stringify({ type: "request", id, method, params }));

@@ -44,6 +44,42 @@ const SUBCOMMAND_TO_METHOD = {
   "eta-clear":             "clear_eta_stats",
 };
 
+// Per-method call timeout (ms). Instant UI/read RPCs get a short budget so a
+// hung call fails fast instead of waiting out the bridge default. The heavy
+// scan/submit/swatch methods keep the long default (CALL_TIMEOUT_MS = 55s).
+const METHOD_TIMEOUT_MS = {
+  get_selection:          8000,
+  get_preferences:        8000,
+  is_cancelled:           8000,
+  announce_review_start:  8000,
+  announce_progress:      8000,
+  highlight_nodes:        8000,
+  dismiss_review:         8000,
+  get_eta_stats:          8000,
+  clear_eta_stats:        8000,
+  // begin_and_scan, submit_report, create_swatch_frame → bridge default (55s)
+};
+
+// Retry policy (safe subset — no idempotency keys). Keyed on the bridge error
+// .code so we never replay a non-idempotent call that may have already run.
+//
+// - PRE_SEND codes: the call provably never reached the plugin, so retrying is
+//   safe for ANY method (including submit_report / begin_and_scan).
+// - POST_SEND codes: the plugin may have executed before the failure, so we
+//   retry ONLY read-only/idempotent methods.
+const PRE_SEND_RETRY_CODES  = new Set(["PLUGIN_NOT_CONNECTED", "SEND_FAILED", "BIND_FAILED"]);
+const POST_SEND_RETRY_CODES = new Set(["TIMEOUT", "EMPTY_RESPONSE", "PLUGIN_DISCONNECTED"]);
+const IDEMPOTENT_METHODS    = new Set(["get_selection", "get_preferences", "is_cancelled", "get_eta_stats"]);
+// CANCELLED (user intent) and PROTOCOL_MISMATCH (deterministic) are never retried.
+
+function isRetryable(code, method) {
+  if (PRE_SEND_RETRY_CODES.has(code)) return true;
+  if (POST_SEND_RETRY_CODES.has(code) && IDEMPOTENT_METHODS.has(method)) return true;
+  return false;
+}
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
 // ────────────────────────────────────────────────────────────
 // Output helpers
 // ────────────────────────────────────────────────────────────
@@ -56,9 +92,11 @@ function emitJson(obj) {
   process.stdout.write(JSON.stringify(obj, null, 2) + "\n");
 }
 
-function emitErr(code, message) {
+function emitErr(code, message, hint) {
   // Single-line JSON to stderr so a host AI can parse it without hunting.
-  process.stderr.write(JSON.stringify({ error: message, code }) + "\n");
+  const payload = { error: message, code };
+  if (hint) payload.hint = hint;
+  process.stderr.write(JSON.stringify(payload) + "\n");
 }
 
 // ────────────────────────────────────────────────────────────
@@ -507,25 +545,40 @@ async function main() {
     return 1;
   }
 
-  const bridge = new Bridge();
-  let result;
-  try {
-    await bridge.start();
-    result = await bridge.call(method, params);
-  } catch (e) {
-    bridge.close();
-    if (e.code === "PLUGIN_NOT_CONNECTED") {
-      emitErr("PLUGIN_NOT_CONNECTED", e.message);
-      return 2;
+  // Bind + RPC, with a bounded internal retry. The plugin's WebSocket blips
+  // every ~2s during normal reconnect cycles, so a fresh invocation can land in
+  // the gap and fail with PLUGIN_NOT_CONNECTED; one retry almost always catches
+  // the next reconnect. Each attempt uses a FRESH Bridge — close() leaves the
+  // old one dead (servers shut, pending rejected). See isRetryable() for which
+  // (code, method) pairs are safe to replay.
+  const timeoutMs = METHOD_TIMEOUT_MS[method];
+  const MAX_ATTEMPTS = 3;
+  let result, lastErr;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const bridge = new Bridge();
+    try {
+      await bridge.start();
+      result = await bridge.call(method, params, timeoutMs ? { timeoutMs } : undefined);
+      bridge.close();
+      lastErr = null;
+      break;
+    } catch (e) {
+      bridge.close();
+      lastErr = e;
+      if (attempt < MAX_ATTEMPTS && isRetryable(e.code, method)) {
+        // Short backoff. Also covers BIND_FAILED, where the previous attempt's
+        // port may not have fully released yet on some OSes.
+        await sleep(300 * attempt);
+        continue;
+      }
+      break;
     }
-    if (e.code === "TIMEOUT") {
-      emitErr("TIMEOUT", e.message);
-      return 3;
-    }
-    if (e.code === "PROTOCOL_MISMATCH") {
-      emitErr("PROTOCOL_MISMATCH", e.message);
-      return 5;
-    }
+  }
+
+  if (lastErr) {
+    const e = lastErr;
+    const HINT_CODES = new Set(["PLUGIN_NOT_CONNECTED", "TIMEOUT", "PLUGIN_DISCONNECTED", "BIND_FAILED"]);
+    const hint = HINT_CODES.has(e.code) ? "Run figma-ai-score doctor" : undefined;
     if (e.code === "CANCELLED") {
       // User clicked Stop while this call was in flight. Treated as a normal
       // result (exit 0 with {cancelled: true}) — same shape the AI's
@@ -533,10 +586,19 @@ async function main() {
       emitJson({ cancelled: true, reason: "user stopped review" });
       return 0;
     }
-    emitErr(e.code || "FAILURE", e.message || String(e));
+    // announce_progress is a fire-and-forget UI poke. A slow/timed-out progress
+    // banner must NOT abort the review — degrade to a non-fatal warning (exit 0).
+    // (announce_review_start stays fatal: it returns the selection the flow needs.)
+    if (e.code === "TIMEOUT" && method === "announce_progress") {
+      emitJson({ ok: true, warning: "announce_progress timed out (non-fatal)" });
+      return 0;
+    }
+    if (e.code === "PLUGIN_NOT_CONNECTED") { emitErr("PLUGIN_NOT_CONNECTED", e.message, hint); return 2; }
+    if (e.code === "TIMEOUT")              { emitErr("TIMEOUT", e.message, hint); return 3; }
+    if (e.code === "PROTOCOL_MISMATCH")    { emitErr("PROTOCOL_MISMATCH", e.message); return 5; }
+    emitErr(e.code || "FAILURE", e.message || String(e), hint);
     return 1;
   }
-  bridge.close();
 
   if (subcommand === "begin-and-scan") {
     result = unpackThumbnail(result, params);

@@ -3720,6 +3720,37 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
       let reconnectTimer = null;
       let lastReport = null;
 
+      // Reconnect backoff: retry fast right after a drop (catches the common
+      // CLI-binding-the-port-momentarily case), then back off so an idle plugin
+      // with no server doesn't poll forever. Reset to 0 on a successful open.
+      let reconnectAttempt = 0;
+      let reconnectPending = false; // a reconnect was deferred because the tab is hidden
+      const RECONNECT_BACKOFF_MS = [500, 500, 1000, 2000, 2000, 5000];
+      function nextReconnectDelay() {
+        const i = Math.min(reconnectAttempt, RECONNECT_BACKOFF_MS.length - 1);
+        reconnectAttempt++;
+        return RECONNECT_BACKOFF_MS[i];
+      }
+      function scheduleReconnect() {
+        clearTimeout(reconnectTimer);
+        // Pause reconnect attempts while the Figma tab is backgrounded — biggest
+        // battery/CPU win for an idle plugin. visibilitychange resumes it.
+        if (typeof document !== "undefined" && document.hidden) { reconnectPending = true; return; }
+        reconnectTimer = setTimeout(connect, nextReconnectDelay());
+      }
+      if (typeof document !== "undefined" && document.addEventListener) {
+        document.addEventListener("visibilitychange", () => {
+          // Resume immediately on refocus — but only if a reconnect was actually
+          // pending. A yielded ("replaced") tab never sets reconnectPending, so
+          // it stays dead.
+          if (!document.hidden && reconnectPending) {
+            reconnectPending = false;
+            reconnectAttempt = 0;
+            connect();
+          }
+        });
+      }
+
       // Grace period so a brief disconnect/reconnect (after a successful connection)
       // doesn't flicker the main UI. Only applied when we were previously connected.
       // Cold-start disconnects swap to the setup banner immediately, as usual.
@@ -3845,8 +3876,10 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
       const replacedReclaimBtn = document.getElementById("replaced-reclaim");
       function showReplacedOverlay() {
         if (replacedOverlay) replacedOverlay.style.display = "";
-        // Stop reconnecting — we've yielded to the other tab.
+        // Stop reconnecting — we've yielded to the other tab. Clear any deferred
+        // (hidden-tab) reconnect too, so refocus can't revive a yielded tab.
         clearTimeout(reconnectTimer);
+        reconnectPending = false;
         if (ws) { try { ws.onclose = null; ws.close(); } catch {} ws = null; }
         setConnected(false);
       }
@@ -3870,10 +3903,11 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
         if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
         hideReplacedOverlay();
         try { ws = new WebSocket(BRIDGE_URL); }
-        catch (e) { setConnected(false); reconnectTimer = setTimeout(connect, 2000); return; }
+        catch (e) { setConnected(false); scheduleReconnect(); return; }
 
         ws.onopen = () => {
           setConnected(true);
+          reconnectAttempt = 0; // healthy connection — reset backoff
           // SUPPORTED_METHODS: must match the cases in code.js's handleRpc switch.
           // The CLI checks this list before sending an RPC, so a stale CLI on
           // PATH (calling a removed method) gets a clear PROTOCOL_MISMATCH error
@@ -3914,7 +3948,7 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
             showReplacedOverlay();
             return;
           }
-          reconnectTimer = setTimeout(connect, 2000);
+          scheduleReconnect();
         };
         ws.onerror = () => {};
         ws.onmessage = (ev) => {
@@ -3948,12 +3982,25 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
         if (msg.type === "saved-mode") { applyMode(msg.mode, false); return; }
         if (msg.type === "prefs") renderPrefs(msg.data);
         else if (msg.type === "selection") {
-          renderSelection(msg.data, msg.total, msg.capped, msg.maxSelection, msg.thumbnail);
+          // Mirror the plugin's selection token + single-node id so a late
+          // thumbnail (selection-thumbnail) can be matched to the current
+          // selection and stale ones dropped.
+          currentSelectionSeq = msg.selectionSeq;
+          currentSingleNodeId = (msg.data && msg.data.length === 1) ? msg.data[0].id : null;
+          // Thumbnail arrives separately (selection-thumbnail) so the export
+          // doesn't block this update — clear any previous thumbnail now.
+          renderSelection(msg.data, msg.total, msg.capped, msg.maxSelection);
           // ETA arrives in a separate follow-up message (selection-eta) so that
           // the node count traversal doesn't block this immediate UI update.
           // Clear any stale ETA from a previous selection.
           _lastSelectionEta = null;
           if (preReviewEtaEl) preReviewEtaEl.style.display = "none";
+        }
+        else if (msg.type === "selection-thumbnail") {
+          // Apply only if the selection hasn't moved on since this export started.
+          if (msg.selectionSeq === currentSelectionSeq && msg.nodeId === currentSingleNodeId) {
+            setSelectionThumbnail(msg.thumbnail);
+          }
         }
         else if (msg.type === "selection-eta") {
           _lastSelectionEta = msg.eta;
@@ -4061,16 +4108,27 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
       const selectionThumbnailEl = document.getElementById("selection-thumbnail");
       const selectionThumbnailImg = document.getElementById("selection-thumbnail-img");
 
-      function renderSelection(frames, total, capped, maxSelection, thumbnail) {
-        // Thumbnail: show whenever exactly one frame is selected and a thumbnail was provided.
-        // Works in both Simple and AI modes.
-        if (thumbnail && frames && frames.length === 1) {
+      // Selection token + single-node id, mirrored from the plugin so a late
+      // selection-thumbnail message can be matched and stale ones dropped.
+      let currentSelectionSeq = 0;
+      let currentSingleNodeId = null;
+
+      // Show a thumbnail delivered out-of-band (after the selection already rendered).
+      // Works in both Simple and AI modes.
+      function setSelectionThumbnail(thumbnail) {
+        if (thumbnail) {
           selectionThumbnailImg.src = "data:image/jpeg;base64," + thumbnail;
           selectionThumbnailEl.style.display = "block";
         } else {
           selectionThumbnailEl.style.display = "none";
           selectionThumbnailImg.src = "";
         }
+      }
+
+      function renderSelection(frames, total, capped, maxSelection) {
+        // Clear any previous thumbnail — the new one (if any) arrives separately
+        // via the selection-thumbnail message so the export doesn't block render.
+        setSelectionThumbnail(null);
 
         if (!frames || frames.length === 0) {
           selectionEl.innerHTML = '<div class="empty-state">Nothing selected in Figma</div>';

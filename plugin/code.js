@@ -6,9 +6,13 @@
 //   request:  { __rpc: true, id, method, params }
 //   response: { __rpc: true, id, result? , error? }
 
-const CODE_VERSION = "0.6.9-r4"; // bump whenever code.js changes; check in browser console to confirm reload
+const CODE_VERSION = "0.6.9-r5"; // bump whenever code.js changes; check in browser console to confirm reload
 console.log("[figma-ai-score] sandbox loaded v" + CODE_VERSION);
 figma.showUI(__html__, { width: 653, height: 739, themeColors: true });
+// Push the real running build version to the UI header so the label reflects
+// the actually-loaded code.js (incl. the -rN build suffix), not a hardcoded
+// string — makes "did my reload take?" answerable at a glance.
+figma.ui.postMessage({ type: "code-version", version: CODE_VERSION });
 
 // ── Tab deduplication via clientStorage ─────────────────────────────────────
 // figma.clientStorage is shared across all open Figma tabs for this plugin.
@@ -603,6 +607,9 @@ figma.ui.onmessage = async (msg) => {
       return;
     }
     if (msg.type === "ui-ready") {
+      // Reliable resend (the eager post right after showUI can race the UI's
+      // listener registration) so the header always reflects the running build.
+      figma.ui.postMessage({ type: "code-version", version: CODE_VERSION });
       await loadPrefs();
       try {
         const m = await figma.clientStorage.getAsync("figma-ai-score.mode");

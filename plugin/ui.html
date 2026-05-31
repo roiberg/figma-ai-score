@@ -4236,6 +4236,11 @@ ${INSTALL_PROMPT_TEXT}`;
         if (msg.type === "tab-replaced") { showReplacedOverlay(); return; }
         if (msg.type === "tab-reclaimed") { hideReplacedOverlay(); return; }
         if (msg.type === "suggestion-check-result") { lastSuggestionAt = msg.lastAt || 0; return; }
+        if (msg.type === "code-version") {
+          const vEl = document.querySelector(".plugin-version");
+          if (vEl && msg.version) vEl.textContent = "v" + msg.version;
+          return;
+        }
         if (msg.type === "saved-mode") { applyMode(msg.mode, false); return; }
         if (msg.type === "prefs") renderPrefs(msg.data);
         else if (msg.type === "selection") {

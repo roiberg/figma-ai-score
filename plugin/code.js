@@ -291,6 +291,7 @@ The plugin posts its own progress for every other step (initialising, reading pr
 Abort on \`{cancelled: true}\` with "Review cancelled."
 Warn user if \`selection.capped\` (only first 10 frames reviewed).
 If a scan result contains \`instanceWarning\`, relay it verbatim to the user after the review — don't skip it.
+If \`lintResults.categoryHint\` is present, relay it to the user after the review — it means matching tokens exist but a collection is disabled in Token categories, so suggestions were suppressed by config (not a missing token). This is the actionable reason a padding/size/radius offender shows no fix button.
 If \`announce_review_start\` returns a \`versionNotice\`, relay it to the user FIRST, before continuing — the CLI and plugin are out of sync and the review may misbehave until updated.
 
 ## SCOPING (all rules)
@@ -3113,7 +3114,52 @@ function lintFrame(tree, enabledRules, ds, { keepInternalFields = false, mode = 
     saturated,
     originalOffenderCounts: saturated ? originalOffenderCounts : undefined,
     totalOffenders,
+    categoryHint: computeCategoryHint(breakdown, ds) || undefined,
   };
+}
+
+// Detect the "your tokens are there but switched off" situation: a dimensional
+// offender got no suggestion this scan, AND a token collection that holds real
+// layout tokens (spacing/size/radius by name — not icon) is disabled in Token
+// categories (explicit "ignore" override, or an override that excludes all
+// dimensional categories). Returns a user-facing nudge, or null.
+function computeCategoryHint(breakdown, ds) {
+  if (!ds || !Array.isArray(ds.numberVariables) || !ds.numberVariables.length) return null;
+  const overrides = ds.categoryOverrides || {};
+  // Only nudge if something actually went unsuggested — don't nag a clean DS.
+  const dimRules = ["padding", "spacing", "size", "radius"];
+  const hasUnsuggested = dimRules.some(rule => {
+    const r = breakdown[rule];
+    return r && (r.offenders || []).some(o => !(o.suggestedTokens && o.suggestedTokens.length));
+  });
+  if (!hasUnsuggested) return null;
+  // Group tokens by collection.
+  const byColl = new Map();
+  for (const v of ds.numberVariables) {
+    const k = tokenCollectionKey(v.libraryName, v.collectionName);
+    if (!byColl.has(k)) byColl.set(k, { name: v.collectionName || "(unnamed)", toks: [] });
+    byColl.get(k).toks.push(v);
+  }
+  const hidden = [];
+  for (const [k, info] of byColl) {
+    // Does this collection hold REAL layout tokens (not icon/avatar dims)?
+    const holdsLayout = info.toks.some(v => {
+      if (COMPONENT_DIMENSION_RE.test(v.name || "")) return false;
+      const n = (v.name || "").toLowerCase();
+      return tokenNameSpecificCategory(n) === "radius"
+        || CATEGORY_PATTERNS.spacing.test(n)
+        || SIZE_NAME_RE.test(n);
+    });
+    if (!holdsLayout) continue;
+    // Is it disabled for the dimensional rules?
+    const ov = overrides[k];
+    const disabled = Array.isArray(ov)
+      && !ov.some(c => c === "spacing" || c === "size" || c === "radius");
+    if (disabled) hidden.push(info.name);
+  }
+  if (!hidden.length) return null;
+  const list = hidden.map(n => `"${n}"`).join(", ");
+  return `Some padding/size/radius values couldn't be matched to a token because the ${list} collection ${hidden.length === 1 ? "is" : "are"} disabled in the plugin's Token categories (open the plugin → Settings → Token categories and enable spacing/size/radius for ${hidden.length === 1 ? "it" : "them"}). The matching tokens live there.`;
 }
 
 // ------- extraction -------
@@ -4448,6 +4494,14 @@ function filterDimensionTokensForRule(numberVariables, rule, overrides) {
     collTokens.get(k).push(v);
   }
   const collCategories = new Map();
+  // Collections the user EXPLICITLY set to "ignore" (override is an empty array)
+  // are off-limits to every rule — name promotion must NOT override a deliberate
+  // user choice. (computeCategoryHint surfaces a nudge when an ignored collection
+  // is hiding tokens that would otherwise match.)
+  const explicitlyIgnored = new Set();
+  for (const [k, val] of Object.entries(overrides)) {
+    if (Array.isArray(val) && val.length === 0) explicitlyIgnored.add(k);
+  }
   for (const [k, toks] of collTokens) {
     const override = overrides[k];
     collCategories.set(k, Array.isArray(override) ? override : autoDetectCollectionCategories(toks));
@@ -4463,6 +4517,7 @@ function filterDimensionTokensForRule(numberVariables, rule, overrides) {
   const eligible = [];
   for (const v of (numberVariables || [])) {
     const k = tokenCollectionKey(v.libraryName, v.collectionName);
+    if (explicitlyIgnored.has(k)) continue; // respect the user's "ignore" override
     const collCats = collCategories.get(k) || [];
     const cats = effectiveTokenCategories(v.name, collCats);
     if (!cats.some(c => accepted.includes(c))) continue;

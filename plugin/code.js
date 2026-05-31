@@ -287,6 +287,8 @@ ${disabledNote}
 3. announce_progress --step submitting  (required before submit)
 4. Write report JSON to exactly /tmp/figma-ai-score-report.json (pre-approved path — don't pick another, it triggers an approval prompt) → submit_report --report-file /tmp/figma-ai-score-report.json
 
+**Run each \`figma-ai-score\` command as its OWN standalone Bash call.** Do NOT chain with \`&&\`/\`||\`/\`;\`, do NOT pipe, do NOT use redirects (\`>\`, \`>>\`, heredocs). Write the report file with the Write tool, not \`cat >\`. Chained/piped/redirected commands can't be matched to the pre-approved allowlist, so they prompt for permission on every run (with no "always allow" option). One simple command per call stays pre-approved and silent.
+
 Abort on \`{cancelled: true}\` with "Review cancelled."
 Warn user if \`selection.capped\` (only first 10 frames reviewed).
 If a scan result contains \`instanceWarning\`, relay it verbatim to the user after the review — don't skip it.

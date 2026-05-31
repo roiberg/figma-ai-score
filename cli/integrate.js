@@ -94,6 +94,8 @@ function reviewProtocolBody() {
 
 \`announce-progress\` accepts a fixed \`--step\` key — valid values: \`starting\`, \`reading-preferences\`, \`scanning\`, \`visual-analysis\`, \`scoring\`, \`submitting\`. The plugin maps each key to its display text; arbitrary strings are rejected.
 
+**Run each \`figma-ai-score\` subcommand as its own standalone Bash call.** Do NOT chain with \`&&\`/\`||\`/\`;\`, do NOT pipe, do NOT redirect (\`>\`, \`>>\`, heredocs) — write the report file with the Write tool, never \`cat >\`. Compound, piped, or redirected commands can't match the pre-approved \`Bash(figma-ai-score:*)\` / \`Write(/tmp/figma-ai-score-*)\` allowlist, so they prompt for permission every time (with no "always allow"). One simple command per call stays silent.
+
 If any subcommand returns \`{ "cancelled": true }\` in its JSON output, stop the review immediately and tell the user "Review cancelled."
 
 ## Vision-based rules

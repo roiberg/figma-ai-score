@@ -4284,8 +4284,13 @@ function rankColorCandidates(candidates, nodeName, max) {
 // Which categories does each lint rule accept? Used by filterDimensionTokensForRule
 // to gate tokens by their override (or auto-detected) categories array.
 const RULE_ACCEPTED_CATEGORIES = {
-  padding: ["spacing"],
-  spacing: ["spacing"],
+  // padding/spacing accept "size" too: many design systems use a single unified
+  // spatial scale (size/100, size/200, …) for both element sizing AND layout
+  // spacing/padding, with no separate "spacing"-named tokens. The filter still
+  // PREFERS spacing-category tokens and only falls back to size when the DS has
+  // no spacing scale at all (see filterDimensionTokensForRule).
+  padding: ["spacing", "size"],
+  spacing: ["spacing", "size"],
   size:    ["size"],
   radius:  ["radius"],
   // Future rules will add: "font-size", "font-weight", "line-height",
@@ -4452,16 +4457,45 @@ function filterDimensionTokensForRule(numberVariables, rule, overrides) {
   // collection-level filter alone would let icon/300 ride along as a padding
   // suggestion. Exclude them from spacing & padding (but NOT from `size` — an
   // icon's frame width legitimately uses icon/300).
-  const excludeComponentDims = (rule === "spacing" || rule === "padding");
-  const out = [];
+  const isSpacingRule = (rule === "spacing" || rule === "padding");
+  const eligible = [];
   for (const v of (numberVariables || [])) {
     const k = tokenCollectionKey(v.libraryName, v.collectionName);
     const cats = collCategories.get(k) || [];
     if (!cats.some(c => accepted.includes(c))) continue;
-    if (excludeComponentDims && COMPONENT_DIMENSION_RE.test(v.name || "")) continue;
-    out.push(v);
+    // Per-token name overlay: if the token's OWN name unambiguously declares a
+    // SPECIFIC category the rule doesn't accept, exclude it — even when its
+    // collection is broadly eligible. Catches a "corner-radius/24" or a
+    // "font/line-height/lh-250" sitting in a mixed "primitive" collection that
+    // auto-detects as "size". Name-only so it never overrides the collection
+    // signal for nameless tokens (sm/md/lg) — those fall through to collection.
+    const specific = tokenNameSpecificCategory(v.name);
+    if (specific && !accepted.includes(specific)) continue;
+    if (isSpacingRule && COMPONENT_DIMENSION_RE.test(v.name || "")) continue;
+    eligible.push({ v, cats });
   }
-  return out;
+  // Spacing-preference: if any eligible token comes from a spacing-category
+  // collection, use ONLY those (a real spacing scale beats the size scale). Fall
+  // back to the size-scale tokens only when the DS has no spacing tokens at all.
+  if (isSpacingRule) {
+    const spacingTokens = eligible.filter(e => e.cats.includes("spacing")).map(e => e.v);
+    if (spacingTokens.length) return spacingTokens;
+    return eligible.map(e => e.v);
+  }
+  return eligible.map(e => e.v);
+}
+// The specific category a token's OWN NAME declares (radius / typography /
+// stroke-weight / opacity), or null. Name-only — used as an exclusion overlay
+// on the collection-level category, never to override nameless tokens.
+function tokenNameSpecificCategory(name) {
+  const n = (name || "").toLowerCase();
+  for (const cat of [
+    "radius","font-size","font-weight","line-height","letter-spacing",
+    "paragraph-spacing","stroke-weight","opacity"
+  ]) {
+    if (CATEGORY_PATTERNS[cat].test(n)) return cat;
+  }
+  return null;
 }
 // Token-name markers for element-specific dimensions (icon/avatar/logo size,
 // etc.). These are NOT layout spacing/padding values even when they share a
@@ -4480,7 +4514,16 @@ const COMPONENT_DIMENSION_RE = /\b(icon|avatar|logo|thumbnail|thumb|badge|chip|s
 function findTokensByValue(numberVariables, targetValue, opts) {
   opts = opts || {};
   const list = (numberVariables || []);
-  const exact = list.filter(v => v.value === targetValue);
+  let exact = list.filter(v => v.value === targetValue);
+  // Tie-break raw numeric aliases: a token literally named "24" (or "spacing/24")
+  // is a primitive duplicate of a semantic same-value token like "size/300".
+  // When both match, prefer the named one so the suggestion isn't ambiguous.
+  if (exact.length > 1) {
+    // "Bare numeric" = the WHOLE name is just a number ("24"), not merely a
+    // numeric last segment ("size/300" has the meaningful prefix "size").
+    const named = exact.filter(v => !/^\d+(\.\d+)?$/.test(String(v.name || "").trim()));
+    if (named.length) exact = named;
+  }
   if (opts.neighbors) {
     const below = list
       .filter(v => v.value < targetValue)

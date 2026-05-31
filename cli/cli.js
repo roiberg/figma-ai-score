@@ -23,7 +23,7 @@ import { buildIntegrationDoc } from "./integrate.js";
 
 const WS_PORT = 3055;
 
-const VERSION = "0.6.5";
+const VERSION = "0.6.6";
 
 // CLI subcommand → plugin-side RPC method name. Plugin still uses underscored
 // names (announce_review_start, etc.) — we keep that wire format unchanged.

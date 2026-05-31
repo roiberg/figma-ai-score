@@ -34,6 +34,8 @@ export class Bridge {
     this.nextId = 1;
     this._connectResolve = null;
     this._closed = false;
+    /** Version string the plugin advertised in its hello, or null if pre-versioning. */
+    this.pluginVersion = null;
   }
 
   async start() {
@@ -150,6 +152,7 @@ export class Bridge {
           // Older plugins (pre-handshake) don't send this — treat as "unknown,
           // skip the check" rather than failing them.
           this.pluginMethods = Array.isArray(msg.methods) ? msg.methods : null;
+          this.pluginVersion = typeof msg.version === "string" ? msg.version : null;
           try { ws.send(JSON.stringify({ type: "event", name: "hello:ack" })); } catch {}
           if (this._connectResolve) {
             this._connectResolve("connected");

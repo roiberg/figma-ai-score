@@ -4034,6 +4034,11 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
             type: "hello",
             role: "plugin",
             methods: SUPPORTED_METHODS,
+            // Version string so the CLI can warn when the installed CLI is
+            // older than this plugin (silent staleness otherwise — the plugin
+            // just advertises extra methods the old CLI never calls). Keep in
+            // sync with the .plugin-version header label and cli.js VERSION.
+            version: "0.6.6",
           }));
           // Client-side keepalive: send a small ping every 15s so the server's
           // idle-timeout never fires on this socket.

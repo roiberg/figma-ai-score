@@ -553,12 +553,13 @@ async function main() {
   // (code, method) pairs are safe to replay.
   const timeoutMs = METHOD_TIMEOUT_MS[method];
   const MAX_ATTEMPTS = 3;
-  let result, lastErr;
+  let result, lastErr, pluginVersion = null;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const bridge = new Bridge();
     try {
       await bridge.start();
       result = await bridge.call(method, params, timeoutMs ? { timeoutMs } : undefined);
+      pluginVersion = bridge.pluginVersion;
       bridge.close();
       lastErr = null;
       break;
@@ -604,7 +605,34 @@ async function main() {
     result = unpackThumbnail(result, params);
   }
 
+  // Version-skew notice — only on announce-review-start (first call of a
+  // review) so it's surfaced once, up front. The plugin advertises its version
+  // in the handshake; if it differs from this CLI's, one side is stale. Most
+  // dangerous case: plugin newer than CLI (the CLI silently runs old behavior
+  // because nothing rejects an unknown-but-uncalled method).
+  if (subcommand === "announce-review-start" && pluginVersion && pluginVersion !== VERSION
+      && result && typeof result === "object") {
+    const cmp = compareVersions(VERSION, pluginVersion);
+    result.versionNotice = cmp < 0
+      ? `Your figma-ai-score CLI (${VERSION}) is OLDER than the Figma plugin (${pluginVersion}). Some features may not work correctly. Tell the user to reinstall the CLI: copy the install instructions from the plugin's "Copy install instructions" button and run them.`
+      : `The Figma plugin (${pluginVersion}) is older than your figma-ai-score CLI (${VERSION}). Tell the user to update the plugin in Figma to the latest build (re-import the plugin folder).`;
+  }
+
   emitJson(result);
+  return 0;
+}
+
+// Compare dotted numeric versions. Returns -1 if a<b, 1 if a>b, 0 if equal.
+// Non-numeric / missing segments treated as 0. Good enough for "0.6.6" forms.
+function compareVersions(a, b) {
+  const pa = String(a).split(".").map(n => parseInt(n, 10) || 0);
+  const pb = String(b).split(".").map(n => parseInt(n, 10) || 0);
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const x = pa[i] || 0, y = pb[i] || 0;
+    if (x < y) return -1;
+    if (x > y) return 1;
+  }
   return 0;
 }
 

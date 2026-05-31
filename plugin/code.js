@@ -292,6 +292,7 @@ ${disabledNote}
 Abort on \`{cancelled: true}\` with "Review cancelled."
 Warn user if \`selection.capped\` (only first 10 frames reviewed).
 If a scan result contains \`instanceWarning\`, relay it verbatim to the user after the review — don't skip it.
+If \`announce_review_start\` returns a \`versionNotice\`, relay it to the user FIRST, before continuing — the CLI and plugin are out of sync and the review may misbehave until updated.
 
 ## SCOPING (all rules)
 - \`ignored: true\` → exclude node and entire subtree.

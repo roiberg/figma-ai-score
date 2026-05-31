@@ -285,7 +285,7 @@ ${disabledNote}
    e. announce_progress --step scoring         (required after vision, before writing report)
    f. Apply enabled rules. Compute score.
 3. announce_progress --step submitting  (required before submit)
-4. Write report JSON to temp file → submit_report --report-file <path>
+4. Write report JSON to exactly /tmp/figma-ai-score-report.json (pre-approved path — don't pick another, it triggers an approval prompt) → submit_report --report-file /tmp/figma-ai-score-report.json
 
 Abort on \`{cancelled: true}\` with "Review cancelled."
 Warn user if \`selection.capped\` (only first 10 frames reviewed).

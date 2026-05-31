@@ -90,7 +90,7 @@ function reviewProtocolBody() {
    - **\`figma-ai-score announce-progress --step scoring\`** (after vision, before computing scores)
    - Apply rules and compute score.
 4. After all frames: **\`figma-ai-score announce-progress --step submitting\`**.
-5. Write the final report JSON to a temp file (use the \`Write\` tool), then **\`figma-ai-score submit-report --report-file <path>\`**.
+5. Write the final report JSON to **exactly \`/tmp/figma-ai-score-report.json\`** (use the \`Write\` tool — this exact path is pre-approved in the permission allowlist, so do NOT pick a different path or you'll trigger an approval prompt), then **\`figma-ai-score submit-report --report-file /tmp/figma-ai-score-report.json\`**.
 
 \`announce-progress\` accepts a fixed \`--step\` key — valid values: \`starting\`, \`reading-preferences\`, \`scanning\`, \`visual-analysis\`, \`scoring\`, \`submitting\`. The plugin maps each key to its display text; arbitrary strings are rejected.
 

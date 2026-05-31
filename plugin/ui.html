@@ -1549,6 +1549,54 @@
       }
       button.connect-success-ok:hover { background: #07572a; }
 
+      /* Re-teach link inside the Connected banner */
+      button.connect-success-reteach {
+        background: none;
+        border: 0;
+        padding: 0;
+        margin-top: 8px;
+        color: var(--text-tertiary);
+        font-size: 11px;
+        font-family: inherit;
+        text-decoration: underline;
+        cursor: pointer;
+      }
+      button.connect-success-reteach:hover { color: var(--text-secondary); }
+
+      /* ── Setup / re-teach section (bottom of Libraries screen) ── */
+      .reteach-section {
+        margin-top: 18px;
+        padding: 14px 16px;
+        border-top: 1px solid var(--border);
+      }
+      .reteach-title {
+        font-size: 12px;
+        font-weight: 600;
+        margin: 0 0 4px;
+        color: var(--text);
+      }
+      .reteach-hint {
+        font-size: 11px;
+        color: var(--text-secondary);
+        margin: 0 0 10px;
+        line-height: 1.4;
+      }
+      button.reteach-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        padding: 6px 12px;
+        font-size: 11px;
+        font-weight: 500;
+        font-family: inherit;
+        color: var(--text);
+        cursor: pointer;
+      }
+      button.reteach-btn:hover { background: var(--bg); }
+
       /* ── Settings screen ── */
       .settings-screen {
         position: absolute;
@@ -2233,6 +2281,16 @@
         </div>
       </div>
       </div><!-- /.lib-halves -->
+
+      <!-- Setup / recovery: re-teach the AI tool if it "forgot" the plugin. -->
+      <div class="reteach-section">
+        <h3 class="reteach-title">Claude not responding to "review my design"?</h3>
+        <p class="reteach-hint">If your AI tool acts like it doesn't know about the plugin, copy this prompt, paste it into Claude, and then start a new Claude session.</p>
+        <button id="copy-reteach" class="reteach-btn">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M5 11H3.5A1.5 1.5 0 012 9.5v-7A1.5 1.5 0 013.5 1h7A1.5 1.5 0 0112 2.5V5"/></svg>
+          Copy setup instructions
+        </button>
+      </div>
     </div>
 
     <div id="replaced-overlay" class="suggestion-overlay" style="display:none">
@@ -2378,6 +2436,7 @@
               <p class="connect-success-body">
                 AI reviews start from your AI coding tool, not here. Just say <em>"review my design"</em> or run <code>/ai-score</code>.
               </p>
+              <button id="connect-success-reteach" class="connect-success-reteach">Not working? Copy setup instructions</button>
               <div class="connect-success-actions">
                 <label class="connect-success-checkbox">
                   <input type="checkbox" id="connect-success-dont-show" />
@@ -3079,6 +3138,52 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
           setTimeout(() => { copyInstallBtn.innerHTML = original; }, 3000);
         });
       }
+
+      // ── Re-teach prompt ──
+      // For when the CLI is installed but the AI tool "forgot" the plugin
+      // (CLAUDE.md block / slash command missing or not loaded). Tells the AI
+      // to regenerate both integration files from the canonical `integrate`
+      // output, then restart the session. No reinstall needed.
+      const RETEACH_PROMPT_TEXT =
+`The figma-ai-score CLI is already installed on this Mac, but you may have lost the instructions for using it. Re-teach yourself:
+
+1. Run: figma-ai-score integrate --tool claude-md
+   Replace the block between the <!-- figma-ai-score --> markers in ~/.claude/CLAUDE.md with its output (or append it if no such block exists).
+2. Run: figma-ai-score integrate --tool claude
+   Save its output to ~/.claude/commands/ai-score.md (overwrite).
+
+Then tell the user: "Done — start a new Claude Code session, then say 'review my design' or run /ai-score."
+
+If \`figma-ai-score\` is not found on PATH, the CLI isn't installed — tell the user to open the plugin's install instructions instead.`;
+
+      function wireReteachButton(btn, doneLabel) {
+        if (!btn) return;
+        const original = btn.innerHTML;
+        btn.addEventListener("click", () => {
+          try {
+            const ta = document.createElement("textarea");
+            ta.value = RETEACH_PROMPT_TEXT;
+            ta.style.position = "fixed";
+            ta.style.opacity = "0";
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand("copy");
+            document.body.removeChild(ta);
+          } catch (e) {
+            try { navigator.clipboard.writeText(RETEACH_PROMPT_TEXT); } catch (e2) {}
+          }
+          btn.innerHTML = doneLabel;
+          setTimeout(() => { btn.innerHTML = original; }, 3000);
+        });
+      }
+      wireReteachButton(
+        document.getElementById("copy-reteach"),
+        '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3 3 7-7"/></svg> Copied — paste into Claude, then start a new session'
+      );
+      wireReteachButton(
+        document.getElementById("connect-success-reteach"),
+        "Copied — paste into Claude, then start a new session"
+      );
 
       // ── Rules collapse toggle ──
       const rulesToggle = document.getElementById("rules-toggle");

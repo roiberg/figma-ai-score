@@ -2285,7 +2285,7 @@
       <!-- Setup / recovery: re-teach the AI tool if it "forgot" the plugin. -->
       <div class="reteach-section">
         <h3 class="reteach-title">Claude not responding to "review my design"?</h3>
-        <p class="reteach-hint">If your AI tool acts like it doesn't know about the plugin, copy this prompt, paste it into Claude, and then start a new Claude session.</p>
+        <p class="reteach-hint">Copy this prompt and paste it into Claude. It sets things up whether or not the CLI is already installed — re-teaching Claude if it just forgot, or doing a full install if needed. Start a new Claude session afterward.</p>
         <button id="copy-reteach" class="reteach-btn">
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M5 11H3.5A1.5 1.5 0 012 9.5v-7A1.5 1.5 0 013.5 1h7A1.5 1.5 0 0112 2.5V5"/></svg>
           Copy setup instructions
@@ -3139,22 +3139,29 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
         });
       }
 
-      // ── Re-teach prompt ──
-      // For when the CLI is installed but the AI tool "forgot" the plugin
-      // (CLAUDE.md block / slash command missing or not loaded). Tells the AI
-      // to regenerate both integration files from the canonical `integrate`
-      // output, then restart the session. No reinstall needed.
-      const RETEACH_PROMPT_TEXT =
-`The figma-ai-score CLI is already installed on this Mac, but you may have lost the instructions for using it. Re-teach yourself:
+      // ── Setup prompt (self-sufficient: re-teach OR full install) ──
+      // Handles both states from a single prompt: if the CLI is already on
+      // PATH, the AI just regenerates the two integration files; if it isn't
+      // installed at all, the AI runs the full install (which regenerates them
+      // for you). No dead-end "go find the install instructions" — everything
+      // needed is in here, including the complete install steps.
+      const SETUP_PROMPT_TEXT =
+`Set up the figma-ai-score Figma plugin integration on this Mac. FIRST check whether the CLI is already installed, then follow the matching case.
 
-1. Run: figma-ai-score integrate --tool claude-md
-   Replace the block between the <!-- figma-ai-score --> markers in ~/.claude/CLAUDE.md with its output (or append it if no such block exists).
-2. Run: figma-ai-score integrate --tool claude
-   Save its output to ~/.claude/commands/ai-score.md (overwrite).
+Run: \`figma-ai-score --version\`
 
-Then tell the user: "Done — start a new Claude Code session, then say 'review my design' or run /ai-score."
+═══ CASE A — it prints a version number (CLI already installed) ═══
+You only need to re-teach yourself the integration files:
+1. Run \`figma-ai-score integrate --tool claude-md\` and replace the block between the <!-- figma-ai-score --> markers in ~/.claude/CLAUDE.md with its output (or append it if no such block exists).
+2. Run \`figma-ai-score integrate --tool claude\` and save its output to ~/.claude/commands/ai-score.md (overwrite).
+Then tell the user: "Done — start a new Claude Code session, then say 'review my design' or run /ai-score." STOP — do not do the full install below.
 
-If \`figma-ai-score\` is not found on PATH, the CLI isn't installed — tell the user to open the plugin's install instructions instead.`;
+═══ CASE B — "command not found" (CLI NOT installed) ═══
+Do the full install below. The installer regenerates the CLAUDE.md block and the /ai-score command for you, so no separate re-teach step is needed afterward. When done, tell the user to start a new Claude Code session.
+
+────────────────────────── FULL INSTALL ──────────────────────────
+
+${INSTALL_PROMPT_TEXT}`;
 
       function wireReteachButton(btn, doneLabel) {
         if (!btn) return;
@@ -3162,7 +3169,7 @@ If \`figma-ai-score\` is not found on PATH, the CLI isn't installed — tell the
         btn.addEventListener("click", () => {
           try {
             const ta = document.createElement("textarea");
-            ta.value = RETEACH_PROMPT_TEXT;
+            ta.value = SETUP_PROMPT_TEXT;
             ta.style.position = "fixed";
             ta.style.opacity = "0";
             document.body.appendChild(ta);
@@ -3170,7 +3177,7 @@ If \`figma-ai-score\` is not found on PATH, the CLI isn't installed — tell the
             document.execCommand("copy");
             document.body.removeChild(ta);
           } catch (e) {
-            try { navigator.clipboard.writeText(RETEACH_PROMPT_TEXT); } catch (e2) {}
+            try { navigator.clipboard.writeText(SETUP_PROMPT_TEXT); } catch (e2) {}
           }
           btn.innerHTML = doneLabel;
           setTimeout(() => { btn.innerHTML = original; }, 3000);

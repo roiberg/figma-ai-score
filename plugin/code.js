@@ -4200,14 +4200,23 @@ function findTokensByColor(ds, hex, { slot, nodeType } = {}) {
   const norm = (c) => (c || "").toLowerCase();
   const target = norm(hex);
   const allowed = slot ? allowedColorScopes(slot, nodeType) : null;
-  const varMatches = (ds.variables || [])
+  // Every exact-color variable match, minus hidden-from-publishing tokens
+  // (explicitly "not for direct use" — primitives reached only via a semantic
+  // alias). Scope is applied AFTER, as a preference, not a hard gate.
+  const exactVars = (ds.variables || [])
     .filter(v => norm(v.color) === target)
-    // Hidden-from-publishing tokens are explicitly not for direct use — the
-    // designer's signal that this is a primitive that should only be reached
-    // via a semantic alias. Never suggest them.
     .filter(v => !v.hiddenFromPublishing)
-    .filter(v => !allowed || tokenInScope(v, allowed))
     .map(v => ({ kind: "variable", id: v.id, name: v.name, color: v.color, isPrimitive: v.isPrimitive, collectionName: v.collectionName, scopes: v.scopes }));
+  // Prefer in-scope tokens (a TEXT_FILL token shouldn't be the first pick for a
+  // frame background). But if scope filtering would drop EVERY exact match,
+  // fall back to the out-of-scope matches rather than suggesting nothing — a
+  // designer who scoped "surface" to SHAPE_FILL still wants it offered for a
+  // frame fill that's an exact match. Scope is a hint, not ground truth.
+  let varMatches = exactVars;
+  if (allowed) {
+    const inScope = exactVars.filter(v => tokenInScope(v, allowed));
+    varMatches = inScope.length > 0 ? inScope : exactVars;
+  }
   const styleMatches = (ds.paintStyles || [])
     .filter(s => norm(s.color) === target)
     .map(s => ({ kind: "style", id: s.id, name: s.name, color: s.color }));

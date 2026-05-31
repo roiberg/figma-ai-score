@@ -6,7 +6,7 @@
 //   request:  { __rpc: true, id, method, params }
 //   response: { __rpc: true, id, result? , error? }
 
-const CODE_VERSION = "0.6.9-r2"; // bump whenever code.js changes; check in browser console to confirm reload
+const CODE_VERSION = "0.6.9-r3"; // bump whenever code.js changes; check in browser console to confirm reload
 console.log("[figma-ai-score] sandbox loaded v" + CODE_VERSION);
 figma.showUI(__html__, { width: 653, height: 739, themeColors: true });
 
@@ -4523,17 +4523,25 @@ function filterDimensionTokensForRule(numberVariables, rule, overrides) {
     const collCats = collCategories.get(k) || [];
     const cats = effectiveTokenCategories(v.name, collCats);
     if (!cats.some(c => accepted.includes(c))) continue;
-    // icon/avatar/logo-size tokens are element dimensions, never layout
-    // spacing/padding — exclude from those rules even though they're size-ish.
-    if (isSpacingRule && COMPONENT_DIMENSION_RE.test(v.name || "")) continue;
+    // icon/avatar/logo tokens are element DIMENSIONS — only ever valid for the
+    // `size` rule (sizing that element). Never spacing, padding, or radius.
+    // Exclude them from every rule except size, even when a broad collection
+    // override tags them as eligible.
+    if (rule !== "size" && COMPONENT_DIMENSION_RE.test(v.name || "")) continue;
     eligible.push({ v, cats });
   }
-  // Spacing-preference: if any eligible token's effective category is "spacing"
-  // (a real spacing scale), use ONLY those. Fall back to the size-scale tokens
-  // only when the DS has no spacing tokens at all (unified-scale systems).
+  // Spacing-preference: prefer a DEDICATED spacing scale (tokens whose NAME
+  // signals spacing/gap/padding) over the size scale. Key this on the name
+  // pattern, NOT the inherited category — otherwise a nameless token like "24"
+  // in a collection tagged spacing+size+radius counts as "spacing" and beats a
+  // properly-named size/300. Only a real spacing-NAMED token wins the tier;
+  // otherwise fall through to all eligible (size scale) and let the by-value
+  // tie-break (in findTokensByValue) pick the best-named one.
   if (isSpacingRule) {
-    const spacingTokens = eligible.filter(e => e.cats.includes("spacing")).map(e => e.v);
-    if (spacingTokens.length) return spacingTokens;
+    const spacingNamed = eligible
+      .filter(e => CATEGORY_PATTERNS.spacing.test((e.v.name || "").toLowerCase()))
+      .map(e => e.v);
+    if (spacingNamed.length) return spacingNamed;
     return eligible.map(e => e.v);
   }
   return eligible.map(e => e.v);

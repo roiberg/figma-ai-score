@@ -4200,22 +4200,25 @@ function findTokensByColor(ds, hex, { slot, nodeType } = {}) {
   const norm = (c) => (c || "").toLowerCase();
   const target = norm(hex);
   const allowed = slot ? allowedColorScopes(slot, nodeType) : null;
-  // Every exact-color variable match, minus hidden-from-publishing tokens
-  // (explicitly "not for direct use" — primitives reached only via a semantic
-  // alias). Scope is applied AFTER, as a preference, not a hard gate.
+  // Every exact-color variable match. Both hiddenFromPublishing and scope are
+  // applied as PREFERENCES with fallback, not hard gates — verified against a
+  // real library where EVERY color variable (incl. the semantic `color/surface`)
+  // is hiddenFromPublishing, so a hard hidden-filter dropped all suggestions.
   const exactVars = (ds.variables || [])
     .filter(v => norm(v.color) === target)
-    .filter(v => !v.hiddenFromPublishing)
-    .map(v => ({ kind: "variable", id: v.id, name: v.name, color: v.color, isPrimitive: v.isPrimitive, collectionName: v.collectionName, scopes: v.scopes }));
+    .map(v => ({ kind: "variable", id: v.id, name: v.name, color: v.color, isPrimitive: v.isPrimitive, collectionName: v.collectionName, scopes: v.scopes, hiddenFromPublishing: v.hiddenFromPublishing }));
+  // Prefer published tokens; fall back to hidden ones rather than suggesting
+  // nothing. The hidden flag was meant to skip internal primitives, but real
+  // design systems mark semantic tokens hidden too. The primitive penalty in
+  // rankColorCandidates still pushes raw primitives below semantic tokens.
+  const nonHidden = exactVars.filter(v => !v.hiddenFromPublishing);
+  let varMatches = nonHidden.length > 0 ? nonHidden : exactVars;
   // Prefer in-scope tokens (a TEXT_FILL token shouldn't be the first pick for a
-  // frame background). But if scope filtering would drop EVERY exact match,
-  // fall back to the out-of-scope matches rather than suggesting nothing — a
-  // designer who scoped "surface" to SHAPE_FILL still wants it offered for a
-  // frame fill that's an exact match. Scope is a hint, not ground truth.
-  let varMatches = exactVars;
+  // frame background). But if scope filtering would drop EVERY remaining match,
+  // fall back rather than suggesting nothing. Scope is a hint, not ground truth.
   if (allowed) {
-    const inScope = exactVars.filter(v => tokenInScope(v, allowed));
-    varMatches = inScope.length > 0 ? inScope : exactVars;
+    const inScope = varMatches.filter(v => tokenInScope(v, allowed));
+    varMatches = inScope.length > 0 ? inScope : varMatches;
   }
   const styleMatches = (ds.paintStyles || [])
     .filter(s => norm(s.color) === target)

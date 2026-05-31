@@ -6,7 +6,8 @@
 //   request:  { __rpc: true, id, method, params }
 //   response: { __rpc: true, id, result? , error? }
 
-console.log("[figma-ai-score] plugin loaded (build: image-fill-exempt, 2026-04-21)");
+const CODE_VERSION = "0.6.9-r2"; // bump whenever code.js changes; check in browser console to confirm reload
+console.log("[figma-ai-score] sandbox loaded v" + CODE_VERSION);
 figma.showUI(__html__, { width: 653, height: 739, themeColors: true });
 
 // ── Tab deduplication via clientStorage ─────────────────────────────────────
@@ -1457,6 +1458,7 @@ async function handleRpc(method, params) {
         designSystem,
         lintResults,
         nodeStats,
+        codeVersion: CODE_VERSION,
         instanceWarning: isInstanceRoot
           ? "You scanned a component instance directly. For best results, select the parent screen frame instead — instance scans are slower and less complete."
           : null,

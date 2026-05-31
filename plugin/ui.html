@@ -780,6 +780,61 @@
         font-size: 11px;
         display: none;
       }
+      .review-step-list {
+        list-style: none;
+        margin: 10px 0 0 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+      }
+      .review-step {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 11px;
+        color: var(--figma-color-text-tertiary, #999);
+      }
+      .step-circle {
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        border: 1.5px solid currentColor;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-sizing: border-box;
+      }
+      .review-step.is-active {
+        color: var(--figma-color-text, #333);
+        font-weight: 600;
+      }
+      .review-step.is-active .step-circle {
+        border-color: var(--figma-color-bg-brand, #7c3aed);
+        border-width: 2px;
+        animation: step-pulse 1.2s ease-in-out infinite;
+      }
+      .review-step.is-done {
+        color: var(--figma-color-text-tertiary, #999);
+      }
+      .review-step.is-done .step-circle {
+        background: var(--figma-color-bg-brand, #7c3aed);
+        border-color: var(--figma-color-bg-brand, #7c3aed);
+      }
+      .review-step.is-done .step-circle::after {
+        content: '';
+        display: block;
+        width: 5px;
+        height: 3px;
+        border-left: 1.5px solid #fff;
+        border-bottom: 1.5px solid #fff;
+        transform: rotate(-45deg) translate(0.5px, -0.5px);
+      }
+      @keyframes step-pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.45; }
+      }
       .locked-banner .kbd {
         display: inline-block;
         padding: 0 5px;
@@ -2271,6 +2326,13 @@
               <div id="banner-eta" class="locked-eta" style="display:none"></div>
               <div id="banner-progress-line">Starting…</div>
             </div>
+            <ol id="review-step-list" class="review-step-list">
+              <li class="review-step" data-step="reading-preferences"><span class="step-circle"></span><span class="step-label">Reading preferences</span></li>
+              <li class="review-step" data-step="scanning"><span class="step-circle"></span><span class="step-label">Scanning frame</span></li>
+              <li class="review-step" data-step="visual-analysis"><span class="step-circle"></span><span class="step-label">Analyzing visually</span></li>
+              <li class="review-step" data-step="scoring"><span class="step-circle"></span><span class="step-label">Scoring</span></li>
+              <li class="review-step" data-step="submitting"><span class="step-circle"></span><span class="step-label">Submitting report</span></li>
+            </ol>
             <div id="progress-fun-line" class="progress-fun"></div>
             <div id="stop-wrap" class="stop-wrap">
               <button id="stop" class="danger" style="width:100%">Stop review</button>
@@ -2633,6 +2695,30 @@
       // analyzing-done / hideLocked.
       function setProgressMessage(message) {
         bannerProgressLine.textContent = message || "Starting…";
+      }
+      const REVIEW_STEP_ORDER = [
+        "reading-preferences",
+        "scanning",
+        "visual-analysis",
+        "scoring",
+        "submitting",
+      ];
+      function setReviewStep(step) {
+        var idx = REVIEW_STEP_ORDER.indexOf(step);
+        if (idx === -1) return;
+        var items = document.querySelectorAll(".review-step");
+        items.forEach(function(el) {
+          var s = el.getAttribute("data-step");
+          var i = REVIEW_STEP_ORDER.indexOf(s);
+          el.classList.remove("is-done", "is-active");
+          if (i < idx) el.classList.add("is-done");
+          else if (i === idx) el.classList.add("is-active");
+        });
+      }
+      function clearReviewSteps() {
+        document.querySelectorAll(".review-step").forEach(function(el) {
+          el.classList.remove("is-done", "is-active");
+        });
       }
       // ───────────────────────────────────────────────────────────────────
       const reportEl = document.getElementById("report");
@@ -4022,7 +4108,8 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
             bannerEta.style.display = "";
           }
         }
-        else if (msg.type === "analyzing-done") { _analyzingStage = false; _stopFunTicker(); }
+        else if (msg.type === "ai-step") { setReviewStep(msg.step); }
+        else if (msg.type === "analyzing-done") { _analyzingStage = false; _stopFunTicker(); clearReviewSteps(); }
         else if (msg.type === "locked") showLocked(msg.data);
         else if (msg.type === "unlocked") hideLocked();
         else if (msg.type === "report") renderReport(msg.data);
@@ -4345,6 +4432,7 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         lockedBanner.style.display = "none";
         stopBtn.disabled = false;
         stopBtn.textContent = "Stop review";
+        clearReviewSteps();
       }
       stopBtn.addEventListener("click", () => {
         // Tell the sandbox to flip its cancelled flag.

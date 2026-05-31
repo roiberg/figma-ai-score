@@ -278,9 +278,12 @@ ${disabledNote}
 0. announce_review_start → use returned \`selection.frames\` (skip get_selection).
 1. get_preferences → read \`instructions\`. If \`designDoc.content\` non-null, use throughout.
 2. For each frame i of N (1-based):
-   a. announce_progress --step analyzing  (required before every scan)
+   a. announce_progress --step scanning        (required before every scan)
    b. begin_and_scan --node-ids <id> --frame-index i --frame-count N
-   c. Apply enabled rules. Compute score.
+   c. announce_progress --step visual-analysis (required after scan, before reading thumbnail)
+   d. Read thumbnailPath for vision rules.
+   e. announce_progress --step scoring         (required after vision, before writing report)
+   f. Apply enabled rules. Compute score.
 3. announce_progress --step submitting  (required before submit)
 4. Write report JSON to temp file → submit_report --report-file <path>
 
@@ -1209,6 +1212,7 @@ async function handleRpc(method, params) {
     }
     case "get_preferences": {
       figma.ui.postMessage({ type: "ai-progress", message: "Reading preferences…" });
+      figma.ui.postMessage({ type: "ai-step", step: "reading-preferences" });
       let designDoc = null;
       try {
         designDoc = await figma.clientStorage.getAsync("figma-ai-score.design-doc") || null;
@@ -1228,13 +1232,18 @@ async function handleRpc(method, params) {
       // of step keys; the plugin owns the display text so the AI can't inject
       // arbitrary copy (including frame names).
       const STEP_LABELS = {
-        "starting":             "Starting…",
-        "reading-preferences":  "Reading preferences…",
-        "analyzing":            "Analyzing…",
-        "submitting":           "Submitting report…",
+        "starting":          "Starting…",
+        "reading-preferences": "Reading preferences…",
+        "scanning":          "Scanning frame…",
+        "analyzing":         "Scanning frame…",   // backward-compat alias
+        "visual-analysis":   "Analyzing visually…",
+        "scoring":           "Scoring…",
+        "submitting":        "Submitting report…",
       };
-      const label = STEP_LABELS[params.step] || STEP_LABELS[params.message] || "";
+      const step = params.step || params.message || "";
+      const label = STEP_LABELS[step] || "";
       if (label) figma.ui.postMessage({ type: "ai-progress", message: label });
+      if (step) figma.ui.postMessage({ type: "ai-step", step: step === "analyzing" ? "scanning" : step });
       return { ok: true };
     }
     case "announce_review_start": {
@@ -1452,6 +1461,7 @@ async function handleRpc(method, params) {
         }
       }
       figma.ui.postMessage({ type: "ai-progress", message: "Submitting report…" });
+      figma.ui.postMessage({ type: "ai-step", step: "submitting" });
       figma.ui.postMessage({ type: "analyzing-done" });
       figma.ui.postMessage({ type: "report", data: rpt });
       locked = false;

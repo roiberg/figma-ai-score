@@ -6,7 +6,7 @@
 //   request:  { __rpc: true, id, method, params }
 //   response: { __rpc: true, id, result? , error? }
 
-const CODE_VERSION = "0.6.9-r3"; // bump whenever code.js changes; check in browser console to confirm reload
+const CODE_VERSION = "0.6.9-r4"; // bump whenever code.js changes; check in browser console to confirm reload
 console.log("[figma-ai-score] sandbox loaded v" + CODE_VERSION);
 figma.showUI(__html__, { width: 653, height: 739, themeColors: true });
 
@@ -3934,6 +3934,7 @@ async function getLibraryDesignSystem(getColl) {
         id: v.id,
         name: v.name,
         value: raw,
+        scopes: Array.isArray(v.scopes) && v.scopes.length ? v.scopes.slice() : ["ALL_SCOPES"],
         collectionName: m.collectionName,
         libraryName: m.libraryName,
         isPrimitive: isPrimitiveTokenName(v.name, m.collectionName)
@@ -4013,6 +4014,7 @@ async function getLibraryDesignSystem(getColl) {
             id: v.id,
             name: v.name,
             value: raw,
+            scopes: Array.isArray(v.scopes) && v.scopes.length ? v.scopes.slice() : ["ALL_SCOPES"],
             collectionName: coll.name,
             libraryName: coll.name,
             isPrimitive: isPrimitiveTokenName(v.name, coll.name)
@@ -4176,6 +4178,10 @@ async function _getDesignSystemUncached() {
           id: v.id,
           name: v.name,
           value: raw,
+          // Figma FLOAT scopes (GAP, WIDTH_HEIGHT, CORNER_RADIUS, STROKE_FLOAT,
+          // FONT_SIZE, …) are the authoritative signal for which property a
+          // token may bind to. ALL_SCOPES (Figma default) = no restriction.
+          scopes: Array.isArray(v.scopes) && v.scopes.length ? v.scopes.slice() : ["ALL_SCOPES"],
           collectionName: coll ? coll.name : null,
           isPrimitive: isPrimitiveTokenName(v.name, coll ? coll.name : null)
         });
@@ -4346,6 +4352,29 @@ const RULE_ACCEPTED_CATEGORIES = {
   // Future rules will add: "font-size", "font-weight", "line-height",
   // "letter-spacing", "paragraph-spacing", "stroke-weight", "opacity".
 };
+
+// Figma FLOAT variable scopes a rule's property can bind to. This is the
+// AUTHORITATIVE filter — a variable scoped to CORNER_RADIUS only can never be
+// applied to padding, regardless of its name or collection. ALL_SCOPES (the
+// Figma default) means unrestricted. A token whose scopes don't intersect the
+// rule's set (and isn't ALL_SCOPES) is excluded before any name/category logic.
+const RULE_ALLOWED_FLOAT_SCOPES = {
+  padding: ["GAP", "ALL_SCOPES"],
+  spacing: ["GAP", "ALL_SCOPES"],
+  size:    ["WIDTH_HEIGHT", "ALL_SCOPES"],
+  radius:  ["CORNER_RADIUS", "ALL_SCOPES"],
+};
+// True unless the token's scopes positively exclude this rule. Tokens with no
+// scopes recorded (older scans, ALL_SCOPES) are treated as unrestricted.
+function tokenScopeAllowsRule(token, rule) {
+  const allowed = RULE_ALLOWED_FLOAT_SCOPES[rule];
+  if (!allowed) return true;
+  const scopes = token && token.scopes;
+  if (!Array.isArray(scopes) || !scopes.length) return true; // unknown → don't gate
+  if (scopes.indexOf("ALL_SCOPES") !== -1) return true;
+  for (const s of scopes) if (allowed.indexOf(s) !== -1) return true;
+  return false;
+}
 
 // Token-category overrides let users override the auto-detection per
 // collection. Stored shape: { "<libraryName||local>::<collectionName>": [category, ...] }.
@@ -4520,6 +4549,10 @@ function filterDimensionTokensForRule(numberVariables, rule, overrides) {
   for (const v of (numberVariables || [])) {
     const k = tokenCollectionKey(v.libraryName, v.collectionName);
     if (explicitlyIgnored.has(k)) continue; // respect the user's "ignore" override
+    // Authoritative: Figma variable scope. A CORNER_RADIUS-scoped token can
+    // never be padding, etc. Tokens with no scope info fall through to the
+    // name/category heuristics below.
+    if (!tokenScopeAllowsRule(v, rule)) continue;
     const collCats = collCategories.get(k) || [];
     const cats = effectiveTokenCategories(v.name, collCats);
     if (!cats.some(c => accepted.includes(c))) continue;

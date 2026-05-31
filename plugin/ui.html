@@ -3804,7 +3804,12 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
       // with no server doesn't poll forever. Reset to 0 on a successful open.
       let reconnectAttempt = 0;
       let reconnectPending = false; // a reconnect was deferred because the tab is hidden
-      const RECONNECT_BACKOFF_MS = [500, 500, 1000, 2000, 2000, 5000];
+      // Caps at 2s (not 5s): the CLI's connect window is 6s, and an idle plugin
+      // sitting at a 5s poll interval would race that window — the CLI binds the
+      // port, then waits up to 5s for the plugin's next poll, and any jitter
+      // tips it past 6s → a spurious PLUGIN_NOT_CONNECTED on the first call of a
+      // review. At a 2s cap the plugin gets ~3 connect chances inside the window.
+      const RECONNECT_BACKOFF_MS = [500, 500, 1000, 2000];
       function nextReconnectDelay() {
         const i = Math.min(reconnectAttempt, RECONNECT_BACKOFF_MS.length - 1);
         reconnectAttempt++;

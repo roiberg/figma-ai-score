@@ -3810,11 +3810,21 @@ Tell me the error and try to fix it rather than give up. The source at the GitHu
         reconnectAttempt++;
         return RECONNECT_BACKOFF_MS[i];
       }
+      const HIDDEN_RECONNECT_MS = 3000;
       function scheduleReconnect() {
         clearTimeout(reconnectTimer);
-        // Pause reconnect attempts while the Figma tab is backgrounded — biggest
-        // battery/CPU win for an idle plugin. visibilitychange resumes it.
-        if (typeof document !== "undefined" && document.hidden) { reconnectPending = true; return; }
+        // While the Figma tab is backgrounded, keep reconnecting but at a steady
+        // slower interval (not the fast 500ms ramp) to save battery. We must NOT
+        // pause entirely: the CLI workflow runs with Figma in the background (the
+        // user is in their AI tool), so a fully-paused reconnect means the CLI
+        // binds the port and waits with no plugin trying to reach it — which was
+        // causing ~40s "time to connect" delays. visibilitychange still resets
+        // to the fast ramp on refocus.
+        if (typeof document !== "undefined" && document.hidden) {
+          reconnectPending = true;
+          reconnectTimer = setTimeout(connect, HIDDEN_RECONNECT_MS);
+          return;
+        }
         reconnectTimer = setTimeout(connect, nextReconnectDelay());
       }
       if (typeof document !== "undefined" && document.addEventListener) {

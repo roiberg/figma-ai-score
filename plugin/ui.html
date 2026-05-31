@@ -2323,6 +2323,7 @@
               <div id="progress-fun-line" class="progress-fun"></div>
             </div>
             <ol id="review-step-list" class="review-step-list">
+              <li class="review-step" data-step="initialising"><span class="step-circle"></span><span class="step-label">Initialising review</span></li>
               <li class="review-step" data-step="reading-preferences"><span class="step-circle"></span><span class="step-label">Reading plugin preferences</span></li>
               <li class="review-step" data-step="scanning"><span class="step-circle"></span><span class="step-label">Scanning the frame</span></li>
               <li class="review-step" data-step="visual-analysis"><span class="step-circle"></span><span class="step-label">Visual review</span></li>
@@ -2688,6 +2689,7 @@
       // message handler doesn't need a special case.
       function setProgressMessage(message) {}
       const REVIEW_STEP_ORDER = [
+        "initialising",
         "reading-preferences",
         "scanning",
         "visual-analysis",

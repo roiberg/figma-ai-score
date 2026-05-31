@@ -1290,6 +1290,10 @@ async function handleRpc(method, params) {
           switchMode: "ai",
           names: selSummary.frames.map(f => f.name)
         });
+        // Light the first checklist step immediately — there's an ~8s gap
+        // while the AI reads the instructions before get_preferences fires
+        // "reading-preferences", and a blank checklist looks stalled.
+        figma.ui.postMessage({ type: "ai-step", step: "initialising" });
       }
       return {
         ok: true,

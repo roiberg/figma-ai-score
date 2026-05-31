@@ -4450,33 +4450,28 @@ function filterDimensionTokensForRule(numberVariables, rule, overrides) {
     const override = overrides[k];
     collCategories.set(k, Array.isArray(override) ? override : autoDetectCollectionCategories(toks));
   }
-  // Per-token guard: a token whose NAME marks it as a specific component
-  // dimension (icon/avatar/logo size, etc.) is a sizing token for that element
-  // — never layout spacing or padding. Collections often mix these into one
-  // numeric scale, so the collection auto-detects as "spacing"+"size" and the
-  // collection-level filter alone would let icon/300 ride along as a padding
-  // suggestion. Exclude them from spacing & padding (but NOT from `size` — an
-  // icon's frame width legitimately uses icon/300).
+  // Per-token category PROMOTION: a token's OWN name is a stronger signal than
+  // its collection's majority vote. When a flat "primitive" collection mixes
+  // radius + size + typography tokens, the collection auto-detects as the
+  // plurality ("size"), drowning out the minority categories. Promotion uses
+  // each token's name to grant its real category (corner-radius/24 → radius),
+  // and only falls back to the collection vote for genuinely nameless tokens
+  // (sm/md/lg) where the name carries no signal.
   const isSpacingRule = (rule === "spacing" || rule === "padding");
   const eligible = [];
   for (const v of (numberVariables || [])) {
     const k = tokenCollectionKey(v.libraryName, v.collectionName);
-    const cats = collCategories.get(k) || [];
+    const collCats = collCategories.get(k) || [];
+    const cats = effectiveTokenCategories(v.name, collCats);
     if (!cats.some(c => accepted.includes(c))) continue;
-    // Per-token name overlay: if the token's OWN name unambiguously declares a
-    // SPECIFIC category the rule doesn't accept, exclude it — even when its
-    // collection is broadly eligible. Catches a "corner-radius/24" or a
-    // "font/line-height/lh-250" sitting in a mixed "primitive" collection that
-    // auto-detects as "size". Name-only so it never overrides the collection
-    // signal for nameless tokens (sm/md/lg) — those fall through to collection.
-    const specific = tokenNameSpecificCategory(v.name);
-    if (specific && !accepted.includes(specific)) continue;
+    // icon/avatar/logo-size tokens are element dimensions, never layout
+    // spacing/padding — exclude from those rules even though they're size-ish.
     if (isSpacingRule && COMPONENT_DIMENSION_RE.test(v.name || "")) continue;
     eligible.push({ v, cats });
   }
-  // Spacing-preference: if any eligible token comes from a spacing-category
-  // collection, use ONLY those (a real spacing scale beats the size scale). Fall
-  // back to the size-scale tokens only when the DS has no spacing tokens at all.
+  // Spacing-preference: if any eligible token's effective category is "spacing"
+  // (a real spacing scale), use ONLY those. Fall back to the size-scale tokens
+  // only when the DS has no spacing tokens at all (unified-scale systems).
   if (isSpacingRule) {
     const spacingTokens = eligible.filter(e => e.cats.includes("spacing")).map(e => e.v);
     if (spacingTokens.length) return spacingTokens;
@@ -4485,8 +4480,7 @@ function filterDimensionTokensForRule(numberVariables, rule, overrides) {
   return eligible.map(e => e.v);
 }
 // The specific category a token's OWN NAME declares (radius / typography /
-// stroke-weight / opacity), or null. Name-only — used as an exclusion overlay
-// on the collection-level category, never to override nameless tokens.
+// stroke-weight / opacity), or null.
 function tokenNameSpecificCategory(name) {
   const n = (name || "").toLowerCase();
   for (const cat of [
@@ -4496,6 +4490,20 @@ function tokenNameSpecificCategory(name) {
     if (CATEGORY_PATTERNS[cat].test(n)) return cat;
   }
   return null;
+}
+// Effective categories for one token: its NAME wins when it carries a clear
+// signal (specific category, "spacing"/gap/padding, or an explicit "size"
+// keyword); otherwise defer to the collection's detected categories. This is
+// what lets radius/typography tokens survive inside a flat mixed collection.
+const SIZE_NAME_RE = /(^|[\/_\- ])(size|width|height|dimension|dimen)([\/_\- ]|\d|$)/i;
+function effectiveTokenCategories(name, collCats) {
+  const n = (name || "").toLowerCase();
+  const specific = tokenNameSpecificCategory(n);
+  if (specific) return [specific];
+  if (CATEGORY_PATTERNS.spacing.test(n)) return ["spacing"];
+  if (SIZE_NAME_RE.test(n)) return ["size"];
+  // No category signal in the name (sm/md/lg, bare "24") → trust the collection.
+  return collCats || [];
 }
 // Token-name markers for element-specific dimensions (icon/avatar/logo size,
 // etc.). These are NOT layout spacing/padding values even when they share a

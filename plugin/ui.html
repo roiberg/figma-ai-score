@@ -769,10 +769,6 @@
         opacity: 0.75;
         margin-bottom: 2px;
       }
-      #banner-progress-line {
-        margin-top: 4px;
-        font-size: 11px;
-      }
       .progress-fun {
         font-style: italic;
         opacity: 0.65;
@@ -2324,7 +2320,7 @@
                 <span id="banner-dot" class="reviewing-dot"></span><span id="banner-title">Starting review…</span>
               </div>
               <div id="banner-eta" class="locked-eta" style="display:none"></div>
-              <div id="banner-progress-line">Starting…</div>
+              <div id="progress-fun-line" class="progress-fun"></div>
             </div>
             <ol id="review-step-list" class="review-step-list">
               <li class="review-step" data-step="reading-preferences"><span class="step-circle"></span><span class="step-label">Reading preferences</span></li>
@@ -2333,7 +2329,6 @@
               <li class="review-step" data-step="scoring"><span class="step-circle"></span><span class="step-label">Scoring</span></li>
               <li class="review-step" data-step="submitting"><span class="step-circle"></span><span class="step-label">Submitting report</span></li>
             </ol>
-            <div id="progress-fun-line" class="progress-fun"></div>
             <div id="stop-wrap" class="stop-wrap">
               <button id="stop" class="danger" style="width:100%">Stop review</button>
             </div>
@@ -2608,7 +2603,6 @@
       const lockedBannerText = document.getElementById("locked-banner-text");
       const bannerTitle = document.getElementById("banner-title");
       const bannerEta = document.getElementById("banner-eta");
-      const bannerProgressLine = document.getElementById("banner-progress-line");
       const progressFunLine = document.getElementById("progress-fun-line");
       const reviewPanel = document.getElementById("review-panel");
       const stopWrap = document.getElementById("stop-wrap");
@@ -2689,13 +2683,10 @@
           }
         }
       }
-      // Updates the AI progress line (below ETA, above fun sentences).
-      // Does NOT touch the fun ticker — real messages and fun sentences coexist
-      // in their own rows. The ticker starts in showScanProgress and stops on
-      // analyzing-done / hideLocked.
-      function setProgressMessage(message) {
-        bannerProgressLine.textContent = message || "Starting…";
-      }
+      // Progress is now conveyed by the step checklist (setReviewStep), so the
+      // old text progress line was removed. Kept as a no-op so the ai-progress
+      // message handler doesn't need a special case.
+      function setProgressMessage(message) {}
       const REVIEW_STEP_ORDER = [
         "reading-preferences",
         "scanning",
@@ -4426,7 +4417,6 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
       function hideLocked() {
         _analyzingStage = false;
         _stopFunTicker();
-        bannerProgressLine.textContent = "Starting…";
         document.body.classList.remove("reviewing");
         stopWrap.style.display = "none";
         lockedBanner.style.display = "none";

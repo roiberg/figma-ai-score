@@ -2696,9 +2696,18 @@
         "scoring",
         "submitting",
       ];
+      // Monotonic: the checklist only ever moves forward within a review. Two
+      // sources fire step transitions — the plugin (begin_and_scan entry/return)
+      // and the AI (announce-progress) — and they can arrive slightly out of
+      // order, e.g. a late "scanning" landing after the plugin already advanced
+      // to "visual-analysis". Ignoring backward moves prevents the jarring
+      // jump. Reset to -1 in clearReviewSteps at the start/end of each review.
+      var _currentStepIdx = -1;
       function setReviewStep(step) {
         var idx = REVIEW_STEP_ORDER.indexOf(step);
         if (idx === -1) return;
+        if (idx <= _currentStepIdx) return; // never move backward
+        _currentStepIdx = idx;
         var items = document.querySelectorAll(".review-step");
         items.forEach(function(el) {
           var s = el.getAttribute("data-step");
@@ -2709,6 +2718,7 @@
         });
       }
       function clearReviewSteps() {
+        _currentStepIdx = -1;
         document.querySelectorAll(".review-step").forEach(function(el) {
           el.classList.remove("is-done", "is-active");
         });

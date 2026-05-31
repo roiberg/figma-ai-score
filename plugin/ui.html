@@ -1403,6 +1403,42 @@
         align-self: center;
         line-height: 1;
       }
+      /* Per-slot suggestion sub-list (padding / size multi-value offenders) */
+      .slot-suggestion-list {
+        margin-top: 6px;
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+      }
+      .slot-suggestion-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 4px 6px;
+        background: var(--bg-secondary);
+        border-radius: 5px;
+        transition: opacity 0.2s, transform 0.2s;
+      }
+      .slot-suggestion-row.removing {
+        opacity: 0;
+        transform: translateX(6px);
+      }
+      .slot-suggestion-label {
+        font-size: 11px;
+        color: var(--text-secondary);
+        flex-shrink: 0;
+        white-space: nowrap;
+      }
+      .slot-suggestion-action {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        flex-shrink: 0;
+      }
+      .slot-suggestion-action .token-suggest-label {
+        font-size: 10px;
+      }
       .offender-row-actions {
         flex-shrink: 0;
         display: flex;
@@ -4667,24 +4703,46 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
                     const validTokens = Array.isArray(o.suggestedTokens)
                       ? o.suggestedTokens.filter(t => t && typeof t === "object" && t.id && t.name && t.kind && t.slot)
                       : [];
-                    // Group by token id so the same token applied to multiple
-                    // slots (e.g. paddingLeft + paddingRight both → spacing-xl)
-                    // collapses into ONE button. data-token-slots carries the
-                    // comma-joined slot list; the click handler fans out one
-                    // apply-token RPC per slot.
-                    const tokenGroups = [];
-                    const tokenIndex = new Map();
-                    for (const t of validTokens) {
-                      const key = t.id;
-                      let g = tokenIndex.get(key);
-                      if (!g) {
-                        g = { kind: t.kind, id: t.id, name: t.name, value: t.value, slots: [] };
-                        tokenIndex.set(key, g);
-                        tokenGroups.push(g);
+                    // Padding and size with multiple entries get a per-slot
+                    // sub-list so each direction can be resolved independently.
+                    // Every other case collapses by token ID into combined buttons.
+                    const useSlotList = validTokens.length > 1 && (rule === "padding" || rule === "size");
+                    if (useSlotList) {
+                      const SLOT_LABELS = {
+                        paddingTop: "Top", paddingBottom: "Bottom",
+                        paddingLeft: "Left", paddingRight: "Right",
+                        width: "Width", height: "Height"
+                      };
+                      const rows = validTokens.map(t => {
+                        const label = (SLOT_LABELS[t.slot] || t.slot) + (t.value != null ? " · " + t.value + "px" : "");
+                        return `<div class="slot-suggestion-row" data-slot-key="${esc(t.slot)}">` +
+                          `<span class="slot-suggestion-label">${esc(label)}</span>` +
+                          `<div class="slot-suggestion-action">` +
+                            `<span class="token-suggest-label">Use</span>` +
+                            `<button class="apply-rename-btn" ` +
+                              `data-apply-token="${esc(o.nodeId)}" ` +
+                              `data-token-kind="${esc(t.kind)}" ` +
+                              `data-token-id="${esc(t.id)}" ` +
+                              `data-token-slots="${esc(t.slot)}" ` +
+                              `>${esc(t.name)}</button>` +
+                          `</div>` +
+                        `</div>`;
+                      }).join("");
+                      applyParts.push(`<div class="slot-suggestion-list">${rows}</div>`);
+                    } else if (validTokens.length > 0) {
+                      // Existing: group same token across multiple slots into one button.
+                      const tokenGroups = [];
+                      const tokenIndex = new Map();
+                      for (const t of validTokens) {
+                        const key = t.id;
+                        let g = tokenIndex.get(key);
+                        if (!g) {
+                          g = { kind: t.kind, id: t.id, name: t.name, value: t.value, slots: [] };
+                          tokenIndex.set(key, g);
+                          tokenGroups.push(g);
+                        }
+                        if (!g.slots.includes(t.slot)) g.slots.push(t.slot);
                       }
-                      if (!g.slots.includes(t.slot)) g.slots.push(t.slot);
-                    }
-                    if (tokenGroups.length > 0) {
                       const btns = tokenGroups.map(g =>
                         `<button class="apply-rename-btn" ` +
                           `data-apply-token="${esc(o.nodeId)}" ` +
@@ -5159,16 +5217,18 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
       // — removes the color offender from the report, bumps the frame score,
       // and re-renders. Native Figma undo handles rollback if the user regrets.
       function handleTokenApplied(nodeId, slot) {
-        // Remove the specific (nodeId, slot) offender from whichever rule
-        // owns it (colors / spacing / padding / size — all use the same
-        // suggestedTokens schema). A single nodeId can have offenders in
-        // multiple rules and even multiple slots within one rule (e.g.
-        // paddingTop + paddingLeft both unbound), so we filter precisely.
+        // Remove the specific slot from whichever offender owns it.
+        // For multi-slot rules (padding/size), only remove that one slot's
+        // suggestedTokens entry — the offender stays until ALL slots are
+        // resolved. For single-slot rules (colors/spacing), removing the
+        // only slot entry empties suggestedTokens and the offender is dismissed.
         if (!lastReport || !lastReport.frames) return;
         for (const frame of lastReport.frames) {
           if (!frame.breakdown) continue;
-          let removedFromRuleName = null;
-          let removedFromRule = null;
+          let foundRuleName = null;
+          let foundRule = null;
+          let foundOffender = null;
+          let offenderIdx = -1;
           let beforeCount = 0;
           for (const ruleName of Object.keys(frame.breakdown)) {
             const r = frame.breakdown[ruleName];
@@ -5179,31 +5239,56 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
               o.suggestedTokens.some(t => t.slot === slot)
             );
             if (idx === -1) continue;
+            foundRuleName = ruleName;
+            foundRule = r;
+            foundOffender = r.offenders[idx];
+            offenderIdx = idx;
             beforeCount = r.offenders.length;
-            r.offenders.splice(idx, 1);
-            removedFromRuleName = ruleName;
-            removedFromRule = r;
             break;
           }
-          if (!removedFromRule) continue;
-          const justEmptied = beforeCount > 0 && removedFromRule.offenders.length === 0;
-          if (justEmptied) removedFromRule.passed = true;
-          if (frame.issues) {
-            frame.issues = frame.issues.filter(i => !(i.nodeId === nodeId && i.rule === removedFromRuleName));
-          }
-          const rules = Object.values(frame.breakdown).filter(r => r.enabled !== false);
-          const ruleShare = rules.length ? 100 / rules.length : 0;
-          const current = frame.score || 0;
-          let next = current;
-          if (justEmptied) {
-            next = current + Math.round(ruleShare * 0.6);
+          if (!foundOffender) continue;
+          // Remove just the one slot entry from suggestedTokens.
+          foundOffender.suggestedTokens = foundOffender.suggestedTokens.filter(t => t.slot !== slot);
+          const offenderStillHasWork = (foundOffender.suggestedTokens && foundOffender.suggestedTokens.length > 0)
+            || (foundOffender.zeroActions && foundOffender.zeroActions.length > 0);
+          if (offenderStillHasWork) {
+            // Offender has remaining slots — patch only the slot sub-row.
+            patchSlotRowRemoved(nodeId, slot, foundRuleName, frame, foundRule);
           } else {
-            next = current + Math.max(1, Math.round(ruleShare / (beforeCount + 1)));
+            // All slots resolved → dismiss the whole offender now.
+            foundRule.offenders.splice(offenderIdx, 1);
+            const justEmptied = beforeCount > 0 && foundRule.offenders.length === 0;
+            if (justEmptied) foundRule.passed = true;
+            if (frame.issues) {
+              frame.issues = frame.issues.filter(i => !(i.nodeId === nodeId && i.rule === foundRuleName));
+            }
+            const rules = Object.values(frame.breakdown).filter(r => r.enabled !== false);
+            const ruleShare = rules.length ? 100 / rules.length : 0;
+            const current = frame.score || 0;
+            let next = current;
+            if (justEmptied) {
+              next = current + Math.round(ruleShare * 0.6);
+            } else {
+              next = current + Math.max(1, Math.round(ruleShare / (beforeCount + 1)));
+            }
+            frame.perfect = rules.every(r => r.passed);
+            if (frame.perfect) frame.score = 100;
+            else frame.score = Math.max(current, Math.min(100, next));
+            patchOffenderRemoved(nodeId, foundRuleName, frame, foundRule);
           }
-          frame.perfect = rules.every(r => r.passed);
-          if (frame.perfect) frame.score = 100;
-          else frame.score = Math.max(current, Math.min(100, next));
-          patchOffenderRemoved(nodeId, removedFromRuleName, frame, removedFromRule);
+        }
+      }
+
+      // Animate out a single slot-suggestion-row, leaving the parent offender intact.
+      function patchSlotRowRemoved(nodeId, slot, rule, frame, updatedRule) {
+        const frameEl = reportEl.querySelector('.frame-report[data-frame-node="' + CSS.escape(frame.nodeId) + '"]');
+        if (!frameEl) { renderReport(lastReport); return; }
+        const offenderRow = frameEl.querySelector('.offender-row[data-offender-node="' + CSS.escape(nodeId) + '"][data-offender-rule="' + CSS.escape(rule) + '"]');
+        if (!offenderRow) { renderReport(lastReport); return; }
+        const slotRow = offenderRow.querySelector('.slot-suggestion-row[data-slot-key="' + CSS.escape(slot) + '"]');
+        if (slotRow) {
+          slotRow.classList.add("removing");
+          setTimeout(function() { slotRow.remove(); }, 230);
         }
       }
 

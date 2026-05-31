@@ -1329,6 +1329,10 @@ async function handleRpc(method, params) {
         locked = true;
         lockedIds = ids;
         figma.ui.postMessage({ type: "locked", data: { nodeIds: ids, names } });
+        // Plugin-driven step advance — don't rely on the AI calling
+        // announce-progress (it sometimes skips steps and reads the thumbnail
+        // directly). begin_and_scan IS the scanning step.
+        figma.ui.postMessage({ type: "ai-step", step: "scanning" });
         // Auto-fire the scan-progress banner (bold title + fun-sentence ticker).
         // The ai-progress line is driven per-phase below (Extracting/Loading/
         // Linting/Rendering) instead of a single static "Analyzing." that would
@@ -1420,6 +1424,12 @@ async function handleRpc(method, params) {
       // boundTypography/sizeBound/radii/autolayout.bound — is dropped.
       // Cuts the AI-bound payload by ~50-70% on typical screens.
       const slimTree = slimTreeForAI(tree);
+      // Scan is done; the AI's next action is to read the thumbnail for vision
+      // rules. Advance the checklist to "visual review" now rather than waiting
+      // on an announce-progress call the AI often skips. (When the frame is
+      // saturated there's no thumbnail and vision is skipped, but the AI still
+      // moves to scoring next — marking visual review done either way is fine.)
+      if (!quiet) figma.ui.postMessage({ type: "ai-step", step: "visual-analysis" });
       return {
         locked: !quiet,
         fileName: figma.root.name,

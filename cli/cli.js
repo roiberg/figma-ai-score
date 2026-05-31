@@ -143,7 +143,7 @@ Usage:
 
 Subcommands (all return JSON on stdout):
   announce-review-start                   Tell the plugin a review is starting (call this FIRST).
-  announce-progress --step <key>          Post a progress update. Keys: starting, reading-preferences, analyzing, submitting.
+  announce-progress --step <key>          Post a progress update. Keys: starting, reading-preferences, scanning, visual-analysis, scoring, submitting.
   get-preferences                         Returns enabledRules + the full review instructions.
   get-selection                           Returns the live selection from the plugin.
   begin-and-scan --node-ids id1,id2,...   Lock + scan in one call.
@@ -184,7 +184,9 @@ or '--help' to succeed.
 async function buildParams(subcommand, flags) {
   switch (subcommand) {
     case "announce-progress": {
-      const VALID_STEPS = ["starting", "reading-preferences", "analyzing", "submitting"];
+      // Must match the plugin's announce_progress STEP_LABELS keys (code.js).
+      // "analyzing" is a backward-compat alias for "scanning".
+      const VALID_STEPS = ["starting", "reading-preferences", "scanning", "analyzing", "visual-analysis", "scoring", "submitting"];
       const step = typeof flags["step"] === "string" ? flags["step"].trim() : "";
       if (!step) {
         const err = new Error(`Missing --step for announce-progress. Valid values: ${VALID_STEPS.join(", ")}`);

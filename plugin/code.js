@@ -278,14 +278,13 @@ ${disabledNote}
 0. announce_review_start → use returned \`selection.frames\` (skip get_selection).
 1. get_preferences → read \`instructions\`. If \`designDoc.content\` non-null, use throughout.
 2. For each frame i of N (1-based):
-   a. announce_progress --step scanning        (required before every scan)
-   b. begin_and_scan --node-ids <id> --frame-index i --frame-count N
-   c. announce_progress --step visual-analysis (required after scan, before reading thumbnail)
-   d. Read thumbnailPath for vision rules.
-   e. announce_progress --step scoring         (required after vision, before writing report)
-   f. Apply enabled rules. Compute score.
-3. announce_progress --step submitting  (required before submit)
-4. Write report JSON to exactly /tmp/figma-ai-score-report.json (pre-approved path — don't pick another, it triggers an approval prompt) → submit_report --report-file /tmp/figma-ai-score-report.json
+   a. begin_and_scan --node-ids <id> --frame-index i --frame-count N
+   b. If \`lintResults.saturated\` is true: skip the thumbnail and all vision work (see Saturation mode). Otherwise Read \`thumbnailPath\` for the enabled vision rules.
+   c. announce_progress --step scoring   (the ONE progress call to make — right before computing scores)
+   d. Apply enabled rules. Compute score.
+3. Write report JSON to exactly /tmp/figma-ai-score-report.json (pre-approved path — don't pick another, it triggers an approval prompt) → submit_report --report-file /tmp/figma-ai-score-report.json
+
+The plugin posts its own progress for every other step (initialising, reading preferences, scanning, visual review, submitting) directly from the RPC handlers — do NOT call announce_progress for those. Extra CLI calls only add latency and reconnect surface. \`scoring\` is the only step the plugin can't detect, so it's the only one you announce.
 
 **Run each \`figma-ai-score\` command as its OWN standalone Bash call.** Do NOT chain with \`&&\`/\`||\`/\`;\`, do NOT pipe, do NOT use redirects (\`>\`, \`>>\`, heredocs). Write the report file with the Write tool, not \`cat >\`. Chained/piped/redirected commands can't be matched to the pre-approved allowlist, so they prompt for permission on every run (with no "always allow" option). One simple command per call stays pre-approved and silent.
 
@@ -309,7 +308,12 @@ If \`designSystem.numberVariables\` is still empty after the scan (the plugin al
 ## PRE-COMPUTED LINT RESULTS
 The scan response includes \`lintResults\` — deterministic offenders + token suggestions, computed server-side.
 
-**Accept as final (no re-analysis):** colors, typography, spacing, padding, size, effects, naming (Check 1 regex), components (Checks 1-3), autolayout (presence check). Copy these offenders into the report unchanged — including any \`suggestedTokens\`, \`zeroActions\`, or \`suggestedName\` fields. They're already correct. Do NOT re-walk the tree for these — wastes time, identical results.
+**Deterministic lint is the source of truth — never re-walk the tree to recompute it.** Copy every offender's \`suggestedTokens\`, \`zeroActions\`, and \`suggestedName\` fields verbatim. typography, spacing, padding, size, effects are fully final — copy as-is. The rest take ONLY the additive/enrichment exceptions below, never a recompute:
+- **naming**: keep Check 1 (regex) offenders; ADD Check 2 vision offenders; enrich \`suggestedName\` from the thumbnail (see naming section).
+- **components**: keep Checks 1-3; ADD Check 4; roll up Check 1 per the components section.
+- **colors**: keep offenders; pick among \`suggestedTokens\` candidates when the role is visually obvious.
+- **size**: keep offenders; apply the fill-parent filter.
+- **autolayout**: keep the presence check; ADD vision quality offenders.
 
 **Pre-computed \`informational\` arrays** (instance-only issues): each rule in lintResults may carry an \`informational\` array containing instance issues whose fix lives on the master component (the user can't fix them on the instance). Copy these to the rule's \`informational\` field in the report verbatim. They DO count toward the score — \`_offenderCount\` and \`_totalChecked\` already include them. Each instance counts independently (no master-level dedup). The UI renders them in a separate "Instances with issues" section with no fix actions, but they still affect the score because a screen built from broken components really is broken. Never move an entry between \`offenders\` and \`informational\`; the lint already classified them.
 

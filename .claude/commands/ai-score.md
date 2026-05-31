@@ -12,11 +12,16 @@ The CLI is `figma-ai-score` on PATH. All steps below are Bash invocations.
 1. **`figma-ai-score announce-review-start`** — FIRST, always. Returns instantly and flips the plugin UI to "Preparing…". The response includes `selection` (current frames) — use it instead of calling `get-selection` separately.
    - **If `selection.frames` is empty**: tell the user "No frame selected — please select a frame in Figma and try again." Do NOT proceed.
 2. **`figma-ai-score get-preferences`** — read `enabledRules` and the full `instructions` field. Follow the instructions exactly.
-3. For each frame (i of N): **`figma-ai-score announce-progress --step analyzing`** then **`figma-ai-score begin-and-scan --node-ids <id> --frame-index i --frame-count N`**. Returns scan tree, lintResults, nodeStats, and `thumbnailPath`.
-4. After analyzing all frames: **`figma-ai-score announce-progress --step submitting`**.
-5. Write the final report JSON to a temp file (use the `Write` tool), then **`figma-ai-score submit-report --report-file <path>`**.
+3. For each frame (i of N):
+   - **`figma-ai-score begin-and-scan --node-ids <id> --frame-index i --frame-count N`** — returns scan tree, lintResults, nodeStats, thumbnailPath.
+   - If `lintResults.saturated` is true: skip the thumbnail and all vision work. Otherwise Read `thumbnailPath` for the enabled vision rules.
+   - **`figma-ai-score announce-progress --step scoring`** — the ONE progress call to make, right before computing scores.
+   - Apply rules and compute score.
+4. Write the final report JSON to **exactly `/tmp/figma-ai-score-report.json`** (use the `Write` tool — this exact path is pre-approved in the permission allowlist, so do NOT pick a different path or you'll trigger an approval prompt), then **`figma-ai-score submit-report --report-file /tmp/figma-ai-score-report.json`**.
 
-`announce-progress` accepts a fixed `--step` key — valid values: `starting`, `reading-preferences`, `analyzing`, `submitting`. The plugin maps each key to its display text; arbitrary strings are rejected.
+The plugin posts its own progress for every other step (initialising, reading preferences, scanning, visual review, submitting) straight from the RPC handlers — do NOT call `announce-progress` for those. Extra CLI calls only add latency and reconnect surface. `scoring` is the only step the plugin can't detect, so it's the only one you announce. (`announce-progress` accepts `--step` values `starting`, `reading-preferences`, `scanning`, `visual-analysis`, `scoring`, `submitting`; arbitrary strings are rejected.)
+
+**Run each `figma-ai-score` subcommand as its own standalone Bash call.** Do NOT chain with `&&`/`||`/`;`, do NOT pipe, do NOT redirect (`>`, `>>`, heredocs) — write the report file with the Write tool, never `cat >`. Compound, piped, or redirected commands can't match the pre-approved `Bash(figma-ai-score:*)` / `Write(/tmp/figma-ai-score-*)` allowlist, so they prompt for permission every time (with no "always allow"). One simple command per call stays silent.
 
 If any subcommand returns `{ "cancelled": true }` in its JSON output, stop the review immediately and tell the user "Review cancelled."
 

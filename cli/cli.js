@@ -23,7 +23,7 @@ import { buildIntegrationDoc } from "./integrate.js";
 
 const WS_PORT = 3055;
 
-const VERSION = "0.6.6";
+const VERSION = "0.6.7";
 
 // CLI subcommand → plugin-side RPC method name. Plugin still uses underscored
 // names (announce_review_start, etc.) — we keep that wire format unchanged.
@@ -623,7 +623,7 @@ async function main() {
 }
 
 // Compare dotted numeric versions. Returns -1 if a<b, 1 if a>b, 0 if equal.
-// Non-numeric / missing segments treated as 0. Good enough for "0.6.6" forms.
+// Non-numeric / missing segments treated as 0. Good enough for "0.6.7" forms.
 function compareVersions(a, b) {
   const pa = String(a).split(".").map(n => parseInt(n, 10) || 0);
   const pb = String(b).split(".").map(n => parseInt(n, 10) || 0);

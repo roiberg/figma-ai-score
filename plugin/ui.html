@@ -4415,7 +4415,7 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
       function showPreparing(names) {
         _showReviewBannerShell();
         const title = (names && names.length)
-          ? `Reviewing ${names.join(", ")}`
+          ? `Reviewing ${names.map(n => `"${n}"`).join(", ")}`
           : "Preparing review…";
         setRealProgress(title, _lastSelectionEta);
       }
@@ -4426,7 +4426,7 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
           ? ` (${frameIndex} of ${frameCount})`
           : "";
         const title = frameName
-          ? `Reviewing ${frameName}${countStr}`
+          ? `Reviewing "${frameName}"${countStr}`
           : `Reviewing frame${countStr}`;
         setRealProgress(title); // leave ETA unchanged — eta-update will fill it in shortly
         // Arm the fun ticker for the analyzing stage
@@ -4437,7 +4437,7 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
       function showLocked(data) {
         _showReviewBannerShell();
         const title = data.names && data.names.length
-          ? `Reviewing ${data.names.join(", ")}`
+          ? `Reviewing ${data.names.map(n => `"${n}"`).join(", ")}`
           : "Reviewing…";
         setRealProgress(title, _lastSelectionEta);
       }

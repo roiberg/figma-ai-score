@@ -321,6 +321,8 @@ The scan response includes \`lintResults\` — deterministic offenders + token s
 
 **Critical — \`suggestedTokens\` format**: the field is an array of OBJECTS, not strings. Each entry has the shape \`{ id, name, kind, slot, value?, reason? }\`. NEVER replace these objects with bare strings (\`["spacing-xl"]\` is wrong — the UI renders \`.name\` and would show "undefined"). Copy the entries verbatim as you received them in \`lintResults\`.
 
+**Sanity-check token category against the rule before keeping a suggestion.** The lint matches by value; you provide the semantic judgment. A token's NAME reveals its intended purpose — drop or replace any suggestion whose purpose obviously mismatches the rule: an element-dimension token (\`icon/*\`, \`avatar/*\`, \`logo/*\`) for spacing/padding/gap; a \`radius/*\` token for a fill; a \`font-size/*\` token for padding. If a same-value token of the right category exists (e.g. \`size/300\` instead of \`icon/300\` for 24px padding), prefer it; if none exists, drop the suggestion rather than emit a semantically wrong one. (The lint already filters most of these, but you are the backstop.)
+
 **Augment with vision** (use the thumbnail):
 - naming: ADD semantic-accuracy + typo offenders (Check 2).
 - components: ADD Check 4 (semantic-name structures) + Vision check (discrete UI regions).
@@ -4443,15 +4445,28 @@ function filterDimensionTokensForRule(numberVariables, rule, overrides) {
     const override = overrides[k];
     collCategories.set(k, Array.isArray(override) ? override : autoDetectCollectionCategories(toks));
   }
+  // Per-token guard: a token whose NAME marks it as a specific component
+  // dimension (icon/avatar/logo size, etc.) is a sizing token for that element
+  // — never layout spacing or padding. Collections often mix these into one
+  // numeric scale, so the collection auto-detects as "spacing"+"size" and the
+  // collection-level filter alone would let icon/300 ride along as a padding
+  // suggestion. Exclude them from spacing & padding (but NOT from `size` — an
+  // icon's frame width legitimately uses icon/300).
+  const excludeComponentDims = (rule === "spacing" || rule === "padding");
   const out = [];
   for (const v of (numberVariables || [])) {
     const k = tokenCollectionKey(v.libraryName, v.collectionName);
     const cats = collCategories.get(k) || [];
     if (!cats.some(c => accepted.includes(c))) continue;
+    if (excludeComponentDims && COMPONENT_DIMENSION_RE.test(v.name || "")) continue;
     out.push(v);
   }
   return out;
 }
+// Token-name markers for element-specific dimensions (icon/avatar/logo size,
+// etc.). These are NOT layout spacing/padding values even when they share a
+// numeric scale collection with real spacing tokens.
+const COMPONENT_DIMENSION_RE = /\b(icon|avatar|logo|thumbnail|thumb|badge|chip|swatch)\b/i;
 
 // Find a numeric token (FLOAT variable) by value.
 // - exactly one exact match (Simple mode happy path) → returns that match

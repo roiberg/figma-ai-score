@@ -626,6 +626,9 @@ figma.ui.onmessage = async (msg) => {
       // Reliable resend (the eager post right after showUI can race the UI's
       // listener registration) so the header always reflects the running build.
       figma.ui.postMessage({ type: "code-version", version: CODE_VERSION });
+      // Tell the UI whether the design system is already cached, so it can show
+      // the one-time "first review is slow" notice ONLY before a cold fetch.
+      try { figma.ui.postMessage({ type: "ds-cached", cached: await isDesignSystemCached() }); } catch (e) {}
       await loadPrefs();
       try {
         const m = await figma.clientStorage.getAsync("figma-ai-score.mode");
@@ -4066,6 +4069,17 @@ async function _designSystemCacheKey() {
     const libs = await getSelectedTokenLibraries();
     return JSON.stringify(libs.slice().sort());
   } catch (e) { return ""; }
+}
+// Cheap check (no enumeration) — is the DS already warm for the current library
+// selection? Used to decide whether a cold-fetch freeze is imminent.
+async function isDesignSystemCached() {
+  try {
+    const key = await _designSystemCacheKey();
+    if (_dsCache && _dsCache.key === key) return true;
+    const persisted = await figma.clientStorage.getAsync(DS_CACHE_STORAGE_KEY);
+    return !!(persisted && persisted.key === key && persisted.value
+      && typeof persisted.ts === "number" && (Date.now() - persisted.ts) < DS_CACHE_TTL_MS);
+  } catch (e) { return false; }
 }
 async function getDesignSystem() {
   const key = await _designSystemCacheKey();

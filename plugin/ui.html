@@ -2359,6 +2359,22 @@
       </div>
     </div>
 
+    <div id="coldfetch-overlay" class="suggestion-overlay" style="display:none">
+      <div class="suggestion-card">
+        <div class="replaced-title">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.5"/><path d="M8 4.5V8l2.5 1.5"/></svg>
+          First review loads your design system
+        </div>
+        <p class="replaced-body">
+          The first review reads your whole token library. Figma may be unresponsive for up to a minute while it loads — this happens once, then reviews are fast.
+        </p>
+        <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:4px;">
+          <button id="coldfetch-cancel" class="export-btn">Cancel</button>
+          <button id="coldfetch-continue" class="replaced-btn" style="margin:0">Continue</button>
+        </div>
+      </div>
+    </div>
+
     <div id="inherited-overlay" class="suggestion-overlay" style="display:none">
       <div class="suggestion-card">
         <div class="suggestion-header">
@@ -3396,6 +3412,10 @@ ${INSTALL_PROMPT_TEXT}`;
       // Simple-review run button — fires the deterministic linter in the sandbox
       const runSimpleBtn = document.getElementById("run-simple-review");
       let _runSimpleOriginal = null;
+      // Whether the design system is already warm. Sandbox reports this on
+      // ui-ready; we flip it true once a report arrives (the fetch cached it).
+      // Drives the one-time cold-fetch acknowledgment modal.
+      let _dsCached = false;
       function resetSimpleRunBtn() {
         if (runSimpleBtn && _runSimpleOriginal != null) {
           runSimpleBtn.disabled = false;
@@ -3403,18 +3423,33 @@ ${INSTALL_PROMPT_TEXT}`;
           _runSimpleOriginal = null;
         }
       }
+      function startSimpleReview() {
+        if (_runSimpleOriginal == null) _runSimpleOriginal = runSimpleBtn.innerHTML;
+        runSimpleBtn.disabled = true;
+        runSimpleBtn.textContent = "Scanning…";
+        parent.postMessage({ pluginMessage: { type: "run-lint" } }, "*");
+        // Don't re-enable on a timer — the cold fetch can take a while; the
+        // button resets when the report arrives. 60s safety reset.
+        setTimeout(resetSimpleRunBtn, 60000);
+      }
+      // Cold-fetch acknowledgment modal (only when DS isn't cached yet).
+      const coldfetchOverlay = document.getElementById("coldfetch-overlay");
+      const coldfetchContinue = document.getElementById("coldfetch-continue");
+      const coldfetchCancel = document.getElementById("coldfetch-cancel");
+      if (coldfetchContinue) coldfetchContinue.addEventListener("click", () => {
+        coldfetchOverlay.style.display = "none";
+        startSimpleReview();
+      });
+      if (coldfetchCancel) coldfetchCancel.addEventListener("click", () => {
+        coldfetchOverlay.style.display = "none";
+      });
       if (runSimpleBtn) {
         runSimpleBtn.addEventListener("click", () => {
-          if (_runSimpleOriginal == null) _runSimpleOriginal = runSimpleBtn.innerHTML;
-          runSimpleBtn.disabled = true;
-          runSimpleBtn.textContent = "Scanning…";
-          parent.postMessage({ pluginMessage: { type: "run-lint" } }, "*");
-          // Do NOT re-enable on a timer: the first run fetches the design
-          // system (can take several seconds on a large library), which is far
-          // longer than the old 400ms assumption. The button resets when the
-          // report actually arrives (resetSimpleRunBtn, called from the report
-          // handler). A long safety timeout covers a dropped/failed response.
-          setTimeout(resetSimpleRunBtn, 60000);
+          if (!_dsCached && coldfetchOverlay) {
+            coldfetchOverlay.style.display = "flex";
+            return;
+          }
+          startSimpleReview();
         });
       }
 
@@ -4270,6 +4305,7 @@ ${INSTALL_PROMPT_TEXT}`;
           if (vEl && msg.version) vEl.textContent = "v" + msg.version;
           return;
         }
+        if (msg.type === "ds-cached") { _dsCached = !!msg.cached; return; }
         if (msg.type === "saved-mode") { applyMode(msg.mode, false); return; }
         if (msg.type === "prefs") renderPrefs(msg.data);
         else if (msg.type === "selection") {
@@ -4317,7 +4353,7 @@ ${INSTALL_PROMPT_TEXT}`;
         else if (msg.type === "analyzing-done") { _analyzingStage = false; _stopFunTicker(); clearReviewSteps(); }
         else if (msg.type === "locked") showLocked(msg.data);
         else if (msg.type === "unlocked") hideLocked();
-        else if (msg.type === "report") { resetSimpleRunBtn(); renderReport(msg.data); }
+        else if (msg.type === "report") { _dsCached = true; resetSimpleRunBtn(); renderReport(msg.data); }
         else if (msg.type === "create-component-result") {
           if (msg.ok) {
             handleCreateComponentDone(msg.nodeId);

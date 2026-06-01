@@ -6,7 +6,7 @@
 //   request:  { __rpc: true, id, method, params }
 //   response: { __rpc: true, id, result? , error? }
 
-const CODE_VERSION = "0.7.0-r3"; // bump on ANY plugin change (code.js or ui.html — they reload together); shown in header to confirm reload
+const CODE_VERSION = "0.7.0-r2"; // bump on ANY plugin change (code.js or ui.html — they reload together); shown in header to confirm reload
 console.log("[figma-ai-score] sandbox loaded v" + CODE_VERSION);
 figma.showUI(__html__, { width: 653, height: 739, themeColors: true });
 // Push the real running build version to the UI header so the label reflects
@@ -4102,19 +4102,9 @@ async function _getDesignSystemUncached() {
     return c;
   }
 
-  // ── Phase timing (diagnostic) ──
-  // Tells us where the cold-fetch time goes: a chunkable loop (fixable with
-  // finer yields → non-blocking) vs. a single opaque Figma API call (only
-  // fixable by caching). Logged to console + attached to the result as _phaseMs.
-  const _t0 = Date.now();
-  let _last = _t0;
-  const _phaseMs = {};
-  const _mark = (label) => { const now = Date.now(); _phaseMs[label] = now - _last; _last = now; };
-
   // User-toggleable: when "Local" is unchecked in Token libraries, skip the
   // entire local-variable + paint-style block. Team-library data still flows.
   const localEnabled = await getLocalVariablesEnabled();
-  _mark("localEnabledCheck");
 
   // Yield helper — gives the Figma event loop a breath every 20 iterations
   // so enumeration of large design systems doesn't freeze the editor.
@@ -4170,7 +4160,6 @@ async function _getDesignSystemUncached() {
   } catch (e) {
     console.warn("[figma-ai-score] variables enumeration failed:", e && e.message);
   }
-  _mark("colorVars");
 
   // ── Number (FLOAT) variables — used by padding/spacing/size rules ──
   if (localEnabled) try {
@@ -4211,7 +4200,6 @@ async function _getDesignSystemUncached() {
   } catch (e) {
     console.warn("[figma-ai-score] number-variable enumeration failed:", e && e.message);
   }
-  _mark("floatVars");
 
   // ── Paint styles (the older style system) ──
   if (localEnabled) try {
@@ -4234,7 +4222,6 @@ async function _getDesignSystemUncached() {
   } catch (e) {
     console.warn("[figma-ai-score] paint-style enumeration failed:", e && e.message);
   }
-  _mark("paintStyles");
 
   // ── Library variables (user-selected DS libraries) ──
   try {
@@ -4244,13 +4231,9 @@ async function _getDesignSystemUncached() {
   } catch (e) {
     console.warn("[figma-ai-score] library DS enumeration failed:", e && e.message);
   }
-  _mark("libraryImport");
-  _phaseMs.total = Date.now() - _t0;
-  _phaseMs.counts = { colorVars: variables.length, numberVars: numberVariables.length, paintStyles: paintStyles.length };
-  console.log("[figma-ai-score] DS fetch phase timing (ms):", JSON.stringify(_phaseMs));
 
   // categoryOverrides is layered on by the caching wrapper (getDesignSystem).
-  return { variables, numberVariables, paintStyles, _phaseMs };
+  return { variables, numberVariables, paintStyles };
 }
 
 // Find tokens (variable preferred over style when both match).

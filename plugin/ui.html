@@ -3105,9 +3105,9 @@ Run it directly: \`bash /tmp/figma-ai-score-dl/expanded/Scripts/postinstall\`. I
 Either way is legitimate; pick whichever the user prefers. Don't loop on permission requests inside the sandbox if the tool isn't granting them.
 
 **3. Verify.**
-Run \`~/.local/bin/figma-ai-score --version\` using the full path — should print \`0.6.4\`. That confirms the install itself succeeded, independent of PATH state.
+Run \`~/.local/bin/figma-ai-score --version\` using the full path — it should print a version number (the build just installed). That confirms the install itself succeeded, independent of PATH state.
 
-Then run \`which figma-ai-score\`. If it resolves, PATH is already wired up — verify is done.
+Then run \`which -a figma-ai-score\`. The FIRST path listed is the one that runs. If it is NOT \`~/.local/bin/figma-ai-score\` (e.g. an older copy in \`/usr/local/bin\`), that stale copy is shadowing the new install and its \`--version\` will report the OLD version even though the install succeeded — remove/update it or put \`~/.local/bin\` first on PATH. If it resolves to the \`~/.local/bin\` copy, PATH is wired up — verify is done.
 
 If \`which\` fails (common on fresh Macs without Homebrew — \`~/.local/bin\` isn't in zsh's default PATH), offer the user this one-liner to fix it. Ask before running it; it modifies their shell config:
 

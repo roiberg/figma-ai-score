@@ -6,7 +6,7 @@
 //   request:  { __rpc: true, id, method, params }
 //   response: { __rpc: true, id, result? , error? }
 
-const CODE_VERSION = "0.7.0-r2"; // bump on ANY plugin change (code.js or ui.html — they reload together); shown in header to confirm reload
+const CODE_VERSION = "0.7.0-r4"; // bump on ANY plugin change (code.js or ui.html — they reload together); shown in header to confirm reload
 console.log("[figma-ai-score] sandbox loaded v" + CODE_VERSION);
 figma.showUI(__html__, { width: 653, height: 739, themeColors: true });
 // Push the real running build version to the UI header so the label reflects
@@ -3907,7 +3907,7 @@ async function getLibraryDesignSystem(getColl) {
 
   let _libYieldN = 0;
   for (const entry of imported) {
-    if (++_libYieldN % 20 === 0) await new Promise(function(r) { setTimeout(r, 0); });
+    if (++_libYieldN % 10 === 0) await new Promise(function(r) { setTimeout(r, 0); });
     if (!entry) continue;
     const { meta: m, variable: v } = entry;
     const coll = await getColl(v.variableCollectionId);
@@ -4047,7 +4047,19 @@ async function getLibraryDesignSystem(getColl) {
 // invalidate the cache via _invalidateDesignSystemCache().
 let _dsCache = null;            // { value, key }
 let _dsCacheInFlight = null;    // promise — coalesces concurrent calls
-function _invalidateDesignSystemCache() { _dsCache = null; _dsCacheInFlight = null; }
+// Persistent cache (clientStorage): the expensive enumeration runs on the first
+// review of every SESSION. Persisting it means the cold fetch (and its freeze)
+// happens at most once per machine until the library selection changes or the
+// TTL lapses, instead of every time the plugin reloads. TTL is a staleness
+// backstop for local-variable edits (which don't change the cache key); a
+// library toggle or pref change clears it immediately via the invalidate path.
+const DS_CACHE_STORAGE_KEY = "figma-ai-score.ds-cache-v1";
+const DS_CACHE_TTL_MS = 30 * 60 * 1000; // 30 min
+function _invalidateDesignSystemCache() {
+  _dsCache = null;
+  _dsCacheInFlight = null;
+  try { figma.clientStorage.setAsync(DS_CACHE_STORAGE_KEY, null); } catch (e) {}
+}
 async function _designSystemCacheKey() {
   // Cache key is the selected-libraries list. If the user toggles a library
   // checkbox, the key changes and we re-extract. Local variables are not
@@ -4067,13 +4079,24 @@ async function getDesignSystem() {
   } else if (_dsCacheInFlight) {
     cachedValue = await _dsCacheInFlight;
   } else {
-    _dsCacheInFlight = (async () => {
-      const value = await _getDesignSystemUncached();
-      _dsCache = { value, key };
-      _dsCacheInFlight = null;
-      return value;
-    })();
-    cachedValue = await _dsCacheInFlight;
+    // Persistent-cache hit: same library selection, still fresh → reuse it and
+    // skip the expensive (freezing) enumeration entirely.
+    let persisted = null;
+    try { persisted = await figma.clientStorage.getAsync(DS_CACHE_STORAGE_KEY); } catch (e) {}
+    if (persisted && persisted.key === key && persisted.value
+        && typeof persisted.ts === "number" && (Date.now() - persisted.ts) < DS_CACHE_TTL_MS) {
+      _dsCache = { value: persisted.value, key };
+      cachedValue = persisted.value;
+    } else {
+      _dsCacheInFlight = (async () => {
+        const value = await _getDesignSystemUncached();
+        _dsCache = { value, key };
+        _dsCacheInFlight = null;
+        try { await figma.clientStorage.setAsync(DS_CACHE_STORAGE_KEY, { key, value, ts: Date.now() }); } catch (e) {}
+        return value;
+      })();
+      cachedValue = await _dsCacheInFlight;
+    }
   }
   // Category overrides change cheaply (one clientStorage read) and the user
   // can toggle them without re-extracting variables. Always fetch fresh.
@@ -4102,16 +4125,27 @@ async function _getDesignSystemUncached() {
     return c;
   }
 
+  // ── Phase timing (console only) ──
+  // Logs where the cold-fetch time goes so we can tell a chunkable loop (fix
+  // with yields → non-blocking) from a single opaque Figma API call (fix only
+  // by caching). One line in the Figma plugin console; nothing on the payload.
+  const _t0 = Date.now();
+  let _last = _t0;
+  const _ph = {};
+  const _mark = (label) => { const now = Date.now(); _ph[label] = now - _last; _last = now; };
+
   // User-toggleable: when "Local" is unchecked in Token libraries, skip the
   // entire local-variable + paint-style block. Team-library data still flows.
   const localEnabled = await getLocalVariablesEnabled();
+  _mark("localEnabled");
 
-  // Yield helper — gives the Figma event loop a breath every 20 iterations
-  // so enumeration of large design systems doesn't freeze the editor.
+  // Yield helper — gives the Figma event loop a breath every 10 iterations
+  // so enumeration of large design systems doesn't freeze the editor. Finer
+  // (every 10) than before to keep the editor responsive on heavy files.
   let _yieldN = 0;
   async function _yield() {
     _yieldN++;
-    if (_yieldN % 20 === 0) await new Promise(function(r) { setTimeout(r, 0); });
+    if (_yieldN % 10 === 0) await new Promise(function(r) { setTimeout(r, 0); });
   }
 
   // ── Color variables ──
@@ -4160,6 +4194,7 @@ async function _getDesignSystemUncached() {
   } catch (e) {
     console.warn("[figma-ai-score] variables enumeration failed:", e && e.message);
   }
+  _mark("colorVars");
 
   // ── Number (FLOAT) variables — used by padding/spacing/size rules ──
   if (localEnabled) try {
@@ -4200,6 +4235,7 @@ async function _getDesignSystemUncached() {
   } catch (e) {
     console.warn("[figma-ai-score] number-variable enumeration failed:", e && e.message);
   }
+  _mark("floatVars");
 
   // ── Paint styles (the older style system) ──
   if (localEnabled) try {
@@ -4222,6 +4258,7 @@ async function _getDesignSystemUncached() {
   } catch (e) {
     console.warn("[figma-ai-score] paint-style enumeration failed:", e && e.message);
   }
+  _mark("paintStyles");
 
   // ── Library variables (user-selected DS libraries) ──
   try {
@@ -4231,6 +4268,14 @@ async function _getDesignSystemUncached() {
   } catch (e) {
     console.warn("[figma-ai-score] library DS enumeration failed:", e && e.message);
   }
+  _mark("libraryImport");
+  console.log("[figma-ai-score] DS phases (ms):",
+    "localEnabled=" + _ph.localEnabled,
+    "colorVars=" + _ph.colorVars + "(" + variables.length + ")",
+    "floatVars=" + _ph.floatVars + "(" + numberVariables.length + ")",
+    "paintStyles=" + _ph.paintStyles + "(" + paintStyles.length + ")",
+    "libraryImport=" + _ph.libraryImport,
+    "total=" + (Date.now() - _t0));
 
   // categoryOverrides is layered on by the caching wrapper (getDesignSystem).
   return { variables, numberVariables, paintStyles };

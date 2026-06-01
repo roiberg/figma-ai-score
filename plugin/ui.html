@@ -3395,17 +3395,26 @@ ${INSTALL_PROMPT_TEXT}`;
 
       // Simple-review run button — fires the deterministic linter in the sandbox
       const runSimpleBtn = document.getElementById("run-simple-review");
+      let _runSimpleOriginal = null;
+      function resetSimpleRunBtn() {
+        if (runSimpleBtn && _runSimpleOriginal != null) {
+          runSimpleBtn.disabled = false;
+          runSimpleBtn.innerHTML = _runSimpleOriginal;
+          _runSimpleOriginal = null;
+        }
+      }
       if (runSimpleBtn) {
         runSimpleBtn.addEventListener("click", () => {
-          const original = runSimpleBtn.innerHTML;
+          if (_runSimpleOriginal == null) _runSimpleOriginal = runSimpleBtn.innerHTML;
           runSimpleBtn.disabled = true;
-          runSimpleBtn.textContent = "Running…";
+          runSimpleBtn.textContent = "Scanning…";
           parent.postMessage({ pluginMessage: { type: "run-lint" } }, "*");
-          // Re-enable shortly after — the lint is synchronous and fast
-          setTimeout(() => {
-            runSimpleBtn.disabled = false;
-            runSimpleBtn.innerHTML = original;
-          }, 400);
+          // Do NOT re-enable on a timer: the first run fetches the design
+          // system (can take several seconds on a large library), which is far
+          // longer than the old 400ms assumption. The button resets when the
+          // report actually arrives (resetSimpleRunBtn, called from the report
+          // handler). A long safety timeout covers a dropped/failed response.
+          setTimeout(resetSimpleRunBtn, 60000);
         });
       }
 
@@ -4308,7 +4317,7 @@ ${INSTALL_PROMPT_TEXT}`;
         else if (msg.type === "analyzing-done") { _analyzingStage = false; _stopFunTicker(); clearReviewSteps(); }
         else if (msg.type === "locked") showLocked(msg.data);
         else if (msg.type === "unlocked") hideLocked();
-        else if (msg.type === "report") renderReport(msg.data);
+        else if (msg.type === "report") { resetSimpleRunBtn(); renderReport(msg.data); }
         else if (msg.type === "create-component-result") {
           if (msg.ok) {
             handleCreateComponentDone(msg.nodeId);

@@ -6,7 +6,7 @@
 //   request:  { __rpc: true, id, method, params }
 //   response: { __rpc: true, id, result? , error? }
 
-const CODE_VERSION = "0.7.0-r1"; // bump whenever code.js changes; check in browser console to confirm reload
+const CODE_VERSION = "0.7.0-r2"; // bump on ANY plugin change (code.js or ui.html — they reload together); shown in header to confirm reload
 console.log("[figma-ai-score] sandbox loaded v" + CODE_VERSION);
 figma.showUI(__html__, { width: 653, height: 739, themeColors: true });
 // Push the real running build version to the UI header so the label reflects

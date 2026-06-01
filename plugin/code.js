@@ -6,7 +6,7 @@
 //   request:  { __rpc: true, id, method, params }
 //   response: { __rpc: true, id, result? , error? }
 
-const CODE_VERSION = "0.7.0"; // bump whenever code.js changes; check in browser console to confirm reload
+const CODE_VERSION = "0.7.0-r1"; // bump whenever code.js changes; check in browser console to confirm reload
 console.log("[figma-ai-score] sandbox loaded v" + CODE_VERSION);
 figma.showUI(__html__, { width: 653, height: 739, themeColors: true });
 // Push the real running build version to the UI header so the label reflects
@@ -1498,6 +1498,9 @@ async function handleRpc(method, params) {
       figma.ui.postMessage({ type: "ai-progress", message: "Submitting report…" });
       figma.ui.postMessage({ type: "ai-step", step: "submitting" });
       figma.ui.postMessage({ type: "analyzing-done" });
+      // Stamp the review mode — submit_report is always the smart/AI path.
+      // (Simple-mode reports are built locally and already carry mode:"simple".)
+      if (rpt && typeof rpt === "object" && !rpt.mode) rpt.mode = "ai";
       figma.ui.postMessage({ type: "report", data: rpt });
       locked = false;
       lockedIds = [];

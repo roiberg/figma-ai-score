@@ -111,6 +111,23 @@
         letter-spacing: 0.02em;
         user-select: none;
       }
+      .report-mode-badge {
+        font-size: 9px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        padding: 2px 6px;
+        border-radius: 4px;
+        user-select: none;
+      }
+      .report-mode-badge.mode-ai {
+        background: rgba(124, 58, 237, 0.12);
+        color: #7c3aed;
+      }
+      .report-mode-badge.mode-simple {
+        background: var(--bg-secondary);
+        color: var(--text-secondary);
+      }
       button.header-icon-btn {
         width: 24px;
         height: 24px;
@@ -2597,7 +2614,10 @@
       <div class="col col-right scroll-area">
         <div class="panel">
           <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 8px;">
-            <div class="section-title" style="margin:0">Report</div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <div class="section-title" style="margin:0">Report</div>
+              <span id="report-mode-badge" class="report-mode-badge" style="display:none"></span>
+            </div>
             <div style="display:flex; gap:6px; align-items:center;">
               <button id="clear" class="export-btn" disabled>Clear</button>
               <button id="export" class="export-btn" disabled>
@@ -4628,10 +4648,28 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         return "bad";
       }
 
+      // Show/hide the "Simple"/"Smart" badge next to the Report title.
+      function setReportModeBadge(mode) {
+        const badge = document.getElementById("report-mode-badge");
+        if (!badge) return;
+        if (mode === "ai" || mode === "smart") {
+          badge.textContent = "Smart";
+          badge.className = "report-mode-badge mode-ai";
+          badge.style.display = "";
+        } else if (mode === "simple") {
+          badge.textContent = "Simple";
+          badge.className = "report-mode-badge mode-simple";
+          badge.style.display = "";
+        } else {
+          badge.style.display = "none";
+        }
+      }
+
       clearBtn.addEventListener("click", () => {
         lastReport = null;
         exportBtn.disabled = true;
         clearBtn.disabled = true;
+        setReportModeBadge(null);
         reportEl.innerHTML = '<div class="empty-state">No report yet</div>';
       });
 
@@ -4639,6 +4677,7 @@ document.querySelectorAll('input[type=checkbox][data-rule]').forEach(input => {
         lastReport = report;
         exportBtn.disabled = !report;
         clearBtn.disabled = !report;
+        setReportModeBadge(report && report.frames && report.frames.length ? report.mode : null);
         hideLocked();
         // Detach the accept-all button BEFORE resetting innerHTML so it isn't
         // destroyed (it's a real DOM node with a live event listener).

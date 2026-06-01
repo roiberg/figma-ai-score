@@ -6,7 +6,7 @@
 //   request:  { __rpc: true, id, method, params }
 //   response: { __rpc: true, id, result? , error? }
 
-const CODE_VERSION = "0.7.0-r4"; // bump on ANY plugin change (code.js or ui.html — they reload together); shown in header to confirm reload
+const CODE_VERSION = "0.7.0-r5"; // bump on ANY plugin change (code.js or ui.html — they reload together); shown in header to confirm reload
 console.log("[figma-ai-score] sandbox loaded v" + CODE_VERSION);
 figma.showUI(__html__, { width: 653, height: 739, themeColors: true });
 // Push the real running build version to the UI header so the label reflects
@@ -585,6 +585,22 @@ figma.on("currentpagechange", pushSelection);
 
 // ------- UI messages (control + RPC) -------
 
+// Resolve a node id to a node, safely. Prefers getNodeByIdAsync (works across
+// pages, incl. dynamic-page documents). The sync getNodeById fallback is
+// wrapped because in a dynamic-page document it THROWS rather than returning
+// null. Returns null when the node genuinely doesn't exist.
+async function resolveNodeById(nodeId) {
+  if (!nodeId) return null;
+  let node = null;
+  if (typeof figma.getNodeByIdAsync === "function") {
+    try { node = await figma.getNodeByIdAsync(nodeId); } catch (e) {}
+  }
+  if (!node) {
+    try { node = figma.getNodeById(nodeId); } catch (e) {}
+  }
+  return node || null;
+}
+
 figma.ui.onmessage = async (msg) => {
   if (!msg) return;
 
@@ -863,14 +879,10 @@ figma.ui.onmessage = async (msg) => {
     }
     if (msg.type === "rename-node") {
       try {
-        let node = null;
-        if (typeof figma.getNodeByIdAsync === "function") {
-          node = await figma.getNodeByIdAsync(msg.nodeId);
-        }
-        if (!node) node = figma.getNodeById(msg.nodeId);
+        const node = await resolveNodeById(msg.nodeId);
         // Throw on bad inputs so the UI's "Renaming…" button doesn't get
         // stuck waiting for a rename-done that will never come.
-        if (!node) throw new Error("node not found");
+        if (!node) throw new Error("That layer no longer exists in this file. Re-run the review and try again.");
         if (typeof msg.newName !== "string" || !msg.newName.trim()) {
           throw new Error("newName missing or empty");
         }
@@ -887,12 +899,8 @@ figma.ui.onmessage = async (msg) => {
       // NOT setting `node.name`. The rawKey carries the hash suffix Figma
       // uses internally (e.g. "Property 1#5678:0").
       try {
-        let node = null;
-        if (typeof figma.getNodeByIdAsync === "function") {
-          try { node = await figma.getNodeByIdAsync(msg.nodeId); } catch (e) {}
-        }
-        if (!node) node = figma.getNodeById(msg.nodeId);
-        if (!node) throw new Error("node not found");
+        const node = await resolveNodeById(msg.nodeId);
+        if (!node) throw new Error("That layer no longer exists in this file. Re-run the review and try again.");
         if (typeof node.editComponentProperty !== "function") {
           throw new Error("node does not support editComponentProperty");
         }
@@ -926,12 +934,8 @@ figma.ui.onmessage = async (msg) => {
       //     node property directly via setBoundVariable.
       try {
         const { nodeId, slot, kind, tokenId } = msg;
-        let node = null;
-        if (typeof figma.getNodeByIdAsync === "function") {
-          try { node = await figma.getNodeByIdAsync(nodeId); } catch (e) {}
-        }
-        if (!node) node = figma.getNodeById(nodeId);
-        if (!node) throw new Error("node not found");
+        const node = await resolveNodeById(nodeId);
+        if (!node) throw new Error("That layer no longer exists in this file (it may have been deleted, or the report is from an earlier scan). Re-run the review and try again.");
 
         const PAINT_SLOTS = new Set(["fill", "stroke"]);
         const NODE_PROP_SLOTS = new Set([
@@ -986,12 +990,8 @@ figma.ui.onmessage = async (msg) => {
     if (msg.type === "apply-autolayout") {
       try {
         const { nodeId, suggestion: s } = msg;
-        let node = null;
-        if (typeof figma.getNodeByIdAsync === "function") {
-          try { node = await figma.getNodeByIdAsync(nodeId); } catch (e) {}
-        }
-        if (!node) node = figma.getNodeById(nodeId);
-        if (!node) throw new Error("node not found");
+        const node = await resolveNodeById(nodeId);
+        if (!node) throw new Error("That layer no longer exists in this file. Re-run the review and try again.");
         const AL_TYPES = new Set(["FRAME", "COMPONENT", "INSTANCE"]);
         if (!AL_TYPES.has(node.type)) throw new Error("node type cannot have auto layout: " + node.type);
 
@@ -1055,12 +1055,8 @@ figma.ui.onmessage = async (msg) => {
       try {
         const { nodeId, props } = msg;
         if (!Array.isArray(props) || !props.length) return;
-        let node = null;
-        if (typeof figma.getNodeByIdAsync === "function") {
-          try { node = await figma.getNodeByIdAsync(nodeId); } catch (e) {}
-        }
-        if (!node) node = figma.getNodeById(nodeId);
-        if (!node) throw new Error("node not found");
+        const node = await resolveNodeById(nodeId);
+        if (!node) throw new Error("That layer no longer exists in this file. Re-run the review and try again.");
         const ALLOWED = new Set([
           "paddingTop", "paddingRight", "paddingBottom", "paddingLeft",
           "itemSpacing",
@@ -1099,10 +1095,10 @@ figma.ui.onmessage = async (msg) => {
     }
     if (msg.type === "create-component") {
       try {
-        const offenderNode = figma.getNodeById(msg.nodeId);
-        const frameNode    = figma.getNodeById(msg.frameNodeId);
+        const offenderNode = await resolveNodeById(msg.nodeId);
+        const frameNode    = await resolveNodeById(msg.frameNodeId);
         if (!offenderNode || !frameNode) {
-          figma.ui.postMessage({ type: "create-component-result", ok: false, nodeId: msg.nodeId, error: "Node not found" });
+          figma.ui.postMessage({ type: "create-component-result", ok: false, nodeId: msg.nodeId, error: "That layer no longer exists in this file. Re-run the review and try again." });
           return;
         }
         const variants     = findVariantCandidates(offenderNode);

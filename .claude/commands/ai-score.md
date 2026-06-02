@@ -14,7 +14,7 @@ The CLI is `figma-ai-score` on PATH. All steps below are Bash invocations.
 2. **`figma-ai-score get-preferences`** — read `enabledRules` and the full `instructions` field. Follow the instructions exactly.
 3. For each frame (i of N):
    - **`figma-ai-score begin-and-scan --node-ids <id> --frame-index i --frame-count N`** — returns scan tree, lintResults, nodeStats, thumbnailPath.
-   - If `lintResults.saturated` is true: skip the thumbnail and all vision work. Otherwise Read `thumbnailPath` for the enabled vision rules.
+   - Read `thumbnailPath` for the enabled vision rules. If `lintResults.saturated` is true, use the thumbnail only to enrich the offenders already shown (e.g. add `suggestedName` to capped naming offenders) — don't hunt for new ones.
    - **`figma-ai-score announce-progress --step scoring`** — the ONE progress call to make, right before computing scores.
    - Apply rules and compute score.
 4. Write the final report JSON to **exactly `/tmp/figma-ai-score-report.json`** (use the `Write` tool — this exact path is pre-approved in the permission allowlist, so do NOT pick a different path or you'll trigger an approval prompt), then **`figma-ai-score submit-report --report-file /tmp/figma-ai-score-report.json`**.

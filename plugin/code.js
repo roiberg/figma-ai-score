@@ -6,7 +6,7 @@
 //   request:  { __rpc: true, id, method, params }
 //   response: { __rpc: true, id, result? , error? }
 
-const CODE_VERSION = "0.7.0-r5"; // bump on ANY plugin change (code.js or ui.html — they reload together); shown in header to confirm reload
+const CODE_VERSION = "0.7.0-r6"; // bump on ANY plugin change (code.js or ui.html — they reload together); shown in header to confirm reload
 console.log("[figma-ai-score] sandbox loaded v" + CODE_VERSION);
 figma.showUI(__html__, { width: 653, height: 739, themeColors: true });
 // Push the real running build version to the UI header so the label reflects
@@ -284,7 +284,7 @@ ${disabledNote}
 1. get_preferences → read \`instructions\`. If \`designDoc.content\` non-null, use throughout.
 2. For each frame i of N (1-based):
    a. begin_and_scan --node-ids <id> --frame-index i --frame-count N
-   b. If \`lintResults.saturated\` is true: skip the thumbnail and all vision work (see Saturation mode). Otherwise Read \`thumbnailPath\` for the enabled vision rules.
+   b. Read \`thumbnailPath\` for the enabled vision rules. If \`lintResults.saturated\` is true, use the thumbnail ONLY to enrich the shown offenders (e.g. add \`suggestedName\` to capped naming offenders) — do not hunt for new offenders (see Saturation mode).
    c. announce_progress --step scoring   (the ONE progress call to make — right before computing scores)
    d. Apply enabled rules. Compute score.
 3. Write report JSON to exactly /tmp/figma-ai-score-report.json (pre-approved path — don't pick another, it triggers an approval prompt) → submit_report --report-file /tmp/figma-ai-score-report.json
@@ -336,9 +336,10 @@ The scan response includes \`lintResults\` — deterministic offenders + token s
 - components: ADD Check 4 (semantic-name structures) + Vision check (discrete UI regions).
 - autolayout: ADD quality offenders (pathological structure, wrong direction).
 
-**Saturation mode — read this first.** If \`lintResults.saturated\` is \`true\`, the frame has more than 50 pre-computed offenders. The lint has already capped each rule to its top 7 actionable issues; the rest are elided. In this mode:
-- **Skip ALL vision augmentation** — no Check 2 naming, no Check 4 components, no autolayout quality vision, no suggestedName enrichment. The capped offenders are enough; finding 5 more issues won't change the verdict. Pass pre-computed suggestedName values through unchanged.
-- Copy the capped offenders into the report unchanged.
+**Saturation mode — read this first.** If \`lintResults.saturated\` is \`true\`, the frame has more than 50 pre-computed offenders. The lint has already capped each rule to its top 7 actionable issues; the rest are elided. In this mode, distinguish DISCOVERY from ENRICHMENT:
+- **Skip vision DISCOVERY** — do NOT use the thumbnail to find NEW offenders the lint didn't pre-compute: no Check 2 new naming offenders, no Check 4 new components, no new autolayout quality offenders. The frame already has plenty; finding 5 more won't change the verdict.
+- **STILL DO vision ENRICHMENT of the offenders you ARE showing.** Open the thumbnail and add a semantic \`suggestedName\` to every capped naming offender that lacks one (a dot between metadata → "Separator", an unnamed image → "Thumbnail", etc.). This is bounded (only the ~7 shown per rule) and it's what makes them actionable — without \`suggestedName\` the UI shows no Rename button, so the offender is dead weight. Enrichment is NOT discovery: you're naming things already flagged, not hunting for new ones.
+- Copy the capped offenders into the report, enriched.
 - The UI shows a banner with the original counts (\`originalOffenderCounts\`) automatically; you do NOT need to enumerate elided offenders in your prose.
 - Keep your message short: name the worst 2-3 rules by count, recommend fixing the highlighted issues, and note that re-running after fixes will surface the next batch.
 
@@ -1412,24 +1413,20 @@ async function handleRpc(method, params) {
       const _t0Lint = Date.now();
       try { lintResults = lintFrame(tree, prefs, designSystem, { keepInternalFields: true, mode: "ai" }); } catch (e) {}
       _markPhase("lint", _t0Lint);
-      // Skip thumbnail export for saturated frames — vision augmentation is
-      // skipped for those anyway, so the image would never be used.
-      // For non-saturated frames, use a dynamic scale constraint: cap width at
-      // 320px but never upscale (small components export at their native size).
+      // Always export the thumbnail — saturated frames still need it for vision
+      // ENRICHMENT (adding suggestedName to the capped naming offenders so they
+      // get Rename buttons). Dynamic scale: cap width at 320px, never upscale.
+      // The export is budgeted against the 55s bridge ceiling, so a slow render
+      // degrades to a null thumbnail (thumbError) instead of timing out the scan.
       let thumbnail = null;
       let thumbError = null;
       const _t0Thumb = Date.now();
-      if (!(lintResults && lintResults.saturated)) {
-        _progress("Rendering preview…");
-        // Budget the export against the remaining call ceiling (55s bridge cap)
-        // so a slow export degrades to a null thumbnail (thumbError="export
-        // timed out") instead of timing out the whole scan. Leave ~5s margin for
-        // node stats + tree slimming + send. Floor at 1s so we always try.
-        const _exportBudget = Math.max(1000, Math.min(10000, 50000 - (Date.now() - _scanStartedAt)));
-        const _res = await exportThumbnail(node, 320, _exportBudget);
-        thumbnail = _res.thumbnail;
-        thumbError = _res.error;
-      }
+      _progress("Rendering preview…");
+      // Leave ~5s margin for node stats + tree slimming + send. Floor at 1s.
+      const _exportBudget = Math.max(1000, Math.min(10000, 50000 - (Date.now() - _scanStartedAt)));
+      const _res = await exportThumbnail(node, 320, _exportBudget);
+      thumbnail = _res.thumbnail;
+      thumbError = _res.error;
       _markPhase("thumbnail", _t0Thumb);
       const nodeStats = computeNodeStats(tree);
       if (!quiet) {
